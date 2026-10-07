@@ -53,7 +53,8 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 
 - **Pull request content is untrusted.** The model may only read. Tools must never write, run code, reach the network or read outside the checkout. A symlink that leaves the checkout must not be followed, because the container's environment holds the API key.
 - **Project rules come from the base revision,** so a change cannot rewrite the rules it is reviewed against.
-- **A run that produced no review fails.** It must not write an empty findings list, because that would claim the change is clean. A run where at least one seat finished writes what it has.
+- **One failure does not sink a review.** A seat that fails is dropped and the others carry on. A slow model call is cut off and retried, and time is kept back at the end so the model can always hand in what it has.
+- **A run that produced no review fails on the first attempt,** so the benchmark retries it. It must not quietly write an empty findings list, because that would claim the change is clean. Only a repeat attempt that also produces nothing writes an empty list, because one pull request that never succeeds fails the whole benchmark run.
 - **The run respects its time budget.** The model is told to submit before the deadline, and a failed verification pass keeps the unverified findings.
 - **Findings cite real lines.** Every path and line range is checked against the file at head before it is written.
 

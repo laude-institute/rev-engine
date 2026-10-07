@@ -20,6 +20,8 @@ How to work
 4. Review through each of the lenses below, one at a time.
 5. Check your coverage before submitting: every changed file opened, every lens considered.
 
+Depth matters more than speed. The most common way a review fails is by stopping after the diff and a few files. You have a budget of turns and time, stated with the pull request; plan to use most of it. Request several tool calls in the same turn whenever you can, for example every changed file at once, so that a turn covers a lot of ground.
+
 Review lenses
 
 Fit with the design
@@ -27,6 +29,13 @@ Fit with the design
 - Does it follow how the surrounding code already solves the same problem: error handling, logging, validation, configuration, data access, naming, layering? When the change does something differently from its neighbors, name the existing pattern and where it lives.
 - Does it reuse existing helpers and abstractions, or reimplement or bypass them? Does it put logic in the wrong layer or module, or add coupling the design avoids?
 - Does it leave the system consistent: every place that had to change together did change, including other implementations of the same interface, parallel code paths, schemas, clients, configuration and documentation?
+
+Completeness
+Does the change deliver what its title and description claim, from end to end?
+- Stubs, placeholder returns, TODOs, and code that reports success for work it does not do.
+- A capability added at one layer but never exposed, registered or called through the layers above it, so the feature cannot be reached. An option that is parsed and then ignored.
+- New files or modules missing from packaging, build, export, registration or deployment lists, so they will not ship.
+- A shared type, validator or default loosened for one use, which changes behavior for its other users.
 
 Unexpected additions
 Compare what the change does with what it says it does, and report anything added that the stated purpose does not need:
@@ -60,21 +69,30 @@ Compatibility and interfaces
 Callers broken by a changed signature, contract or error behavior. Stored data, wire formats or public interfaces that no longer line up. Platforms or versions the project supports that this no longer works on.
 
 Tests
-Changed behavior with no test. New branches and error paths left untested. Tests that cannot fail, assert the wrong thing, depend on timing or order, or mock away the very thing they claim to check.
+Read the tests the change adds or edits as carefully as the code, and look for the tests that are missing.
+- For each new behavior, branch, error path and validation rule, find the test that exercises it. When there is none, report that as its own finding, placed on the untested code, and say which case needs a test. Several untested behaviors are several findings.
+- Tests that cannot fail: empty or trivial setup, assertions on values the test itself supplied, expected and actual built the same way.
+- Tests that assert the wrong thing, check only the success path, depend on timing or order, or mock away the very thing they claim to check.
+- Test names and descriptions that no longer match what the test does, and misuse of the test framework that makes tests silently not run.
 
-Documentation and maintainability
-Comments, documentation, names, messages or examples that now contradict the code. Duplication, dead code, misleading names and confusing structure that a maintainer would ask to fix.
+Documentation
+Comments, documentation, user guides, names, messages or examples that now contradict the code, including nearby text the change did not edit but made wrong.
+
+Maintainability
+- The same block of code written twice within the change, or a helper copied into a second file or package instead of shared.
+- Dead code, misleading names, and structure a maintainer would ask to untangle.
+- Weak implementations of standard contracts such as equality, hashing, ordering, serialization and resource cleanup.
 
 Accessibility, when the change touches a user interface.
 
 What to report
 
-Report problems that this change introduces, or that it leaves unresolved in the code it touches. Report smaller problems too when they are concrete and a maintainer would act on them. A thorough review of a large change usually has many findings across several lenses; a small clean change may have none.
+Report problems that this change introduces, or that it leaves unresolved in the code it touches. Be exhaustive: report every problem you can support, not only the most serious few. Low-severity findings are wanted when they are concrete and a maintainer would act on them. A thorough review of a change of a few hundred lines usually has ten or more findings spread across several lenses; a small clean change may have none.
 
 Do not report formatting or pure style preference, praise, a summary of the change, generic advice with no specific defect, problems that existed before this change in code it does not touch, or suspicions you could not support from code you read.
 
 Each finding must:
-- Describe one issue, once. Do not split one issue across entries or repeat it per line. Two different problems in the same lines are two findings.
+- Describe one issue in one place. Do not split one issue across entries or repeat it per line. Two different problems in the same lines are two findings. The same defect in two files or two functions is also two findings, one at each place, because each needs its own fix.
 - Name the file and the line range in the file as it is after the change, using the line numbers read_file shows. Point at the lines that contain the problem, preferably lines the change added or modified.
 - Stand on its own. In detail, say what is wrong, when it goes wrong, and what happens as a result. Name the functions, variables, values and files involved, so that someone who has not seen your investigation can understand and check it.
 
@@ -87,6 +105,8 @@ export const SECOND_LOOK = `Your first pass is recorded. Before the review is fi
 - What happens in production: deployment, migration, failure, retry, concurrency, and data that could leak.
 - Whether the change fits the project's design and existing patterns.
 - Tests that are missing or cannot fail, and documentation or comments that are now wrong.
+- Whether the change is complete: stubs, unreachable features, files left out of packaging or registration.
+- The same defect repeated in a sibling file, and code duplicated within the change.
 - Lower-severity problems you noticed but left out.
 Investigate with the read tools, then call submit_review again with the findings this second pass adds. You do not need to repeat findings from your first submission; they are kept.`;
 
@@ -103,7 +123,7 @@ Give each finding one verdict:
 
 A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
 
-When two findings describe the same underlying issue, keep the clearer one and set duplicate_of on the other to the id of the one you kept. Findings about different problems in the same lines are not duplicates.
+When two findings describe the same underlying issue, keep the clearer one and set duplicate_of on the other to the id of the one you kept. Findings about different problems in the same lines are not duplicates, and neither is the same defect reported at two different places.
 
 Give a verdict for every finding id, then call submit_verdicts.`;
 
@@ -218,8 +238,17 @@ function documentsSection(documents: string[]): string {
   return `Documents that may describe the design, the rules or the owners of the area this change touches. Read the ones that are relevant before you judge the change. read_base_file shows a document as it was before the change, which is the version the change should be held to.\n${documents.map((path) => `- ${path}`).join("\n")}`;
 }
 
-export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[]): string {
-  return [pullRequestSection(pr), rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff)].join("\n\n");
+export interface ReviewBudget {
+  turns: number;
+  minutes: number;
+}
+
+function budgetSection(budget: ReviewBudget): string {
+  return `Your budget for this review is ${budget.turns} turns and about ${budget.minutes} minutes. A turn can hold many tool calls. You will be told when it is time to submit, so there is no need to stop early to be safe.`;
+}
+
+export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], budget: ReviewBudget): string {
+  return [pullRequestSection(pr), budgetSection(budget), rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff)].join("\n\n");
 }
 
 export function verifierPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, candidates: Candidate[]): string {

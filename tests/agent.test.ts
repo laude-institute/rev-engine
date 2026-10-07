@@ -82,6 +82,23 @@ test("forces the submit tool when the deadline is near, and falls back when forc
   assert.equal(requests[1]!.forceTool, undefined);
 });
 
+test("asks for the submission when an ordinary turn fails, instead of giving up", async () => {
+  const { chat, requests } = scripted([
+    toolCall("read_diff", "{}"),
+    new Error("The operation was aborted due to timeout"),
+    toolCall("submit_review", '{"findings":["kept"]}', "c2"),
+  ]);
+  assert.deepEqual(await runAgent(options(chat)), { findings: ["kept"] });
+  assert.equal(requests[2]!.forceTool, "submit_review");
+  assert.match(String(requests[2]!.messages.at(-1)!.content), /Stop investigating/);
+});
+
+test("an ordinary turn may not use the time kept back for the submission", async () => {
+  const { chat, requests } = scripted([toolCall("submit_review", '{"findings":[]}')]);
+  await runAgent(options(chat, { deadline: Date.now() + 400_000 }));
+  assert.ok(requests[0]!.timeoutMs <= 300_000, String(requests[0]!.timeoutMs));
+});
+
 test("fails when the model never submits or time has run out", async () => {
   const { chat } = scripted([toolCall("read_diff", "{}"), toolCall("read_diff", "{}", "c2")]);
   await assert.rejects(runAgent(options(chat, { maxTurns: 2 })), /did not submit within 2 turns/);
@@ -95,7 +112,7 @@ test("asks for a second look, then joins both submissions", async () => {
     toolCall("submit_review", '{"findings":["second"]}', "c3"),
   ]);
   const secondLook = {
-    message: "look again",
+    message: () => "look again",
     combine: (first: Record<string, unknown>, second: Record<string, unknown>) =>
       ({ findings: [...(first.findings as string[]), ...(second.findings as string[])] }),
   };
@@ -105,13 +122,13 @@ test("asks for a second look, then joins both submissions", async () => {
 
 test("keeps the first submission when the second look fails", async () => {
   const { chat } = scripted([toolCall("submit_review", '{"findings":["first"]}'), new Error("network down")]);
-  const secondLook = { message: "look again", combine: () => ({ findings: [] }) };
+  const secondLook = { message: () => "look again", combine: () => ({ findings: [] }) };
   assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first"] });
 });
 
 test("skips the second look when little time is left", async () => {
   const { chat, requests } = scripted([toolCall("submit_review", '{"findings":["only"]}')]);
-  const secondLook = { message: "look again", combine: () => ({ findings: [] }) };
+  const secondLook = { message: () => "look again", combine: () => ({ findings: [] }) };
   assert.deepEqual(await runAgent({ ...options(chat, { deadline: Date.now() + 100_000 }), secondLook }), { findings: ["only"] });
   assert.equal(requests.length, 1);
 });

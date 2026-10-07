@@ -40,13 +40,29 @@ const FINISH_SHARE = 0.92;
 const MIN_VERIFY_MS = 60_000;
 const MAX_INDEXED_FILES = 20_000;
 
-/** Keeps the first pass's findings beside the second pass's; the reduction step merges repeats. */
-const secondLook: SecondLook = {
-  message: SECOND_LOOK,
-  combine: (first, second) => ({
-    findings: [...(Array.isArray(second.findings) ? second.findings : []), ...(Array.isArray(first.findings) ? first.findings : [])],
-  }),
-};
+const MAX_UNOPENED_LISTED = 25;
+
+/** Lock files and generated output are rarely worth a reviewer's turn. */
+const GENERATED = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|go\.sum|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(min\.js|map|snap|lock)$/;
+
+/**
+ * Asks the reviewer to look again, naming the changed files it never opened.
+ * The first pass's findings are kept beside the second pass's; the reduction step merges repeats.
+ */
+function secondLookFor(workspace: Workspace, changedFiles: string[]): SecondLook {
+  return {
+    message: () => {
+      const unopened = changedFiles.filter((file) => !workspace.opened.has(file) && !GENERATED.test(file));
+      if (!unopened.length) return SECOND_LOOK;
+      const listed = unopened.slice(0, MAX_UNOPENED_LISTED).map((file) => `- ${file}`).join("\n");
+      const more = unopened.length > MAX_UNOPENED_LISTED ? `\n- and ${unopened.length - MAX_UNOPENED_LISTED} more` : "";
+      return `${SECOND_LOOK}\n\nChanged files you have not opened yet. The diff shows only the changed lines, so open the ones that hold code, tests or configuration:\n${listed}${more}`;
+    },
+    combine: (first, second) => ({
+      findings: [...(Array.isArray(second.findings) ? second.findings : []), ...(Array.isArray(first.findings) ? first.findings : [])],
+    }),
+  };
+}
 
 export interface ReviewOutcome {
   findings: OutputFinding[];
@@ -91,13 +107,16 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
   log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
 
-  const prompt = reviewerPrompt(pr, changed, diff, rules, documents);
+  const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
+  const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
   const seats = await Promise.allSettled(config.models.map(async (model, index) => {
     const seat = `s${index + 1}`;
+    // Each seat gets its own workspace, so what one model has opened is tracked apart from the others.
+    const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
     const submission = await runAgent({
-      chat, model, system: REVIEWER_SYSTEM, prompt, workspace, submit: submitReview,
+      chat, model, system: REVIEWER_SYSTEM, prompt, workspace: seatWorkspace, submit: submitReview,
       deadline: reviewDeadline, maxTurns: config.maxTurns, log,
-      ...(config.secondLook ? { secondLook } : {}),
+      ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
     });
     const candidates = await normalizeCandidates(submission.findings, {
       seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,

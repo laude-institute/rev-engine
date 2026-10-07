@@ -47,7 +47,9 @@ export class ModelError extends Error {
   }
 }
 
-const RETRY_DELAYS_MS = [2_000, 8_000];
+const RETRY_DELAYS_MS = [1_000, 4_000, 10_000];
+/** The longest one attempt may take. A call that stalls is cut off here and retried while the caller's time allows. */
+const ATTEMPT_TIMEOUT_MS = 180_000;
 const MAX_OUTPUT_TOKENS = 16_000;
 
 function retryable(error: unknown): boolean {
@@ -131,7 +133,7 @@ export function createChat(options: ClientOptions): Chat {
     const deadline = Date.now() + request.timeoutMs;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await once(request, Math.max(1_000, deadline - Date.now()));
+        return await once(request, Math.max(1_000, Math.min(ATTEMPT_TIMEOUT_MS, deadline - Date.now())));
       } catch (error) {
         const delay = RETRY_DELAYS_MS[attempt];
         if (delay === undefined || !retryable(error) || Date.now() + delay >= deadline) throw error;

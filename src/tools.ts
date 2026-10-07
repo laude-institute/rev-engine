@@ -99,6 +99,8 @@ export class Workspace {
   readonly repoDir: string;
   readonly diffPath: string;
   readonly base: string;
+  /** Files this workspace's model has read, at head or at base. */
+  readonly opened = new Set<string>();
   private outputBytes = 0;
   private root: string | null = null;
 
@@ -211,11 +213,14 @@ export class Workspace {
     }
     if (name === "read_file") {
       const path = await this.contained(args.path);
-      return { ok: true, ...numberedSlice(await this.textFile(path), args.start_line, args.line_count) };
+      const text = await this.textFile(path);
+      this.opened.add(safeRelativePath(args.path));
+      return { ok: true, ...numberedSlice(text, args.start_line, args.line_count) };
     }
     if (name === "read_base_file") {
       const text = await this.baseFile(String(args.path ?? ""));
       if (text === null) throw new Error("file does not exist at the base revision");
+      this.opened.add(safeRelativePath(args.path));
       return { ok: true, ...numberedSlice(text, args.start_line, args.line_count) };
     }
     if (name === "list_files") {

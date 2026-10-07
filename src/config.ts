@@ -12,6 +12,8 @@ export interface Config {
   diffPath: string;
   prJsonPath: string;
   outPath: string;
+  /** Which attempt at this pull request this is, starting at 1. */
+  attempt: number;
   apiKey: string;
   baseUrl: string;
   /** One independent review seat per model. */
@@ -77,6 +79,7 @@ export function loadConfig(env: Env): Config {
     diffPath: env.RB_DIFF?.trim() || "/work/pr/diff.patch",
     prJsonPath: env.RB_PR_JSON?.trim() || "/work/pr/pr.json",
     outPath: required(env, "RB_OUT"),
+    attempt: integer(env, "RB_ATTEMPT", 1, 1, 1000),
     apiKey: required(env, "OPENROUTER_API_KEY"),
     baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     models,
