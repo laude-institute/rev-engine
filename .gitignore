@@ -1,0 +1,15 @@
+# Credentials
+.env
+.env.*
+!.env.example
+.envrc
+
+# Local benchmark runs: findings, scores, logs and repository caches
+runs/
+
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+.DS_Store

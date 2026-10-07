@@ -1,0 +1,20 @@
+{
+  "name": "rev-engine-prime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pull request reviewer packaged as a ReviewBench agent container",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"tests/*.test.ts\"",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}
