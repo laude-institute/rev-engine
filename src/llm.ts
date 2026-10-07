@@ -76,6 +76,9 @@ export function createChat(options: ClientOptions): Chat {
       max_tokens: MAX_OUTPUT_TOKENS,
     };
     if (openRouter) body.usage = { include: true };
+    // Anthropic models cache a prompt prefix only when asked to. A review resends a
+    // growing conversation every turn, so caching decides most of its cost.
+    if (openRouter && request.model.startsWith("anthropic/")) body.cache_control = { type: "ephemeral" };
     if (options.effort) {
       if (openRouter) body.reasoning = { effort: options.effort };
       else body.reasoning_effort = options.effort;

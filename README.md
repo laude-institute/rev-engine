@@ -6,7 +6,7 @@ This is early work. It has not been registered with the benchmark and has no pub
 
 ## How it reviews
 
-1. **Independent review.** One or more models each review the change on their own. A model can only read: the diff, files at the head and base revisions, file listings and text search, all confined to the checkout.
+1. **Independent review.** One or more models each review the change on their own. A model can only read: the diff, files at the head and base revisions, file listings and text search, all confined to the checkout. The reviewer is asked to understand the system before judging the change, then to check it against a fixed set of lenses: fit with the design, unexpected additions, correctness, production safety, security, data exposure, performance, compatibility, tests, and documentation. After its first submission it is asked to look once more.
 2. **Verification.** A second pass checks every proposed finding against the code, rejects the ones that do not hold, and marks repeats.
 3. **Reduction.** Plain code checks each path and line range against the file at head, merges duplicates, ranks by severity and confidence, and caps the list.
 
@@ -21,6 +21,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_MODEL` | `openai/gpt-6-luna` | Reviewer model. A comma-separated list runs one independent review per model. |
 | `RB_CONFIG_VERIFIER` | first reviewer model | Model for the verification pass. |
 | `RB_CONFIG_VERIFY` | `lenient` | `lenient` drops rejected findings, `strict` keeps only confirmed ones, `off` skips the pass. |
+| `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
 | `RB_CONFIG_MAX_FINDINGS` | `25` | Cap on findings per pull request. |
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |

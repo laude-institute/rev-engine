@@ -18,6 +18,8 @@ export interface Config {
   models: string[];
   verifierModel: string;
   verify: VerifyMode;
+  /** Ask each reviewer to look again after its first submission. */
+  secondLook: boolean;
   effort: string | null;
   maxFindings: number;
   /** Wall-clock budget for the whole run. */
@@ -62,6 +64,9 @@ export function loadConfig(env: Env): Config {
   const verify = (env.RB_CONFIG_VERIFY?.trim() || "lenient") as VerifyMode;
   if (!["off", "lenient", "strict"].includes(verify)) throw new Error("RB_CONFIG_VERIFY must be off, lenient or strict");
 
+  const secondLook = env.RB_CONFIG_SECOND_LOOK?.trim() || "on";
+  if (!["on", "off"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on or off");
+
   return {
     nwo: required(env, "RB_NWO"),
     prNumber,
@@ -77,6 +82,7 @@ export function loadConfig(env: Env): Config {
     models,
     verifierModel: env.RB_CONFIG_VERIFIER?.trim() || models[0]!,
     verify,
+    secondLook: secondLook === "on",
     effort: env.RB_CONFIG_EFFORT?.trim() || null,
     maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", 25, 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,
@@ -90,6 +96,7 @@ export function describeSettings(config: Config): string {
     `model=${config.models.join(",")}`,
     `verifier=${config.verifierModel}`,
     `verify=${config.verify}`,
+    `second_look=${config.secondLook ? "on" : "off"}`,
     `effort=${config.effort ?? "default"}`,
     `max_findings=${config.maxFindings}`,
     `time_budget=${config.budgetMs / 1000}`,

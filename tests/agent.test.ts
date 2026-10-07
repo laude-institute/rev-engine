@@ -87,3 +87,31 @@ test("fails when the model never submits or time has run out", async () => {
   await assert.rejects(runAgent(options(chat, { maxTurns: 2 })), /did not submit within 2 turns/);
   await assert.rejects(runAgent(options(scripted([]).chat, { deadline: Date.now() - 1 })), /ran out of time/);
 });
+
+test("asks for a second look, then joins both submissions", async () => {
+  const { chat, requests } = scripted([
+    toolCall("submit_review", '{"findings":["first"]}'),
+    toolCall("read_file", "{}", "c2"),
+    toolCall("submit_review", '{"findings":["second"]}', "c3"),
+  ]);
+  const secondLook = {
+    message: "look again",
+    combine: (first: Record<string, unknown>, second: Record<string, unknown>) =>
+      ({ findings: [...(first.findings as string[]), ...(second.findings as string[])] }),
+  };
+  assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first", "second"] });
+  assert.match(String(requests[1]!.messages.at(-1)!.content), /look again/);
+});
+
+test("keeps the first submission when the second look fails", async () => {
+  const { chat } = scripted([toolCall("submit_review", '{"findings":["first"]}'), new Error("network down")]);
+  const secondLook = { message: "look again", combine: () => ({ findings: [] }) };
+  assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first"] });
+});
+
+test("skips the second look when little time is left", async () => {
+  const { chat, requests } = scripted([toolCall("submit_review", '{"findings":["only"]}')]);
+  const secondLook = { message: "look again", combine: () => ({ findings: [] }) };
+  assert.deepEqual(await runAgent({ ...options(chat, { deadline: Date.now() + 100_000 }), secondLook }), { findings: ["only"] });
+  assert.equal(requests.length, 1);
+});

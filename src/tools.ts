@@ -182,6 +182,11 @@ export class Workspace {
     return files;
   }
 
+  /** Every regular file in the checkout, up to a limit, as paths relative to the root. */
+  async allFiles(limit: number): Promise<string[]> {
+    return this.walk(await this.canonicalRoot(), limit);
+  }
+
   private async search(query: unknown, path: unknown, ignoreCase: unknown): Promise<unknown> {
     if (typeof query !== "string" || !query || query.length > 500) throw new Error("query is invalid");
     const root = await this.canonicalRoot();

@@ -39,10 +39,15 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `src/review.ts` | Runs the review seats, the verification pass and the reduction. |
 | `src/agent.ts` | The model tool loop. |
 | `src/tools.ts` | The read-only tools, confined to the checkout. |
+| `src/docs.ts` | Picks the design documents to offer the reviewer. |
 | `src/findings.ts` | Path and line checks, duplicate merging, verdicts, ranking. |
 | `src/prompts.ts` | Reviewer and verifier prompts and their submit tools. |
 | `src/llm.ts` | The model API client. |
 | `scripts/local-run.sh` | Builds the image and runs benchmark pull requests locally. |
+| `scripts/score.sh` | Scores a run with the benchmark's judging CLI. |
+| `scripts/box.sh` | Creates an EC2 box and runs a queue of experiments on it. |
+| `scripts/box-queue.sh` | Runs on the box: review, score and upload each experiment. |
+| `experiments/` | Queue files for `scripts/box.sh start`. |
 
 ## Behavior to preserve
 

@@ -1,8 +1,9 @@
 // One review from start to finish: independent review seats, a verification
 // pass over what they found, then a deterministic reduction to the final list.
 import { readFile } from "node:fs/promises";
-import { runAgent } from "./agent.ts";
+import { runAgent, type SecondLook } from "./agent.ts";
 import type { Config } from "./config.ts";
+import { pickDesignDocs } from "./docs.ts";
 import {
   applyVerdicts,
   dedupe,
@@ -17,6 +18,7 @@ import {
 import type { Chat } from "./llm.ts";
 import {
   REVIEWER_SYSTEM,
+  SECOND_LOOK,
   VERIFIER_SYSTEM,
   reviewerPrompt,
   submitReview,
@@ -36,6 +38,15 @@ const MAX_RULES_TOTAL_CHARS = 16_000;
 const REVIEW_SHARE = 0.6;
 const FINISH_SHARE = 0.92;
 const MIN_VERIFY_MS = 60_000;
+const MAX_INDEXED_FILES = 20_000;
+
+/** Keeps the first pass's findings beside the second pass's; the reduction step merges repeats. */
+const secondLook: SecondLook = {
+  message: SECOND_LOOK,
+  combine: (first, second) => ({
+    findings: [...(Array.isArray(second.findings) ? second.findings : []), ...(Array.isArray(first.findings) ? first.findings : [])],
+  }),
+};
 
 export interface ReviewOutcome {
   findings: OutputFinding[];
@@ -77,14 +88,16 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const workspace = new Workspace(config.repoDir, config.diffPath, config.base);
   const [pr, diff, rules] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace)]);
   const changed = parseDiff(diff);
-  log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base`);
+  const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
+  log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
 
-  const prompt = reviewerPrompt(pr, changed, diff, rules);
+  const prompt = reviewerPrompt(pr, changed, diff, rules, documents);
   const seats = await Promise.allSettled(config.models.map(async (model, index) => {
     const seat = `s${index + 1}`;
     const submission = await runAgent({
       chat, model, system: REVIEWER_SYSTEM, prompt, workspace, submit: submitReview,
       deadline: reviewDeadline, maxTurns: config.maxTurns, log,
+      ...(config.secondLook ? { secondLook } : {}),
     });
     const candidates = await normalizeCandidates(submission.findings, {
       seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,

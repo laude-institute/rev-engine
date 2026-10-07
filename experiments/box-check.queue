@@ -1,0 +1,2 @@
+# A two pull request run on the default cheap model, to check that a box works end to end.
+box-check 0,5

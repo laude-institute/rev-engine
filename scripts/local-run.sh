@@ -14,6 +14,7 @@
 #
 # JOBS=<n> runs n pull requests of the test set at a time. The full set shares
 # repository checkouts between pull requests, so it always runs one at a time.
+# PRS=0,3,7 limits a test set run to those indexes.
 set -euo pipefail
 
 [ $# -ge 1 ] || { sed -n '6,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -36,17 +37,25 @@ mkdir -p "$run/logs" "$here/runs/.cache/repos" "$run/.try-agent"
 cd "$run"
 
 jobs="${JOBS:-1}"
-case " $* " in *" --pr "*|*" --set full "*) jobs=1 ;; esac
+prs="${PRS:-all}"
+single=0
+case " $* " in *" --pr "*|*" --set full "*) single=1 ;; esac
 
-if [ "$jobs" -le 1 ]; then
+if [ "$single" -eq 1 ] || { [ "$jobs" -le 1 ] && [ "$prs" = all ]; }; then
   "$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY "$@" 2>&1 | tee "logs/run.log"
   exit "${PIPESTATUS[0]}"
 fi
 
-count=$(jq length "$bench/corpus/test/test.json")
+if [ "$prs" = all ]; then
+  indexes=$(seq 0 $(($(jq length "$bench/corpus/test/test.json") - 1)))
+else
+  indexes=$(tr ',' '\n' <<<"$prs")
+fi
+count=$(wc -l <<<"$indexes" | tr -d ' ')
 export bench image
-seq 0 $((count - 1)) | xargs -P "$jobs" -I{} sh -c \
-  '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
+rm -rf findings logs/pr-*.log
+xargs -P "$jobs" -I{} sh -c \
+  '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@" <<<"$indexes"
 done_count=$(find findings -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 grep -h -E '^(==|   (ok|FAIL))' logs/pr-*.log || true
 echo "$done_count of $count pull requests produced a valid findings file; logs in $run/logs" >&2
