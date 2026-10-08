@@ -7,6 +7,8 @@
 #
 # JUDGE_PROVIDER and JUDGE_MODEL choose the judge (default: openrouter,
 # google/gemini-3.5-flash). Scores from different judges are not comparable.
+# JUDGE_ARGS passes extra options to the judging CLI, such as --no-strict to
+# accept a score when the judge itself fails on a pull request.
 # Results land in runs/<run-name>/scoring/.
 set -euo pipefail
 
@@ -40,5 +42,5 @@ npm run judge --silent -- \
   --provider "$provider" --model "$model" \
   --output "$run/scoring/results.json" \
   --repo-dir "$here/runs/.cache/judge-repos" \
-  --concurrency "${JUDGE_JOBS:-5}" 2>&1 | tee "$run/scoring/judge.log" | sed -n '/Outcome Breakdown/,$p'
+  --concurrency "${JUDGE_JOBS:-5}" ${JUDGE_ARGS:-} 2>&1 | tee "$run/scoring/judge.log" | sed -n '/Outcome Breakdown/,$p'
 exit "${PIPESTATUS[0]}"
