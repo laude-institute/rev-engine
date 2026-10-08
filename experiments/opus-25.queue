@@ -1,0 +1,2 @@
+# Claude Opus 5.5 reviewing alone, and verifying, on the whole 25 pull request test set.
+opus-25 all RB_CONFIG_MODEL=anthropic/claude-opus-5.5 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5

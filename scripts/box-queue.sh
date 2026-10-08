@@ -9,6 +9,8 @@
 # Each queue line is:  <run-name> <prs> [NAME=VALUE ...]
 #   <prs> is "all" or a comma-separated list of test set indexes.
 #   NAME=VALUE pairs are passed to the container, for example RB_CONFIG_MODEL=vendor/model.
+# A line with "score" in place of <prs> scores a run already on the box again;
+# its NAME=VALUE pairs go to scripts/score.sh, for example JUDGE_MODEL and SCORING_NAME.
 # Lines starting with # are skipped.
 set -uo pipefail
 
@@ -23,11 +25,17 @@ cd "$here"
 while read -r name prs settings <&3; do
   case "$name" in ''|'#'*) continue ;; esac
   echo "=== $(date -u +%FT%TZ) start $name (prs: $prs; $settings)"
-  args=()
-  for setting in $settings; do args+=(-e "$setting"); done
-  PRS="$prs" JOBS="${JOBS:-8}" scripts/local-run.sh "$name" "${args[@]}" || echo "=== $name: some pull requests failed"
-  printf '%s\n' "$name $prs $settings" > "runs/$name/experiment.txt"
-  scripts/score.sh "$name" || echo "=== $name: scoring failed"
+  if [ "$prs" = score ]; then
+    # Score a run that is already on the box. Settings here go to scripts/score.sh.
+    # shellcheck disable=SC2086
+    env $settings scripts/score.sh "$name" || echo "=== $name: scoring failed"
+  else
+    args=()
+    for setting in $settings; do args+=(-e "$setting"); done
+    PRS="$prs" JOBS="${JOBS:-8}" scripts/local-run.sh "$name" "${args[@]}" || echo "=== $name: some pull requests failed"
+    printf '%s\n' "$name $prs $settings" > "runs/$name/experiment.txt"
+    scripts/score.sh "$name" || echo "=== $name: scoring failed"
+  fi
   aws --region "$BOX_REGION" s3 sync "runs/$name" "s3://$BOX_BUCKET/runs/$name" --exclude ".try-agent/*" --only-show-errors
   echo "=== $(date -u +%FT%TZ) done $name"
 done 3< "$queue"

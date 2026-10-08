@@ -1,0 +1,4 @@
+# Finish the default judge's score for the opus-25 run (it resumes from its checkpoint),
+# then score the same findings with Claude Sonnet 5, the judge the leaderboard uses.
+opus-25 score
+opus-25 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5
