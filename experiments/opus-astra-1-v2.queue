@@ -1,0 +1,7 @@
+# The same two seat review as opus-astra-1 (Claude Opus 5.5 and GPT-6 Astra, with Opus
+# verifying, on test set pull request 6), run again after two prompt changes: security
+# findings name who gains access, and findings state any behavior outside the checkout
+# that they depend on. The purpose is to see whether the Claude Sonnet 5 judge, which
+# timed out on the first run, now finishes, and how long it spends on each finding.
+opus-astra-1-v2 6 RB_CONFIG_MODEL=anthropic/claude-opus-5.5,openai/gpt-6-astra RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
+opus-astra-1-v2 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5
