@@ -9,11 +9,13 @@
 #   scripts/box.sh status [lines]     show whether a queue is running and the tail of its log
 #   scripts/box.sh fetch              download finished results into runs/box/
 #   scripts/box.sh stop               stop the running queue and its containers
+#   scripts/box.sh stop-at <time>     stop the box at a UTC time, such as "19:00" or "+16 hours"
 #   scripts/box.sh down               stop the box; its disk and caches are kept
 #   scripts/box.sh destroy            delete the box, its role and its stored key; the bucket is kept
 #
 # The queue file format is described in scripts/box-queue.sh. The box stops
 # itself when a queue finishes, unless KEEP_RUNNING=1 is set for `start`.
+# With KEEP_RUNNING=1, use `stop-at` so a forgotten box does not run for days.
 #
 # Needs the AWS CLI with credentials for the account, jq, and OPENROUTER_API_KEY
 # in .env for `up`. BOX_REGION (default us-east-1) and BOX_INSTANCE_TYPE
@@ -176,6 +178,7 @@ BOX
     [ "$state" = running ] || exit 0
     remote <<BOX
 echo "queue: \$(systemctl is-active rev-queue || true)"
+systemctl is-active --quiet rev-stop-at.timer && echo "stops at: \$(systemctl show rev-stop-at.timer --property=NextElapseUSecRealtime --value)"
 tail -n ${2:-30} /srv/rev/logs/current.log 2>/dev/null | cut -c1-200
 BOX
     ;;
@@ -192,6 +195,19 @@ systemctl stop rev-queue 2>/dev/null || true
 docker ps -q --filter ancestor=rev-engine-prime:dev | xargs -r docker stop -t 5 >/dev/null
 shutdown -c 2>/dev/null || true
 echo stopped
+BOX
+    ;;
+
+  stop-at)
+    [ -n "${2:-}" ] || { echo 'usage: scripts/box.sh stop-at <time>' >&2; exit 2; }
+    # A timer of its own, because `start` cancels any pending `shutdown`.
+    remote <<BOX
+set -euo pipefail
+when="\$(date -u -d "$2" '+%Y-%m-%d %H:%M:%S')"
+systemctl stop rev-stop-at.timer 2>/dev/null || true
+systemctl reset-failed rev-stop-at.service 2>/dev/null || true
+systemd-run --quiet --unit rev-stop-at --on-calendar "\$when UTC" /sbin/shutdown -h now
+echo "the box will stop at \$when UTC"
 BOX
     ;;
 
@@ -212,7 +228,7 @@ BOX
     ;;
 
   *)
-    sed -n '7,13p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '7,14p' "$0" | sed 's/^# \{0,1\}//' >&2
     exit 2
     ;;
 esac
