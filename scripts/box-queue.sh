@@ -34,7 +34,8 @@ while read -r name prs settings <&3; do
     for setting in $settings; do args+=(-e "$setting"); done
     PRS="$prs" JOBS="${JOBS:-8}" scripts/local-run.sh "$name" "${args[@]}" || echo "=== $name: some pull requests failed"
     printf '%s\n' "$name $prs $settings" > "runs/$name/experiment.txt"
-    scripts/score.sh "$name" || echo "=== $name: scoring failed"
+    # One pull request the judge fails on must not discard the scores of the rest.
+    JUDGE_ARGS="${JUDGE_ARGS:---no-strict}" scripts/score.sh "$name" || echo "=== $name: scoring failed"
   fi
   aws --region "$BOX_REGION" s3 sync "runs/$name" "s3://$BOX_BUCKET/runs/$name" --exclude ".try-agent/*" --only-show-errors
   echo "=== $(date -u +%FT%TZ) done $name"

@@ -1,0 +1,9 @@
+# The four seat review of four-seat-5 again with two changes, because most seats and
+# verifications in that run did not finish inside the time budget: Qwen 3.8 27B replaces
+# Qwen 3.8 Max as a seat, and DeepSeek V4 Pro verifies in place of Kimi K3. The time
+# budget is unchanged, so the run shows whether these models fit the benchmark's limit.
+# The second line scores the same findings with Claude Sonnet 5, the judge the leaderboard
+# uses. It passes --no-strict so that one pull request the judge cannot finish does not
+# discard the scores of the other four.
+four-seat-5-v2 1,4,6,12,14 RB_CONFIG_MODEL=qwen/qwen3.8-27b,moonshotai/kimi-k3,z-ai/glm-5.3,deepseek/deepseek-v4-pro-0813 RB_CONFIG_VERIFIER=deepseek/deepseek-v4-pro-0813
+four-seat-5-v2 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5 JUDGE_ARGS=--no-strict
