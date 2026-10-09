@@ -1,0 +1,9 @@
+# Four review seats on cheaper models (Qwen 3.8 Max, Kimi K3, GLM 5.3 and DeepSeek V4 Pro),
+# with Kimi K3 verifying, on five test set pull requests (the same five as opus-astra-5).
+# The purpose is to see whether more seats on weaker models work end to end, what they
+# find and what they cost, before a larger run.
+# The second line scores the same findings with Claude Sonnet 5, the judge the leaderboard
+# uses. It passes --no-strict so that one pull request the judge cannot finish does not
+# discard the scores of the other four.
+four-seat-5 1,4,6,12,14 RB_CONFIG_MODEL=qwen/qwen3.8-max-0902,moonshotai/kimi-k3,z-ai/glm-5.3,deepseek/deepseek-v4-pro-0813 RB_CONFIG_VERIFIER=moonshotai/kimi-k3
+four-seat-5 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5 JUDGE_ARGS=--no-strict
