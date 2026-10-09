@@ -1,0 +1,6 @@
+# Claude Opus 5.5 alone, verifying its own findings, on the five test set pull requests the
+# two seat and four seat runs used. The purpose is a baseline on the current prompts, so
+# the gain from a second seat can be told apart from the gain from the prompts.
+# Start it with JUDGE_MODEL=anthropic/claude-sonnet-5, so the one scoring pass uses the
+# judge the leaderboard uses; its results then land in scoring/.
+solo-opus-5 1,4,6,12,14 RB_CONFIG_MODEL=anthropic/claude-opus-5.5 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5

@@ -1,0 +1,8 @@
+# Three cheaper models, each alone with Claude Opus 5.5 verifying, on the same five test
+# set pull requests as solo-opus-5. The purpose is to see what each finds that Opus alone
+# misses, before paying for it as a second seat beside Opus.
+# Start it with JUDGE_MODEL=anthropic/claude-sonnet-5, so the one scoring pass uses the
+# judge the leaderboard uses; its results then land in scoring/.
+solo-deepseek-pro-5 1,4,6,12,14 RB_CONFIG_MODEL=deepseek/deepseek-v4-pro-0813 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
+solo-deepseek-flash-5 1,4,6,12,14 RB_CONFIG_MODEL=deepseek/deepseek-v4-flash-0731 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
+solo-gemini-flash-5 1,4,6,12,14 RB_CONFIG_MODEL=google/gemini-3.8-flash RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
