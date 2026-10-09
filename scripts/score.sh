@@ -28,7 +28,8 @@ mkdir -p "$out"
 
 # The judging CLI only accepts models in its bundled registry, which lags behind
 # OpenRouter. Register a missing model in a registry kept under runs/, leaving
-# any registry in the user's home directory alone.
+# any registry in the user's home directory alone. The model is registered without
+# reasoning: with it, a judge can spend its whole time budget on one finding.
 export PI_CODING_AGENT_DIR="$here/runs/.cache/judge-registry"
 mkdir -p "$PI_CODING_AGENT_DIR"
 rm -f "$PI_CODING_AGENT_DIR/models.json"
@@ -36,7 +37,7 @@ rm -f "$PI_CODING_AGENT_DIR/models.json"
 if [ "$provider" = openrouter ] && ! (cd "$bench" && npx pi --list-models 2>/dev/null | awk '$1 == "openrouter" {print $2}' | grep -qxF "$model"); then
   jq -n --arg id "$model" '{providers: {openrouter: {
     baseUrl: "https://openrouter.ai/api/v1", apiKey: "OPENROUTER_API_KEY", api: "openai-completions",
-    models: [{id: $id, reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 32000}]}}}' \
+    models: [{id: $id, reasoning: false, input: ["text"], contextWindow: 1000000, maxTokens: 32000}]}}}' \
     > "$PI_CODING_AGENT_DIR/models.json"
 fi
 
