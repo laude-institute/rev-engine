@@ -11,7 +11,8 @@
 # accept a score when the judge itself fails on a pull request.
 # SCORING_NAME names the output directory (default: scoring), so one run can
 # be scored by several judges side by side.
-# Results land in runs/<run-name>/<SCORING_NAME>/.
+# Results land in runs/<run-name>/<SCORING_NAME>/. judge-usage.json there totals
+# the tokens the judge used to classify findings, and what they cost.
 set -euo pipefail
 
 [ $# -eq 1 ] || { sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -53,10 +54,39 @@ jq -s '{
 }' "$run"/findings/*.json > "$out/usage.json"
 
 cd "$bench"
+status=0
 npm run judge --silent -- \
   --candidate "$run/findings" \
   --provider "$provider" --model "$model" \
   --output "$out/results.json" \
   --repo-dir "$here/runs/.cache/judge-repos" \
-  --concurrency "${JUDGE_JOBS:-5}" ${JUDGE_ARGS:-} 2>&1 | tee "$out/judge.log" | sed -n '/Outcome Breakdown/,$p'
-exit "${PIPESTATUS[0]}"
+  --concurrency "${JUDGE_JOBS:-5}" ${JUDGE_ARGS:-} 2>&1 | tee "$out/judge.log" | sed -n '/Outcome Breakdown/,$p' || status=$?
+
+# The judging CLI does not report what the judge cost. Its session logs hold the
+# token counts of every call in the classifying step, so total those. A model
+# registered above has no price in the logs; price it from OpenRouter's list.
+sessions=()
+while IFS= read -r session; do [ -f "$session" ] && sessions+=("$session"); done \
+  < <(sed -n 's/^ *Session log: //p' "$out/judge.log")
+if [ "${#sessions[@]}" -gt 0 ]; then
+  prices=null
+  [ "$provider" = openrouter ] && prices="$(curl -fsS --max-time 20 https://openrouter.ai/api/v1/models 2>/dev/null \
+    | jq --arg id "$model" '.data[] | select(.id == $id) | .pricing' 2>/dev/null)"
+  cat "${sessions[@]}" | jq -s --arg model "$model" --argjson sessions "${#sessions[@]}" --argjson prices "${prices:-null}" '
+    def price($name): ($prices[$name] // "0") | tonumber;
+    [.[] | select(.type == "message" and .message.role == "assistant") | .message.usage | select(. != null)] as $calls
+    | { input_tokens: ($calls | map(.input // 0) | add // 0),
+        output_tokens: ($calls | map(.output // 0) | add // 0),
+        cache_read_tokens: ($calls | map(.cacheRead // 0) | add // 0),
+        cache_write_tokens: ($calls | map(.cacheWrite // 0) | add // 0) } as $tokens
+    | ($calls | map(.cost.total // 0) | add // 0) as $logged
+    | { model: $model, step: "classifying only; the matching step is not logged", sessions: $sessions, calls: ($calls | length) }
+      + $tokens
+      + { cost_usd: (
+            if $logged > 0 then $logged
+            elif $prices == null then null
+            else $tokens.input_tokens * price("prompt") + $tokens.output_tokens * price("completion")
+              + $tokens.cache_read_tokens * price("input_cache_read") + $tokens.cache_write_tokens * price("input_cache_write")
+            end) }' > "$out/judge-usage.json" || echo "could not total the judge usage" >&2
+fi
+exit "$status"
