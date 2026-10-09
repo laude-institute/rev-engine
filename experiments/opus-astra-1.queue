@@ -1,0 +1,6 @@
+# Two review seats, Claude Opus 5.5 and GPT-6 Astra, with Opus verifying, on one test set
+# pull request (6, which already has a solo run for each model). The purpose is to check
+# that a two seat review works end to end and to measure its cost before a larger run.
+# The second line scores the same findings with Claude Sonnet 5, the judge the leaderboard uses.
+opus-astra-1 6 RB_CONFIG_MODEL=anthropic/claude-opus-5.5,openai/gpt-6-astra RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
+opus-astra-1 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5
