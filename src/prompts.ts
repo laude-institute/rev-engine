@@ -97,6 +97,7 @@ Each finding must:
 - Describe one issue in one place. Do not split one issue across entries or repeat it per line. Two different problems in the same lines are two findings. The same defect in two files or two functions is also two findings, one at each place, because each needs its own fix.
 - Name the file and the line range in the file as it is after the change, using the line numbers read_file shows. Point at the lines that contain the problem, preferably lines the change added or modified.
 - Stand on its own. In detail, say what is wrong, when it goes wrong, and what happens as a result. Name the functions, variables, values and files involved, so that someone who has not seen your investigation can understand and check it.
+- State any outside behavior it depends on. When a finding depends on how code outside the checkout behaves, such as the language runtime, the standard library or a dependency, state that behavior exactly: name the function or feature and say what it does that makes this a problem. Point to anything in the checkout that supports it, such as the pinned version, a type definition, a test or another call site. Do not quote documentation or source you have not read. If you are not confident of the outside behavior, leave the finding out.
 
 When you are done, call submit_review. Submit an empty list when you found nothing worth raising.`;
 
@@ -126,6 +127,8 @@ Give each finding one verdict:
 A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
 
 Check the consequence as well as the facts. A finding can describe the code correctly and still be wrong about what follows. For a security or data exposure finding, work out who gains access: reject it when the party that receives the data or capability already has the same access, for example code the operator runs in the same process.
+
+A finding may depend on how code outside the checkout behaves, such as the language runtime, the standard library or a dependency. Check that the finding states that behavior exactly, and check every part of the claim that the checkout can settle, such as the pinned version, a type definition, a test or another call site. Reject the finding when the outside behavior it states is wrong. Mark it uncertain when it does not state the behavior it depends on, or when you cannot establish that behavior with confidence.
 
 When several findings rest on the same claim, settle that claim once and give them the same verdict.
 
