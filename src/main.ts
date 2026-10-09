@@ -2,7 +2,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
-import { createChat, emptyUsage } from "./llm.ts";
+import { createChat, emptyUsage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
 import { review } from "./review.ts";
 
@@ -18,6 +18,7 @@ try {
 
 const started = Date.now();
 const usage = emptyUsage();
+const usageByCaller = new Map<string, Usage>();
 log(`reviewing ${config.nwo}#${config.prNumber} at ${config.head.slice(0, 12)}`);
 log(`settings: ${describeSettings(config)}`);
 
@@ -42,13 +43,22 @@ async function write(findings: OutputFinding[]): Promise<void> {
   await rename(temporary, config.outPath);
 }
 
+/** One line for each seat and for the verifier, so a run shows where its tokens and money went. */
+function logUsageByCaller(): void {
+  for (const [caller, spent] of usageByCaller) {
+    log(`usage ${caller}: ${spent.calls} model call(s), ${spent.promptTokens} prompt token(s) (${spent.cachedTokens} cached), ${spent.completionTokens} completion token(s), $${spent.costUsd.toFixed(4)}`);
+  }
+}
+
 try {
-  const chat = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage });
+  const chat = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
   const outcome = await review(config, chat, log);
   await write(outcome.findings);
+  logUsageByCaller();
   log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}, ${Math.round((Date.now() - started) / 1000)}s`);
 } catch (error) {
   log(`failed: ${error instanceof Error ? error.message : String(error)}`);
+  logUsageByCaller();
   // The first failure exits non-zero so the benchmark retries. A repeat failure
   // writes an empty list, because one pull request that never succeeds fails the whole run.
   if (config.attempt < 2) process.exit(1);

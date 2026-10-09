@@ -32,6 +32,8 @@ export interface AgentOptions {
   maxTurns: number;
   /** When set, the first submission is answered with this request and the model submits once more. */
   secondLook?: SecondLook;
+  /** Names this run in the usage totals, such as "s1" or "verifier". */
+  caller?: string;
   log: (message: string) => void;
 }
 
@@ -55,6 +57,39 @@ function objectFromText(text: string): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * The complete entries of a submission whose JSON was cut off, usually by the
+ * output limit or the deadline: {"findings":[{...},{...},{"file":"a  gives the
+ * first two. Null when no entry is complete.
+ */
+export function completeEntries(text: string): Record<string, unknown> | null {
+  const list = /"([A-Za-z_]\w*)"\s*:\s*\[/.exec(text);
+  if (!list) return null;
+  const entries: unknown[] = [];
+  let at = list.index + list[0].length;
+  for (;;) {
+    while (at < text.length && /[\s,]/.test(text[at]!)) at += 1;
+    if (text[at] !== "{") break;
+    let depth = 0;
+    let inString = false;
+    let end = -1;
+    for (let index = at; index < text.length; index += 1) {
+      const char = text[index];
+      if (inString) {
+        if (char === "\\") index += 1;
+        else if (char === '"') inString = false;
+      } else if (char === '"') inString = true;
+      else if (char === "{") depth += 1;
+      else if (char === "}" && (depth -= 1) === 0) { end = index; break; }
+    }
+    const entry = end < 0 ? null : parseObject(text.slice(at, end + 1));
+    if (!entry) break;
+    entries.push(entry);
+    at = end + 1;
+  }
+  return entries.length ? { [list[1]!]: entries } : null;
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -66,19 +101,29 @@ function label(name: string, rawArguments: string): string {
   return `${name} ${target}`.trim().slice(0, 80);
 }
 
+/** What the model has handed in so far: a first submission, and the complete entries of one that was cut off. */
+interface Held {
+  first: Record<string, unknown> | null;
+  partial: Record<string, unknown> | null;
+}
+
 export async function runAgent(options: AgentOptions): Promise<Record<string, unknown>> {
-  // The first submission is kept, so a failure during the second look still returns a finished review.
-  const held: { first: Record<string, unknown> | null } = { first: null };
+  // What was handed in is kept, so a failure later on still returns that work.
+  const held: Held = { first: null, partial: null };
   try {
     return await loop(options, held);
   } catch (error) {
-    if (!held.first) throw error;
-    options.log(`${options.model}: second look failed, keeping the first submission: ${describe(error)}`);
-    return held.first;
+    if (held.first) {
+      options.log(`${options.model}: second look failed, keeping the first submission: ${describe(error)}`);
+      return held.partial && options.secondLook ? options.secondLook.combine(held.first, held.partial) : held.first;
+    }
+    if (!held.partial) throw error;
+    options.log(`${options.model}: failed after a cut-off submission, keeping its complete entries: ${describe(error)}`);
+    return held.partial;
   }
 }
 
-async function loop(options: AgentOptions, held: { first: Record<string, unknown> | null }): Promise<Record<string, unknown>> {
+async function loop(options: AgentOptions, held: Held): Promise<Record<string, unknown>> {
   const { chat, model, workspace, submit, deadline, maxTurns, secondLook, log } = options;
   const started = Date.now();
   const submitName = submit.function.name;
@@ -105,7 +150,10 @@ async function loop(options: AgentOptions, held: { first: Record<string, unknown
     if (!wrappingUp && (turn === maxTurns || remaining <= WRAP_UP_MS || contextChars > MAX_CONTEXT_CHARS)) wrapUp();
 
     // An ordinary turn must leave the wrap-up window untouched; the wrap-up turn gets all that is left.
-    const request = { model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - WRAP_UP_MS };
+    const request = {
+      model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - WRAP_UP_MS,
+      ...(options.caller ? { caller: options.caller } : {}),
+    };
     let reply: ChatMessage;
     try {
       reply = await chat(wrappingUp && forcedChoiceWorks ? { ...request, forceTool: submitName } : request);
@@ -133,6 +181,12 @@ async function loop(options: AgentOptions, held: { first: Record<string, unknown
     const submission = calls.find((call) => call.function.name === submitName);
     if (submission) {
       const value = parseObject(submission.function.arguments);
+      held.partial = value ? null : completeEntries(submission.function.arguments) ?? held.partial;
+      if (!value && held.partial && wrappingUp) {
+        // There is no time to ask again, and another cut-off answer would lose these too.
+        log(`${model}: the submission was cut off; keeping its complete entries`);
+        return held.first && secondLook ? secondLook.combine(held.first, held.partial) : held.partial;
+      }
       if (value && held.first && secondLook) return secondLook.combine(held.first, value);
       const lookAgain = Boolean(value && secondLook && !wrappingUp && deadline - Date.now() > 2 * WRAP_UP_MS);
       if (value && !lookAgain) return value;

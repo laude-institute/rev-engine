@@ -23,6 +23,8 @@ export interface ChatRequest {
   /** A tool name forces that tool; otherwise the model chooses. */
   forceTool?: string;
   timeoutMs: number;
+  /** Names who is asking, such as "s1" or "verifier", so usage can be totalled for each. */
+  caller?: string;
 }
 
 export type Chat = (request: ChatRequest) => Promise<ChatMessage>;
@@ -62,6 +64,8 @@ export interface ClientOptions {
   baseUrl: string;
   effort: string | null;
   usage: Usage;
+  /** Filled with the usage of each caller that names itself in its requests. */
+  usageByCaller?: Map<string, Usage>;
   fetchImpl?: typeof fetch;
 }
 
@@ -111,11 +115,18 @@ export function createChat(options: ClientOptions): Chat {
     const message = payload?.choices?.[0]?.message;
     if (!message) throw new ModelError(502, "model API returned no message");
 
-    options.usage.calls += 1;
-    options.usage.promptTokens += Number(payload.usage?.prompt_tokens) || 0;
-    options.usage.completionTokens += Number(payload.usage?.completion_tokens) || 0;
-    options.usage.cachedTokens += Number(payload.usage?.prompt_tokens_details?.cached_tokens) || 0;
-    options.usage.costUsd += Number(payload.usage?.cost) || 0;
+    const totals = [options.usage];
+    if (request.caller && options.usageByCaller) {
+      if (!options.usageByCaller.has(request.caller)) options.usageByCaller.set(request.caller, emptyUsage());
+      totals.push(options.usageByCaller.get(request.caller)!);
+    }
+    for (const usage of totals) {
+      usage.calls += 1;
+      usage.promptTokens += Number(payload.usage?.prompt_tokens) || 0;
+      usage.completionTokens += Number(payload.usage?.completion_tokens) || 0;
+      usage.cachedTokens += Number(payload.usage?.prompt_tokens_details?.cached_tokens) || 0;
+      usage.costUsd += Number(payload.usage?.cost) || 0;
+    }
 
     const result: ChatMessage = { role: "assistant", content: typeof message.content === "string" ? message.content : null };
     if (Array.isArray(message.tool_calls) && message.tool_calls.length) {

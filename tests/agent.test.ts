@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runAgent } from "../src/agent.ts";
+import { completeEntries, runAgent } from "../src/agent.ts";
 import { ModelError, type Chat, type ChatMessage, type ChatRequest } from "../src/llm.ts";
 import { submitReview } from "../src/prompts.ts";
 import type { Workspace } from "../src/tools.ts";
@@ -131,4 +131,34 @@ test("skips the second look when little time is left", async () => {
   const secondLook = { message: () => "look again", combine: () => ({ findings: [] }) };
   assert.deepEqual(await runAgent({ ...options(chat, { deadline: Date.now() + 100_000 }), secondLook }), { findings: ["only"] });
   assert.equal(requests.length, 1);
+});
+
+const CUT_OFF = '{"findings":[{"file":"a.ts","detail":"has } and \\" inside"},{"file":"b.ts","nested":{"n":1}},{"file":"c.t';
+
+test("completeEntries recovers the finished entries of a cut-off submission", () => {
+  assert.deepEqual(completeEntries(CUT_OFF), {
+    findings: [{ file: "a.ts", detail: 'has } and " inside' }, { file: "b.ts", nested: { n: 1 } }],
+  });
+  assert.deepEqual(completeEntries('{"verdicts": [ {"id":"s1-1","verdict":"confirmed"} , {"id":'), {
+    verdicts: [{ id: "s1-1", verdict: "confirmed" }],
+  });
+  assert.equal(completeEntries('{"findings":[{"file":"a.t'), null);
+  assert.equal(completeEntries("not json at all"), null);
+});
+
+test("keeps the complete entries of a cut-off submission when time is nearly up", async () => {
+  const { chat, requests } = scripted([toolCall("submit_review", CUT_OFF)]);
+  const result = await runAgent(options(chat, { deadline: Date.now() + 50_000 }));
+  assert.deepEqual((result.findings as Array<{ file: string }>).map((finding) => finding.file), ["a.ts", "b.ts"]);
+  assert.equal(requests.length, 1);
+});
+
+test("asks again after a cut-off submission while there is time, and falls back to its entries if that fails", async () => {
+  const asked = scripted([toolCall("submit_review", CUT_OFF), toolCall("submit_review", '{"findings":[]}', "c2")]);
+  assert.deepEqual(await runAgent(options(asked.chat)), { findings: [] });
+  assert.equal(asked.requests.length, 2);
+
+  const failed = scripted([toolCall("submit_review", CUT_OFF), new ModelError(400, "bad request")]);
+  const result = await runAgent(options(failed.chat));
+  assert.equal((result.findings as unknown[]).length, 2);
 });

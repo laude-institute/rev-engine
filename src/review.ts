@@ -115,7 +115,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
     const submission = await runAgent({
       chat, model, system: REVIEWER_SYSTEM, prompt, workspace: seatWorkspace, submit: submitReview,
-      deadline: reviewDeadline, maxTurns: config.maxTurns, log,
+      deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller: `${seat} (${model})`,
       ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
     });
     const candidates = await normalizeCandidates(submission.findings, {
@@ -145,7 +145,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
       const submission = await runAgent({
         chat, model: config.verifierModel, system: VERIFIER_SYSTEM,
         prompt: verifierPrompt(pr, changed, diff, survivors), workspace, submit: submitVerdicts,
-        deadline: finishDeadline, maxTurns: config.maxTurns, log,
+        deadline: finishDeadline, maxTurns: config.maxTurns, log, caller: `verifier (${config.verifierModel})`,
       });
       const before = survivors.length;
       survivors = applyVerdicts(survivors, parseVerdicts(submission.verdicts), config.verify === "strict");
