@@ -11,11 +11,16 @@
 #   scripts/box.sh stop               stop the running queue and its containers
 #   scripts/box.sh stop-at <time>     stop the box at a UTC time, such as "19:00" or "+16 hours"
 #   scripts/box.sh down               stop the box; its disk and caches are kept
-#   scripts/box.sh destroy            delete the box, its role and its stored key; the bucket is kept
+#   scripts/box.sh destroy            delete the box, and with the last box its role and stored key; the bucket is kept
 #
 # The queue file format is described in scripts/box-queue.sh. The box keeps
 # running when a queue finishes, unless STOP_BOX_AFTER_RUN=1 is set for `start`.
 # Use `stop-at` or `down` so a forgotten box does not run for days.
+#
+# BOX names a further box, so several queues can run at the same time:
+# `BOX=2 scripts/box.sh up` creates a second box, and every other command acts
+# on that box when BOX=2 is set. The boxes share the role, the stored key and
+# the bucket. Results are stored by run name, so give each run its own name.
 #
 # Needs the AWS CLI with credentials for the account, jq, and OPENROUTER_API_KEY
 # in .env for `up`. BOX_REGION (default us-east-1) and BOX_INSTANCE_TYPE
@@ -28,13 +33,14 @@ region="${BOX_REGION:-us-east-1}"
 instance_type="${BOX_INSTANCE_TYPE:-m7i.2xlarge}"
 parameter="/$name/openrouter-api-key"
 role="$name-box"
+box="$name-box${BOX:+-$BOX}"
 aws() { command aws --region "$region" "$@"; }
 account="$(aws sts get-caller-identity --query Account --output text)"
 bucket="$name-$account"
 
 instance_id() {
   aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=$name-box" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+    --filters "Name=tag:Name,Values=$box" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
     --query 'Reservations[].Instances[].InstanceId' --output text | awk '{print $1}'
 }
 
@@ -129,7 +135,7 @@ SETUP
         --instance-initiated-shutdown-behavior stop \
         --metadata-options HttpTokens=required,HttpPutResponseHopLimit=1 \
         --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=150,VolumeType=gp3,Encrypted=true}' \
-        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$name-box},{Key=project,Value=$name}]" \
+        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$box},{Key=project,Value=$name}]" \
         --user-data "file://$user_data" --query 'Instances[0].InstanceId' --output text)"
       rm -f "$user_data"
       echo "created $instance ($instance_type)" >&2
@@ -218,6 +224,11 @@ BOX
   destroy)
     instance="$(instance_id)"
     [ -z "$instance" ] || { aws ec2 terminate-instances --instance-ids "$instance" >/dev/null; aws ec2 wait instance-terminated --instance-ids "$instance"; }
+    # The role and the stored key are shared, so they go only with the last box.
+    others="$(aws ec2 describe-instances \
+      --filters "Name=tag:project,Values=$name" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+      --query 'Reservations[].Instances[].InstanceId' --output text)"
+    [ -z "$others" ] || { echo "deleted the box; another box remains, so the role and the stored key are kept"; exit 0; }
     aws ssm delete-parameter --name "$parameter" 2>/dev/null || true
     aws iam remove-role-from-instance-profile --instance-profile-name "$role" --role-name "$role" 2>/dev/null || true
     aws iam delete-instance-profile --instance-profile-name "$role" 2>/dev/null || true
