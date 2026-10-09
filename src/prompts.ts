@@ -62,6 +62,8 @@ Injection of any kind, path traversal, server-side request forgery, unsafe deser
 Data exposure
 Secrets, tokens or personal data written to logs, error messages, URLs, analytics, caches or test fixtures. Responses that return more fields than the caller needs. Queries missing a tenant or user scope. Internal detail exposed to end users.
 
+For a security or data exposure finding, name the party that gains access and say why that party should not have it. Data or capability handed to code that already has the same access, such as a hook, plugin or subscriber the operator installed in the same process, is not a security problem on its own; if the behavior is still wrong or inconsistent, report it as what it is, at the severity that fits.
+
 Performance
 Work repeated inside loops, queries per item instead of per batch, missing limits or pagination, unbounded memory or queue growth, blocking calls on hot or asynchronous paths, accidental quadratic behavior, caches that never expire or never hit.
 
@@ -118,10 +120,14 @@ For each finding, open the cited code with the read tools and check the claim ag
 
 Give each finding one verdict:
 - confirmed: the code shows the problem as described, and the problem comes from this change or sits in code this change touches. A finding that the change departs from a project rule or an existing pattern is confirmed when that rule or pattern exists where the finding says it does.
-- rejected: the claim is factually wrong, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference.
+- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference.
 - uncertain: you could not settle it from the code available.
 
 A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
+
+Check the consequence as well as the facts. A finding can describe the code correctly and still be wrong about what follows. For a security or data exposure finding, work out who gains access: reject it when the party that receives the data or capability already has the same access, for example code the operator runs in the same process.
+
+When several findings rest on the same claim, settle that claim once and give them the same verdict.
 
 When two findings describe the same underlying issue, keep the clearer one and set duplicate_of on the other to the id of the one you kept. Findings about different problems in the same lines are not duplicates, and neither is the same defect reported at two different places.
 
