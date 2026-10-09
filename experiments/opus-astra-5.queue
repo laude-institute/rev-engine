@@ -1,0 +1,6 @@
+# Two review seats, Claude Opus 5.5 and GPT-6 Astra, with Opus verifying, on five test set
+# pull requests of different sizes. The purpose is to measure what a second seat costs.
+# 6 and 12 already have a solo run for each model, 1 is the largest, 4 is the smallest.
+# The second line scores the same findings with Claude Sonnet 5, the judge the leaderboard uses.
+opus-astra-5 1,4,6,12,14 RB_CONFIG_MODEL=anthropic/claude-opus-5.5,openai/gpt-6-astra RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5
+opus-astra-5 score JUDGE_MODEL=anthropic/claude-sonnet-5 SCORING_NAME=scoring-sonnet-5
