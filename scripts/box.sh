@@ -13,9 +13,9 @@
 #   scripts/box.sh down               stop the box; its disk and caches are kept
 #   scripts/box.sh destroy            delete the box, its role and its stored key; the bucket is kept
 #
-# The queue file format is described in scripts/box-queue.sh. The box stops
-# itself when a queue finishes, unless KEEP_RUNNING=1 is set for `start`.
-# With KEEP_RUNNING=1, use `stop-at` so a forgotten box does not run for days.
+# The queue file format is described in scripts/box-queue.sh. The box keeps
+# running when a queue finishes, unless STOP_BOX_AFTER_RUN=1 is set for `start`.
+# Use `stop-at` or `down` so a forgotten box does not run for days.
 #
 # Needs the AWS CLI with credentials for the account, jq, and OPENROUTER_API_KEY
 # in .env for `up`. BOX_REGION (default us-east-1) and BOX_INSTANCE_TYPE
@@ -164,7 +164,7 @@ else git clone -q --depth 1 https://github.com/review-bench/ReviewBench.git /srv
 ln -sfn /srv/rev/logs/$id.log /srv/rev/logs/current.log
 systemd-run --unit rev-queue --collect \
   --setenv=HOME=/root --setenv=BOX_BUCKET=$bucket --setenv=BOX_REGION=$region --setenv=BOX_KEY_PARAMETER=$parameter \
-  --setenv=BOX_STOP_WHEN_DONE=$([ "${KEEP_RUNNING:-0}" = 1 ] && echo 0 || echo 1) --setenv=JOBS=${JOBS:-8} \
+  --setenv=STOP_BOX_AFTER_RUN=$([ "${STOP_BOX_AFTER_RUN:-0}" = 1 ] && echo 1 || echo 0) --setenv=JOBS=${JOBS:-8} \
   --setenv=JUDGE_MODEL=${JUDGE_MODEL:-google/gemini-3.5-flash} \
   --property=StandardOutput=file:/srv/rev/logs/$id.log --property=StandardError=inherit \
   /bin/bash /srv/rev/code/scripts/box-queue.sh /srv/rev/queue

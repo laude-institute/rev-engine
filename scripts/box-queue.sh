@@ -41,7 +41,7 @@ while read -r name prs settings <&3; do
 done 3< "$queue"
 
 echo "=== queue finished"
-if [ "${BOX_STOP_WHEN_DONE:-1}" = 1 ]; then
+if [ "${STOP_BOX_AFTER_RUN:-0}" = 1 ]; then
   echo "=== stopping the box in one minute"
   shutdown -h +1
 fi
