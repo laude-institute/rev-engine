@@ -71,7 +71,7 @@ case "${1:-}" in
     [ -f "$here/.env" ] && { set -a; . "$here/.env"; set +a; }
     [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "OPENROUTER_API_KEY is not set" >&2; exit 2; }
 
-    aws s3api head-bucket --bucket "$bucket" 2>/dev/null || {
+    aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
       if [ "$region" = us-east-1 ]; then aws s3api create-bucket --bucket "$bucket" >/dev/null
       else aws s3api create-bucket --bucket "$bucket" --create-bucket-configuration "LocationConstraint=$region" >/dev/null; fi
       aws s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
