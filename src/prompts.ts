@@ -303,8 +303,26 @@ function budgetSection(budget: ReviewBudget): string {
   return `Your budget for this review is ${budget.turns} turns and about ${budget.minutes} minutes. A turn can hold many tool calls. You will be told when it is time to submit, so there is no need to stop early to be safe.`;
 }
 
-export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], budget: ReviewBudget): string {
-  return [pullRequestSection(pr), budgetSection(budget), rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff)].join("\n\n");
+export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], budget: ReviewBudget, followUp?: string): string {
+  return [pullRequestSection(pr), budgetSection(budget), ...(followUp ? [followUp] : []), rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff)].join("\n\n");
+}
+
+/**
+ * The brief for a reviewer that starts after the seats have finished. It is told
+ * what they found and where they found nothing, and asked for what is missing.
+ */
+export function followUpSection(found: Candidate[], quietFiles: string[]): string {
+  const listed = found.map((candidate) => `- ${candidate.file}:${candidate.startLine}-${candidate.endLine} (${candidate.severity}) ${candidate.title}`).join("\n");
+  const quiet = quietFiles.length ? `\n\nChanged files with no finding so far. Start with these:\n${quietFiles.map((file) => `- ${file}`).join("\n")}` : "";
+  return `This change has already been reviewed once. The findings from that review are listed below and are kept, so do not report them again. Your job is to find what that review missed. Do your own reading of the change from the start; do not assume that code with no finding was checked and found clean.
+
+Besides your own full review, look for:
+- The same defect as a listed finding at another place: a sibling file, a parallel function, another implementation of the same interface, a second copy of the code. Each further place is its own finding.
+- Things the change should have updated and did not: the layer above that should expose a new capability, other clients and implementations, guides, examples and configuration.
+- Tests that would still pass if the code under test were broken, and cases the neighboring tests cover that the new tests lack.
+
+Findings already reported:
+${listed || "(none)"}${quiet}`;
 }
 
 export function verifierPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, candidates: Candidate[]): string {

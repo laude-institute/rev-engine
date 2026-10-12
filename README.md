@@ -22,6 +22,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_VERIFIER` | first reviewer model | Model for the verification pass. |
 | `RB_CONFIG_VERIFY` | `lenient` | `lenient` drops rejected findings, `strict` keeps only confirmed ones, `off` skips the pass. |
 | `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
+| `RB_CONFIG_FOLLOW_UP` | none | A model that reviews the change again in a new conversation after the seats finish, told what they found and asked for what they missed. Skipped when little review time is left. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
 | `RB_CONFIG_MAX_FINDINGS` | `25` | Cap on findings per pull request. |
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |

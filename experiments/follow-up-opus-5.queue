@@ -1,0 +1,6 @@
+# Claude Opus 5.5 alone, followed by a second Opus review in a new conversation that is told
+# what the first found, on the five test set pull requests that solo-opus-5 used. The purpose
+# is to see whether a fresh read aimed at the gaps finds what one review misses.
+# Start it with JUDGE_MODEL=anthropic/claude-sonnet-5, so the one scoring pass uses the
+# judge the leaderboard uses; its results then land in scoring/.
+follow-up-opus-5 1,4,6,12,14 RB_CONFIG_MODEL=anthropic/claude-opus-5.5 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5 RB_CONFIG_FOLLOW_UP=anthropic/claude-opus-5.5

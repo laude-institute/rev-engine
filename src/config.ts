@@ -25,6 +25,8 @@ export interface Config {
   verify: VerifyMode;
   /** Ask each reviewer to look again after its first submission. */
   secondLook: boolean;
+  /** A model that reviews again after the seats, told what they found. Null for none. */
+  followUpModel: string | null;
   effort: string | null;
   maxFindings: number;
   /** Wall-clock budget for the whole run. */
@@ -97,6 +99,7 @@ export function loadConfig(env: Env): Config {
     verifierModel: env.RB_CONFIG_VERIFIER?.trim() || models[0]!,
     verify,
     secondLook: secondLook === "on",
+    followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
     effort: env.RB_CONFIG_EFFORT?.trim() || null,
     maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", 25, 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,
@@ -111,6 +114,7 @@ export function describeSettings(config: Config): string {
     `verifier=${config.verifierModel}`,
     `verify=${config.verify}`,
     `second_look=${config.secondLook ? "on" : "off"}`,
+    `follow_up=${config.followUpModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,
     `max_findings=${config.maxFindings}`,
     `time_budget=${config.budgetMs / 1000}`,

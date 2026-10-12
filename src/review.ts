@@ -19,6 +19,7 @@ import type { Chat } from "./llm.ts";
 import {
   reviewerSystem,
   SECOND_LOOK,
+  followUpSection,
   VERIFIER_SYSTEM,
   reviewerPrompt,
   submitReview,
@@ -38,12 +39,19 @@ const MAX_RULES_TOTAL_CHARS = 16_000;
 const REVIEW_SHARE = 0.6;
 const FINISH_SHARE = 0.92;
 const MIN_VERIFY_MS = 60_000;
+/** A follow-up review that starts with less time than this would only skim. */
+const MIN_FOLLOW_UP_MS = 150_000;
 const MAX_INDEXED_FILES = 20_000;
 
-const MAX_UNOPENED_LISTED = 25;
+const MAX_FILES_LISTED = 25;
 
 /** Lock files and generated output are rarely worth a reviewer's turn. */
 const GENERATED = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|go\.sum|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(min\.js|map|snap|lock)$/;
+
+function fileList(files: string[]): string {
+  const listed = files.slice(0, MAX_FILES_LISTED).map((file) => `- ${file}`).join("\n");
+  return files.length > MAX_FILES_LISTED ? `${listed}\n- and ${files.length - MAX_FILES_LISTED} more` : listed;
+}
 
 /**
  * Asks the reviewer to look again, naming the changed files it never opened.
@@ -54,9 +62,7 @@ function secondLookFor(workspace: Workspace, changedFiles: string[]): SecondLook
     message: () => {
       const unopened = changedFiles.filter((file) => !workspace.opened.has(file) && !GENERATED.test(file));
       if (!unopened.length) return SECOND_LOOK;
-      const listed = unopened.slice(0, MAX_UNOPENED_LISTED).map((file) => `- ${file}`).join("\n");
-      const more = unopened.length > MAX_UNOPENED_LISTED ? `\n- and ${unopened.length - MAX_UNOPENED_LISTED} more` : "";
-      return `${SECOND_LOOK}\n\nChanged files you have not opened yet. The diff shows only the changed lines, so open the ones that hold code, tests or configuration:\n${listed}${more}`;
+      return `${SECOND_LOOK}\n\nChanged files you have not opened yet. The diff shows only the changed lines, so open the ones that hold code, tests or configuration:\n${fileList(unopened)}`;
     },
     combine: (first, second) => ({
       findings: [...(Array.isArray(second.findings) ? second.findings : []), ...(Array.isArray(first.findings) ? first.findings : [])],
@@ -138,6 +144,36 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
   // An empty list would claim the change is clean, so a run where no seat finished must fail instead.
   if (!succeeded) throw new Error("no review seat completed");
+
+  if (config.followUpModel && reviewDeadline - Date.now() >= MIN_FOLLOW_UP_MS) {
+    // A model asked to look again in the same conversation tends to resubmit at once.
+    // A new conversation reads the change afresh, and is told what has been found.
+    const model = config.followUpModel;
+    const seat = `s${config.models.length + 1}`;
+    try {
+      const found = dedupe(proposals);
+      const cited = new Set(found.map((candidate) => candidate.file));
+      const quiet = [...changed.keys()].filter((file) => !cited.has(file) && !GENERATED.test(file)).slice(0, MAX_FILES_LISTED);
+      const followUpBudget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
+      const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
+      const submission = await runAgent({
+        chat, model, system: reviewerSystem(null),
+        prompt: reviewerPrompt(pr, changed, diff, rules, documents, followUpBudget, followUpSection(found, quiet)),
+        workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log,
+        caller: `follow-up (${model})`,
+        ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
+      });
+      const candidates = await normalizeCandidates(submission.findings, {
+        seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,
+      });
+      log(`follow-up (${model}): ${candidates.length} finding(s)`);
+      proposals.push(...candidates);
+    } catch (error) {
+      log(`follow-up (${model}) failed, keeping the findings so far: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else if (config.followUpModel) {
+    log("follow-up skipped: too little review time is left");
+  }
 
   let survivors = dedupe(proposals);
   let verified = false;

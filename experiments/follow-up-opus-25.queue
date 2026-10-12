@@ -1,0 +1,6 @@
+# Claude Opus 5.5 alone, followed by a second Opus review in a new conversation that is told
+# what the first found, on the whole 25 pull request test set. Compare it with opus-25,
+# which has no follow-up and ran on earlier prompts.
+# Start it with JUDGE_MODEL=anthropic/claude-sonnet-5, so the one scoring pass uses the
+# judge the leaderboard uses; its results then land in scoring/.
+follow-up-opus-25 all RB_CONFIG_MODEL=anthropic/claude-opus-5.5 RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5 RB_CONFIG_FOLLOW_UP=anthropic/claude-opus-5.5
