@@ -1,0 +1,28 @@
+# Builds the reviewer image and pushes it to GitHub Container Registry.
+# ReviewBench references an image by digest; the run summary shows the digest to register.
+name: Build and push
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ github.sha }}
+      - run: echo "ghcr.io/${{ github.repository_owner }}/rev-engine-prime@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"
