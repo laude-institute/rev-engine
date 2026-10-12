@@ -51,3 +51,14 @@ test("rejects missing or malformed inputs", () => {
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_VERIFY: "maybe" }), /RB_CONFIG_VERIFY/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MAX_FINDINGS: "0" }), /RB_CONFIG_MAX_FINDINGS/);
 });
+
+test("a seat may name one focus after its model", () => {
+  const config = loadConfig({ ...BASE, RB_CONFIG_MODEL: "vendor/one, vendor/two@tests ,vendor/two@maintainability" });
+  assert.deepEqual(config.models, ["vendor/one", "vendor/two", "vendor/two"]);
+  assert.deepEqual(config.focuses, [null, "tests", "maintainability"]);
+  assert.equal(config.verifierModel, "vendor/one");
+  assert.ok(describeSettings(config).includes("model=vendor/one,vendor/two@tests,vendor/two@maintainability"));
+  assert.deepEqual(loadConfig(BASE).focuses, [null]);
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MODEL: "vendor/one@speling" }), /unknown focus "speling"/);
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MODEL: "@tests" }), /seat with no model/);
+});

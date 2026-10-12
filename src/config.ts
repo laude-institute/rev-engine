@@ -1,4 +1,5 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
+import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
 
@@ -18,6 +19,8 @@ export interface Config {
   baseUrl: string;
   /** One independent review seat per model. */
   models: string[];
+  /** For each seat, the one focus it reviews for, or null for the full review. */
+  focuses: Array<string | null>;
   verifierModel: string;
   verify: VerifyMode;
   /** Ask each reviewer to look again after its first submission. */
@@ -60,8 +63,15 @@ export function loadConfig(env: Env): Config {
   const prNumber = Number(required(env, "RB_PR_NUMBER"));
   if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("RB_PR_NUMBER is not a positive integer");
 
-  const models = (env.RB_CONFIG_MODEL ?? DEFAULT_MODEL).split(",").map((model) => model.trim()).filter(Boolean);
-  if (!models.length) throw new Error("RB_CONFIG_MODEL names no model");
+  // Each seat is a model, optionally followed by "@" and the one focus it reviews for.
+  const seats = (env.RB_CONFIG_MODEL ?? DEFAULT_MODEL).split(",").map((seat) => seat.trim()).filter(Boolean);
+  if (!seats.length) throw new Error("RB_CONFIG_MODEL names no model");
+  const models = seats.map((seat) => (seat.includes("@") ? seat.slice(0, seat.lastIndexOf("@")) : seat));
+  const focuses = seats.map((seat) => (seat.includes("@") ? seat.slice(seat.lastIndexOf("@") + 1) : null));
+  for (const focus of focuses) {
+    if (focus !== null && !FOCUS_NAMES.includes(focus)) throw new Error(`RB_CONFIG_MODEL names an unknown focus "${focus}"; the choices are ${FOCUS_NAMES.join(", ")}`);
+  }
+  if (models.some((model) => !model)) throw new Error("RB_CONFIG_MODEL has a seat with no model");
 
   const verify = (env.RB_CONFIG_VERIFY?.trim() || "lenient") as VerifyMode;
   if (!["off", "lenient", "strict"].includes(verify)) throw new Error("RB_CONFIG_VERIFY must be off, lenient or strict");
@@ -83,6 +93,7 @@ export function loadConfig(env: Env): Config {
     apiKey: required(env, "OPENROUTER_API_KEY"),
     baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     models,
+    focuses,
     verifierModel: env.RB_CONFIG_VERIFIER?.trim() || models[0]!,
     verify,
     secondLook: secondLook === "on",
@@ -96,7 +107,7 @@ export function loadConfig(env: Env): Config {
 /** The settings line the benchmark looks for: every configured label value must appear in the output. */
 export function describeSettings(config: Config): string {
   return [
-    `model=${config.models.join(",")}`,
+    `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,
     `verify=${config.verify}`,
     `second_look=${config.secondLook ? "on" : "off"}`,

@@ -101,6 +101,53 @@ Each finding must:
 
 When you are done, call submit_review. Submit an empty list when you found nothing worth raising.`;
 
+/**
+ * A seat can be given one focus instead of the full list of lenses. A narrow
+ * job suits a weaker model, and a different brief finds different problems
+ * than a second pass over the same one.
+ */
+const FOCUSES: Record<string, string> = {
+  maintainability: `Your focus: maintainability
+
+Other reviewers are covering correctness, security and the other kinds of problem. Your part of this review is what will make the code harder to understand or change after it merges. Report only problems of that kind, unless you come across something serious in passing.
+
+- Duplication. The same block written twice within the change. A helper copied into a second file or package instead of shared. Logic that already exists elsewhere in the repository: search for it before you conclude it does not.
+- Dead and leftover code. Unused variables, parameters, imports and functions, branches that cannot run, commented-out code, debug output, and notes to self that the change should have resolved.
+- Names and comments that mislead. A name that no longer matches what the thing does. A comment, docstring or message that contradicts the code beside it, including nearby text the change did not edit but made wrong. Two names for one concept within the change.
+- Inconsistency with the neighbors. The change handles errors, logging, configuration or structure differently from the code around it, with no stated reason. Name the existing pattern and where it lives.
+- Literal values. A number or string repeated where the project would use a named constant or a setting, or written out where such a constant already exists.
+- Structure. A function that does several jobs, deep nesting, a long parameter list, a module that now knows about things it should not. Weak implementations of standard contracts such as equality, hashing, ordering, serialization and resource cleanup.
+- Documentation. A public function, option or setting added without the documentation its neighbors have. A README, guide or example the change has made wrong.
+
+Each finding must point at exact lines and name the other place involved: the duplicate, the existing helper, the contradicted comment, the neighbor that does it differently. A remark that could be pasted onto any project without changing a word is not a finding.`,
+
+  tests: `Your focus: tests
+
+Other reviewers are covering the production code. Your part of this review is the tests: the ones the change adds or edits, and the ones it should have added. Report only problems of that kind, unless you come across something serious in passing.
+
+- Missing tests. List each new behavior, branch, error path and validation rule in the change, then find the test that exercises it. When there is none, report that as its own finding, placed on the untested code, and say which case needs a test. Several untested behaviors are several findings.
+- Existing tests left behind. Behavior the change alters whose tests were not updated, and tests that were deleted, skipped or loosened to make the change pass.
+- Tests that cannot fail. Empty or trivial setup, assertions on values the test itself supplied, expected and actual built the same way, an assertion inside a callback that may never run.
+- Tests that check too little. Only the success path, only that nothing was thrown, only that a value is present. A mock that replaces the very thing the test claims to check, or that behaves differently from the real dependency.
+- Tests that will be unreliable. Dependence on timing, ordering, the network, the clock or the machine. State shared between tests, and setup that is never cleaned up.
+- Tests that mislead. A name or description that no longer matches what the test does. Misuse of the test framework that makes a test silently not run.
+
+Read the tests as carefully as the code they cover, and read that code too: you cannot judge a test without knowing what it should prove.`,
+};
+
+export const FOCUS_NAMES = Object.keys(FOCUSES);
+
+/** The reviewer's system prompt: every lens, or one focus in their place. */
+export function reviewerSystem(focus: string | null): string {
+  if (!focus) return REVIEWER_SYSTEM;
+  const lensesStart = REVIEWER_SYSTEM.indexOf("\nReview lenses\n");
+  const lensesEnd = REVIEWER_SYSTEM.indexOf("\nWhat to report\n");
+  const howToWork = REVIEWER_SYSTEM.slice(0, lensesStart)
+    .replace("4. Review through each of the lenses below, one at a time.", "4. Review for your focus, which is described below.")
+    .replace("every lens considered", "every part of your focus considered");
+  return `${howToWork}\n${FOCUSES[focus]}\n${REVIEWER_SYSTEM.slice(lensesEnd)}`;
+}
+
 export const SECOND_LOOK = `Your first pass is recorded. Before the review is final, look again for what a first pass usually misses:
 - Changed files you did not open, and callers or other uses of changed code you did not search for.
 - Places that should have changed together with this change but did not.

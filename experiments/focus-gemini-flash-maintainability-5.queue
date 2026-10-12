@@ -1,0 +1,6 @@
+# Gemini 3.8 Flash alone, reviewing for maintainability only, with Claude Opus 5.5
+# verifying, on the same five test set pull requests as solo-opus-5. The purpose is to see
+# whether a cheap model with one focus finds what Opus alone misses.
+# Start it with JUDGE_MODEL=anthropic/claude-sonnet-5, so the one scoring pass uses the
+# judge the leaderboard uses; its results then land in scoring/.
+focus-gemini-flash-maintainability-5 1,4,6,12,14 RB_CONFIG_MODEL=google/gemini-3.8-flash@maintainability RB_CONFIG_VERIFIER=anthropic/claude-opus-5.5

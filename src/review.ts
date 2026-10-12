@@ -17,7 +17,7 @@ import {
 } from "./findings.ts";
 import type { Chat } from "./llm.ts";
 import {
-  REVIEWER_SYSTEM,
+  reviewerSystem,
   SECOND_LOOK,
   VERIFIER_SYSTEM,
   reviewerPrompt,
@@ -111,11 +111,12 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
   const seats = await Promise.allSettled(config.models.map(async (model, index) => {
     const seat = `s${index + 1}`;
+    const focus = config.focuses[index] ?? null;
     // Each seat gets its own workspace, so what one model has opened is tracked apart from the others.
     const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
     const submission = await runAgent({
-      chat, model, system: REVIEWER_SYSTEM, prompt, workspace: seatWorkspace, submit: submitReview,
-      deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller: `${seat} (${model})`,
+      chat, model, system: reviewerSystem(focus), prompt, workspace: seatWorkspace, submit: submitReview,
+      deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller: `${seat} (${model}${focus ? `@${focus}` : ""})`,
       ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
     });
     const candidates = await normalizeCandidates(submission.findings, {

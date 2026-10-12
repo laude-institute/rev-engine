@@ -18,7 +18,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RB_CONFIG_MODEL` | `openai/gpt-6-luna` | Reviewer model. A comma-separated list runs one independent review per model. |
+| `RB_CONFIG_MODEL` | `openai/gpt-6-luna` | Reviewer model. A comma-separated list runs one independent review per model. A model followed by `@maintainability` or `@tests` reviews for that one thing only, in place of the full review. |
 | `RB_CONFIG_VERIFIER` | first reviewer model | Model for the verification pass. |
 | `RB_CONFIG_VERIFY` | `lenient` | `lenient` drops rejected findings, `strict` keeps only confirmed ones, `off` skips the pass. |
 | `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
