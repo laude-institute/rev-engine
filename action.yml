@@ -135,6 +135,16 @@ runs:
           -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \
           rev-engine-prime:action
 
+    # Keep the findings with their severities and kinds, so a review can later be
+    # turned into an eval case with evals/add.ts. They hold nothing the posted review does not.
+    - name: Save the review
+      if: steps.ask.outputs.run == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: rev-engine-prime-pr-${{ steps.ask.outputs.number }}
+        path: ${{ runner.temp }}/rev-engine-prime/out/*.json
+        if-no-files-found: ignore
+
     # The posting script runs in the same image so the runner needs no Node of its own.
     # It gets the GitHub token and no model key; the review above gets the model key and no GitHub token.
     - name: Post the review

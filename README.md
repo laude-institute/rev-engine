@@ -81,6 +81,10 @@ By default the action reviews with `anthropic/claude-opus-5.5`, comments on at m
 
 The model only reads the pull request's code and never runs it. The review step holds the model key and no GitHub token, and the step that posts the review holds the GitHub token and no model key.
 
+## Our own evals
+
+The benchmark scores whether a finding matches an expected one. The cases in `evals/` track what it does not: severity, kind, merge advice, the fit answer and known false positives, on pull requests where a person has said which findings were right. See [evals/README.md](evals/README.md).
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).

@@ -7,6 +7,9 @@
 # Local benchmark runs: findings, scores, logs and repository caches
 runs/
 
+# Eval cases about private repositories
+evals/private/
+
 # Dependencies and build output
 node_modules/
 dist/

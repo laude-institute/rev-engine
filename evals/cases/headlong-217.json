@@ -1,0 +1,73 @@
+{
+  "id": "headlong-217",
+  "repo": "laude-institute/headlong",
+  "pr": 217,
+  "base": "c43e597ad8cdc5d2219f9bceee49671b289a21bc",
+  "head": "f96003031dbc02c16ccca59728ea006c95c8acf0",
+  "title": "skills: buffer search directories and silence the benign reader close",
+  "body": "## Problem\n\nThe skills search stops at the first matching directory. Its directory producer used to echo each directory while resolving the next. When the reader returned early, subsequent echoes could write \"Broken pipe\" to stderr. The skill body survived, but merged captures could contain that diagnostic.\n\n## Fix\n\nBuffer the ordered, deduplicated directory list before emitting it. Silence and tolerate the final write failure because an early reader close is part of the first-match contract. Buffering alone is insufficient: Bash can split a write, leaving its tail exposed to the same close.\n\n## Verification\n\nRebased onto current main c43e597 with bin/skills byte-identical to the reviewed fix.\n\n* Regression suite: main 4 passed, 3 failed (stderr, merged capture, hostile reader); tip 7 passed, 0 failed, three consecutive runs on each.\n* Skills split: 21/21 on both main and tip.\n* Prompt section failure: 13/13 on both main and tip.\n* Changed files pass shellcheck at warning severity; bash syntax and git diff whitespace checks pass.\n\nReviewed the open PR list before delivery. PR 169 changes requirement parsing, not directory emission. PR 156 does not change bin/skills. Neither covers this fix.\n",
+  "source": "The pull request author's reply to the first review, relayed by the maintainer on 2026-10-13.",
+  "findings": [
+    {
+      "id": "sigpipe",
+      "label": "must",
+      "file": "tests/test_skills_dir_epipe.sh",
+      "kind": "test",
+      "min_severity": "medium",
+      "what": "The regression test never sets how the shell treats SIGPIPE. The broken pipe message only appears when SIGPIPE is ignored, so with the default setting the regression cases pass against the unfixed code and the bug goes untested.",
+      "note": "The author reproduced it: all seven checks passed on the unfixed code by default and three failed with SIGPIPE ignored. The author agreed medium fits and said nothing here is high."
+    },
+    {
+      "id": "last-directory",
+      "label": "valid",
+      "file": "tests/test_skills_dir_epipe.sh",
+      "kind": "test",
+      "what": "The test only looks up a skill that sits in the first search directory, so the lookup path that reaches a later directory in the buffered list is untested.",
+      "note": "The author called it a coverage gap, not an observed defect, and added the lookup."
+    },
+    {
+      "id": "caller-cwd",
+      "label": "valid",
+      "file": "tests/test_skills_dir_epipe.sh",
+      "kind": "test",
+      "what": "The hostile reader case does not change into the fixture directory as the other cases do, so it reads whatever configuration is in the directory the suite was started from.",
+      "note": "The author confirmed it and fixed it."
+    },
+    {
+      "id": "trial-count",
+      "label": "valid",
+      "file": "tests/test_skills_dir_epipe.sh",
+      "kind": "maintainability",
+      "what": "The loops run a fixed number of trials while the messages report the configurable trial count, so changing the count makes the messages wrong.",
+      "note": "The author called this part a maintenance issue. The same finding's point about where a function is defined was style and should not be reported on its own."
+    },
+    {
+      "id": "silences-all-errors",
+      "label": "valid",
+      "file": "bin/skills",
+      "kind": "defect",
+      "min_severity": "medium",
+      "what": "The write of the directory list discards every write error and forces success, not only the expected early close by the lookup. Callers that read the whole list would now get a short list silently when a real write failure happens.",
+      "note": "The author confirmed that a closed output descriptor was silently accepted, narrowed the suppression to the one lookup, and added a test."
+    },
+    {
+      "id": "chunked-writes-comment",
+      "label": "valid",
+      "file": "bin/skills",
+      "kind": "documentation",
+      "what": "A code comment justifies the change by saying bash can split the write of the directory list, which is doubtful for a list of a few short paths, and the only reproduction is an artificial reader.",
+      "note": "The author accepted the criticism of the comment but said the review overstated its case: short paths fit one write, arbitrary paths need not."
+    },
+    {
+      "id": "stale-commit",
+      "label": "invalid",
+      "file": "tests/test_skills_dir_epipe.sh",
+      "what": "Claims the commit id cited in the test header is stale or wrong because the branch was rebased.",
+      "note": "False positive. The commit exists and holds the original bug, and a rebase does not invalidate a historical result."
+    }
+  ],
+  "fit": "fits",
+  "advice": [
+    "merge and fast-follow"
+  ]
+}

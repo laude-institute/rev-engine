@@ -11,7 +11,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tests/*.test.ts\"",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "eval": "node evals/run.ts",
+    "eval:add": "node evals/add.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

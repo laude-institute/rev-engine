@@ -28,6 +28,7 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 
 - Tune prompts and settings on the 25 pull request test set only. Read misses only there.
 - Run the remaining pull requests rarely, and look only at the aggregate score. A large gap between the two sets means the reviewer has overfit.
+- The cases in `evals/` follow the same rule. They are regression checks on real reviews, not a score to climb. A prompt changed until those cases pass has learned those cases.
 - Every change must be general, such as "report tests that cannot fail". Never add anything specific to a repository or pull request in the benchmark, and never put expected findings in the image.
 
 ## Layout
@@ -50,6 +51,7 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `scripts/score.sh` | Scores a run with the benchmark's judging CLI. |
 | `scripts/box.sh` | Creates an EC2 box and runs a queue of experiments on it. |
 | `scripts/box-queue.sh` | Runs on the box: review, score and upload each experiment. |
+| `evals/` | Our own review evals: labeled cases, the runner and the command that starts a case. |
 | `experiments/` | Queue files for `scripts/box.sh start`. |
 
 ## Behavior to preserve
