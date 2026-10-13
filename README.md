@@ -75,7 +75,7 @@ jobs:
           pr-number: ${{ inputs.pr-number }}
 ```
 
-By default the action reviews with `anthropic/claude-opus-5.5`, reports at most 10 findings of high severity, and adds a short answer to whether the change belongs in the project. The inputs `model`, `min-severity`, `max-findings`, `fit` and `time-budget` change those. Pull requests from forks are skipped unless `allow-forks` is `true`.
+By default the action reviews with `anthropic/claude-opus-5.5`, reports at most 10 findings of medium or high severity, and adds a short answer to whether the change belongs in the project. The inputs `model`, `min-severity`, `max-findings`, `fit` and `time-budget` change those. Pull requests from forks are skipped unless `allow-forks` is `true`.
 
 The model only reads the pull request's code and never runs it. The review step holds the model key and no GitHub token, and the step that posts the review holds the GitHub token and no model key.
 

@@ -157,7 +157,7 @@ export function buildReview(input: ReviewInput): ReviewParts {
   if (input.fit) sections.push(fitSection(input.fit));
 
   const lines: string[] = [];
-  if (!input.findings.length) lines.push("No findings.");
+  if (!input.findings.length) lines.push(input.minSeverity === "low" ? "No findings." : `No findings of ${input.minSeverity} severity${input.minSeverity === "high" ? "" : " or above"}. Less severe findings are not shown.`);
   if (comments.length) lines.push(`${comments.length} finding(s) are posted as comments on the changed lines.`);
   if (repeated) lines.push(`${repeated} finding(s) were left out because an earlier review already commented on the same lines.`);
   if (unplaced.length) {

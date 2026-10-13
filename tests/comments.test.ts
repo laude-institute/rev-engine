@@ -81,6 +81,11 @@ test("says so when there is nothing to report", () => {
   assert.doesNotMatch(parts.body, /belong in the project/);
 });
 
+test("says that less severe findings are not shown when a filter is on", () => {
+  const parts = buildReview({ findings: [], fit: null, hunks: new Map(), existing: [], head: "a".repeat(40), model: "m", minSeverity: "high" });
+  assert.match(parts.body, /No findings of high severity\. Less severe findings are not shown\./);
+});
+
 test("can move every line comment into the summary", () => {
   const parts = buildReview({ findings: [finding("src/a.ts", 11, 12)], fit: null, hunks: parseHunks(DIFF), existing: [], head: "a".repeat(40), model: "m", minSeverity: "high" });
   const moved = withoutLineComments(parts);

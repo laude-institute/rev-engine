@@ -19,7 +19,7 @@ inputs:
     default: anthropic/claude-opus-5.5
   min-severity:
     description: The least severe findings to report. One of high, medium or low.
-    default: high
+    default: medium
   max-findings:
     description: Cap on the number of findings.
     default: "10"
