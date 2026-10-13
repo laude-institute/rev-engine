@@ -23,6 +23,8 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_VERIFY` | `lenient` | `lenient` drops rejected findings, `strict` keeps only confirmed ones, `off` skips the pass. |
 | `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
 | `RB_CONFIG_FOLLOW_UP` | none | A model that reviews the change again in a new conversation after the seats finish, told what they found and asked for what they missed. Skipped when little review time is left. |
+| `RB_CONFIG_MIN_SEVERITY` | `low` | Drop findings less severe than this before verification. One of `high`, `medium` or `low`. |
+| `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It writes `fit.json` beside the findings file and never changes the findings. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
 | `RB_CONFIG_MAX_FINDINGS` | `25` | Cap on findings per pull request. |
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |
@@ -41,6 +43,41 @@ JOBS=5 scripts/local-run.sh first-run   # all 25, five at a time
 ```
 
 Findings and logs land in `runs/<name>/`, which git ignores. To score them, pass `runs/<name>/findings` to the benchmark's [judging CLI](https://github.com/review-bench/ReviewBench/blob/main/docs/JUDGING.md).
+
+## Use it as a GitHub Action
+
+The same reviewer can review pull requests in your own repository. A person with write access starts a review by commenting `/review` on a pull request, and the findings come back as one review with comments on the changed lines. Comments from anyone else are ignored, because each review costs money.
+
+Add an `OPENROUTER_API_KEY` secret to the repository, then add this workflow on the default branch:
+
+```yaml
+name: Review
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Pull request number
+        required: true
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: laude-institute/rev-engine-prime@main
+        with:
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          pr-number: ${{ inputs.pr-number }}
+```
+
+By default the action reviews with `anthropic/claude-opus-5.5`, reports at most 10 findings of high severity, and adds a short answer to whether the change belongs in the project. The inputs `model`, `min-severity`, `max-findings`, `fit` and `time-budget` change those. Pull requests from forks are skipped unless `allow-forks` is `true`.
+
+The model only reads the pull request's code and never runs it. The review step holds the model key and no GitHub token, and the step that posts the review holds the GitHub token and no model key.
 
 ## License
 

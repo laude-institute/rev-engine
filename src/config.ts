@@ -1,4 +1,6 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
+import { dirname, join } from "node:path";
+import type { Severity } from "./findings.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -27,6 +29,12 @@ export interface Config {
   secondLook: boolean;
   /** A model that reviews again after the seats, told what they found. Null for none. */
   followUpModel: string | null;
+  /** Findings less severe than this are dropped before verification. */
+  minSeverity: Severity;
+  /** A model that judges whether the change belongs in the project. Null for none. */
+  fitModel: string | null;
+  /** Where the fit assessment is written. */
+  fitOutPath: string;
   effort: string | null;
   maxFindings: number;
   /** Wall-clock budget for the whole run. */
@@ -81,6 +89,11 @@ export function loadConfig(env: Env): Config {
   const secondLook = env.RB_CONFIG_SECOND_LOOK?.trim() || "on";
   if (!["on", "off"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on or off");
 
+  const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
+  if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
+
+  const outPath = required(env, "RB_OUT");
+
   return {
     nwo: required(env, "RB_NWO"),
     prNumber,
@@ -90,7 +103,7 @@ export function loadConfig(env: Env): Config {
     repoDir: env.RB_REPO?.trim() || "/work/repo",
     diffPath: env.RB_DIFF?.trim() || "/work/pr/diff.patch",
     prJsonPath: env.RB_PR_JSON?.trim() || "/work/pr/pr.json",
-    outPath: required(env, "RB_OUT"),
+    outPath,
     attempt: integer(env, "RB_ATTEMPT", 1, 1, 1000),
     apiKey: required(env, "OPENROUTER_API_KEY"),
     baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
@@ -100,6 +113,9 @@ export function loadConfig(env: Env): Config {
     verify,
     secondLook: secondLook === "on",
     followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
+    minSeverity,
+    fitModel: env.RB_CONFIG_FIT?.trim() || null,
+    fitOutPath: join(dirname(outPath), "fit.json"),
     effort: env.RB_CONFIG_EFFORT?.trim() || null,
     maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", 25, 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,
@@ -115,6 +131,8 @@ export function describeSettings(config: Config): string {
     `verify=${config.verify}`,
     `second_look=${config.secondLook ? "on" : "off"}`,
     `follow_up=${config.followUpModel ?? "off"}`,
+    `min_severity=${config.minSeverity}`,
+    `fit=${config.fitModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,
     `max_findings=${config.maxFindings}`,
     `time_budget=${config.budgetMs / 1000}`,

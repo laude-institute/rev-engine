@@ -1,0 +1,160 @@
+name: Rev Engine Prime review
+description: Reviews a pull request with a model when a maintainer asks, and posts the findings as one review.
+
+inputs:
+  openrouter-api-key:
+    description: OpenRouter API key. Pass it from a repository secret.
+    required: true
+  github-token:
+    description: Token used to read the pull request and post the review.
+    default: ${{ github.token }}
+  pr-number:
+    description: Pull request to review. Leave empty when the workflow is started by a comment on a pull request.
+    default: ""
+  command:
+    description: A comment starts a review only when it begins with this text.
+    default: /review
+  model:
+    description: OpenRouter model that reviews and verifies.
+    default: anthropic/claude-opus-5.5
+  min-severity:
+    description: The least severe findings to report. One of high, medium or low.
+    default: high
+  max-findings:
+    description: Cap on the number of findings.
+    default: "10"
+  fit:
+    description: Set to "on" to also say whether the change belongs in the project, judged by the goals and design the project states.
+    default: "on"
+  time-budget:
+    description: Seconds allowed for the review.
+    default: "780"
+  allow-forks:
+    description: Set to "true" to review pull requests from forks. Their code is only read, never run.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Everything from the event is passed through the environment and never
+    # written into a script, because comment text is untrusted.
+    - name: Check who asked
+      id: ask
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        EVENT_NAME: ${{ github.event_name }}
+        ACTOR: ${{ github.event.comment.user.login || github.actor }}
+        COMMENT: ${{ github.event.comment.body }}
+        COMMENT_ON_PR: ${{ github.event.issue.pull_request.url }}
+        EVENT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        INPUT_NUMBER: ${{ inputs.pr-number }}
+        COMMAND: ${{ inputs.command }}
+        ALLOW_FORKS: ${{ inputs.allow-forks }}
+      run: |
+        set -euo pipefail
+        skip() { echo "::notice::No review: $1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
+
+        number="${INPUT_NUMBER:-$EVENT_NUMBER}"
+        if [ "$EVENT_NAME" = issue_comment ]; then
+          [ -n "$COMMENT_ON_PR" ] || skip "the comment is not on a pull request"
+          case "$COMMENT" in "$COMMAND"*) ;; *) skip "the comment does not begin with $COMMAND" ;; esac
+          number="$EVENT_NUMBER"
+        fi
+        case "$number" in ''|*[!0-9]*) echo "::error::No pull request number. Set pr-number."; exit 1 ;; esac
+
+        # Only people who can push to the repository may start a review, because each one costs money.
+        permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
+        case "$permission" in admin|write) ;; *) skip "$ACTOR does not have write access to $REPO" ;; esac
+
+        mkdir -p "$RUNNER_TEMP/rev-engine-prime/pr" "$RUNNER_TEMP/rev-engine-prime/out"
+        gh api "repos/$REPO/pulls/$number" > "$RUNNER_TEMP/rev-engine-prime/pull.json"
+        jq '{title, body}' "$RUNNER_TEMP/rev-engine-prime/pull.json" > "$RUNNER_TEMP/rev-engine-prime/pr/pr.json"
+        if [ "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/rev-engine-prime/pull.json")" != "$REPO" ] && [ "$ALLOW_FORKS" != true ]; then
+          skip "pull request $number comes from a fork and allow-forks is not set"
+        fi
+        {
+          echo "run=true"
+          echo "number=$number"
+          echo "base=$(jq -r .base.sha "$RUNNER_TEMP/rev-engine-prime/pull.json")"
+          echo "head=$(jq -r .head.sha "$RUNNER_TEMP/rev-engine-prime/pull.json")"
+        } >> "$GITHUB_OUTPUT"
+
+    # The token is not kept in the checkout, because the model can read files there.
+    - name: Check out the pull request
+      if: steps.ask.outputs.run == 'true'
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ steps.ask.outputs.head }}
+        fetch-depth: 0
+        path: rev-engine-prime-checkout
+        persist-credentials: false
+        token: ${{ inputs.github-token }}
+
+    - name: Write the diff
+      if: steps.ask.outputs.run == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        BASE: ${{ steps.ask.outputs.base }}
+        HEAD: ${{ steps.ask.outputs.head }}
+      run: |
+        set -euo pipefail
+        repo="$GITHUB_WORKSPACE/rev-engine-prime-checkout"
+        auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
+        git -C "$repo" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --no-tags origin "$BASE"
+        git -C "$repo" diff "$BASE...$HEAD" > "$RUNNER_TEMP/rev-engine-prime/pr/diff.patch"
+
+    - name: Build the reviewer
+      if: steps.ask.outputs.run == 'true'
+      shell: bash
+      run: docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
+
+    - name: Review
+      if: steps.ask.outputs.run == 'true'
+      shell: bash
+      env:
+        OPENROUTER_API_KEY: ${{ inputs.openrouter-api-key }}
+        RB_NWO: ${{ github.repository }}
+        RB_PR_NUMBER: ${{ steps.ask.outputs.number }}
+        RB_BASE: ${{ steps.ask.outputs.base }}
+        RB_HEAD: ${{ steps.ask.outputs.head }}
+        RB_CONFIG_MODEL: ${{ inputs.model }}
+        RB_CONFIG_MIN_SEVERITY: ${{ inputs.min-severity }}
+        RB_CONFIG_MAX_FINDINGS: ${{ inputs.max-findings }}
+        RB_CONFIG_TIME_BUDGET: ${{ inputs.time-budget }}
+        RB_CONFIG_FIT: ${{ inputs.fit == 'on' && inputs.model || '' }}
+      run: |
+        set -euo pipefail
+        docker run --rm \
+          -v "$GITHUB_WORKSPACE/rev-engine-prime-checkout:/work/repo:ro" \
+          -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr:ro" \
+          -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
+          -e OPENROUTER_API_KEY -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
+          -e RB_CONFIG_MODEL -e RB_CONFIG_MIN_SEVERITY -e RB_CONFIG_MAX_FINDINGS -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT \
+          -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json \
+          -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \
+          rev-engine-prime:action
+
+    # The posting script runs in the same image so the runner needs no Node of its own.
+    # It gets the GitHub token and no model key; the review above gets the model key and no GitHub token.
+    - name: Post the review
+      if: steps.ask.outputs.run == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        RB_NWO: ${{ github.repository }}
+        RB_PR_NUMBER: ${{ steps.ask.outputs.number }}
+        RB_HEAD: ${{ steps.ask.outputs.head }}
+        REVIEW_MODEL: ${{ inputs.model }}
+        MIN_SEVERITY: ${{ inputs.min-severity }}
+      run: |
+        set -euo pipefail
+        docker run --rm --entrypoint node \
+          -v "$GITHUB_ACTION_PATH/action:/agent/action:ro" \
+          -v "$RUNNER_TEMP/rev-engine-prime:/work:ro" \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e RB_NWO -e RB_PR_NUMBER -e RB_HEAD -e REVIEW_MODEL -e MIN_SEVERITY \
+          -e FINDINGS_PATH=/work/out/findings.json -e FIT_PATH=/work/out/fit.json -e DIFF_PATH=/work/pr/diff.patch \
+          rev-engine-prime:action /agent/action/post.ts

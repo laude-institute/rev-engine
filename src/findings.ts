@@ -237,6 +237,11 @@ export function applyVerdicts(candidates: Candidate[], verdicts: Verdict[], stri
   });
 }
 
+/** The candidates at least as severe as `min`. */
+export function atLeast(candidates: Candidate[], min: Severity): Candidate[] {
+  return candidates.filter((candidate) => SEVERITY_RANK[candidate.severity] <= SEVERITY_RANK[min]);
+}
+
 /** Most severe and most confident first, cut to the cap. */
 export function rank(candidates: Candidate[], max: number): Candidate[] {
   return candidates

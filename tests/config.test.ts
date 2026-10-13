@@ -21,6 +21,17 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.verifierModel, DEFAULT_MODEL);
   assert.equal(config.verify, "lenient");
   assert.equal(config.budgetMs, 780_000);
+  assert.equal(config.minSeverity, "low");
+  assert.equal(config.fitModel, null);
+});
+
+test("reads the minimum severity and the fit model", () => {
+  const config = loadConfig({ ...BASE, RB_CONFIG_MIN_SEVERITY: "high", RB_CONFIG_FIT: "vendor/fit" });
+  assert.equal(config.minSeverity, "high");
+  assert.equal(config.fitModel, "vendor/fit");
+  assert.equal(config.fitOutPath, "/work/out/fit.json");
+  assert.ok(describeSettings(config).includes("min_severity=high fit=vendor/fit"));
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MIN_SEVERITY: "urgent" }), /RB_CONFIG_MIN_SEVERITY/);
 });
 
 test("reads the reviewer settings from RB_CONFIG variables", () => {

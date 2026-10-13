@@ -4,8 +4,10 @@ import { readFile } from "node:fs/promises";
 import { runAgent, type SecondLook } from "./agent.ts";
 import type { Config } from "./config.ts";
 import { pickDesignDocs } from "./docs.ts";
+import { assessFit, type FitAssessment } from "./fit.ts";
 import {
   applyVerdicts,
+  atLeast,
   dedupe,
   normalizeCandidates,
   parseDiff,
@@ -74,6 +76,8 @@ export interface ReviewOutcome {
   findings: OutputFinding[];
   proposed: number;
   verified: boolean;
+  /** Whether the change belongs in the project, when that was asked for and answered. */
+  fit: FitAssessment | null;
 }
 
 async function loadPullRequest(config: Config): Promise<PullRequestInfo> {
@@ -112,6 +116,14 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const changed = parseDiff(diff);
   const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
   log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
+
+  // The fit assessment runs beside the review and never touches the findings.
+  const fit = config.fitModel
+    ? assessFit({
+      chat, model: config.fitModel, pr, changed, diff, rules, documents, deadline: finishDeadline, maxTurns: config.maxTurns, log,
+      workspace: new Workspace(config.repoDir, config.diffPath, config.base),
+    })
+    : Promise.resolve(null);
 
   const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
   const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
@@ -176,6 +188,11 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
 
   let survivors = dedupe(proposals);
+  if (config.minSeverity !== "low") {
+    const before = survivors.length;
+    survivors = atLeast(survivors, config.minSeverity);
+    log(`kept ${survivors.length} of ${before} finding(s) at ${config.minSeverity} severity or above`);
+  }
   let verified = false;
   if (verifying && survivors.length && finishDeadline - Date.now() >= MIN_VERIFY_MS) {
     try {
@@ -195,5 +212,5 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
 
   const findings = rank(survivors, config.maxFindings).map((candidate) => toOutput(candidate, config.agent));
-  return { findings, proposed: proposals.length, verified };
+  return { findings, proposed: proposals.length, verified, fit: await fit };
 }
