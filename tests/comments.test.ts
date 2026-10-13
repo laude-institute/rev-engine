@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { alreadyReported, buildReview, commentBody, MARKER, parseHunks, place, withoutLineComments } from "../action/comments.ts";
+import { alreadyReported, buildReview, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 1111111..2222222 100644
@@ -23,7 +23,9 @@ deleted file mode 100644
 -two
 `;
 
-const finding = (file: string, start: number, end: number, message = "Title: detail text.") => ({ file, start_line: start, end_line: end, message });
+const finding = (file: string, start: number, end: number, severity: Severity = "high", title = "Title", detail = "Detail text."): Finding =>
+  ({ file, start_line: start, end_line: end, severity, title, detail });
+const base = { fit: null, hunks: parseHunks(DIFF), existing: [], head: "abcdef0123456789", model: "vendor/model", minSeverity: "medium" as Severity, maxComments: 10 };
 
 test("records the lines at head that each hunk shows", () => {
   const hunks = parseHunks(DIFF);
@@ -41,9 +43,9 @@ test("places a finding on the lines a hunk shows", () => {
   assert.equal(place(finding("src/other.ts", 1, 1), hunks), null);
 });
 
-test("puts the opening sentence of a finding in bold and marks the comment", () => {
-  assert.equal(commentBody(finding("a", 1, 1)), `**Title**\n\ndetail text.\n\n${MARKER}`);
-  assert.equal(commentBody(finding("a", 1, 1, "No separator here")), `No separator here\n\n${MARKER}`);
+test("leads a comment with the severity and the title, and marks it", () => {
+  assert.equal(commentBody(finding("a", 1, 1)), `**High severity. Title.**\n\nDetail text.\n\n${MARKER}`);
+  assert.equal(commentBody(finding("a", 1, 1, "medium", "Only a title.", "")), `**Medium severity. Only a title.**\n\n${MARKER}`);
 });
 
 test("recognises lines an earlier run commented on", () => {
@@ -58,38 +60,53 @@ test("recognises lines an earlier run commented on", () => {
 
 test("builds one review with line comments, a summary and the fit assessment", () => {
   const parts = buildReview({
-    findings: [finding("src/a.ts", 11, 12), finding("src/a.ts", 42, 42), finding("src/a.ts", 100, 101, "Far away: not in the diff.")],
+    ...base,
+    findings: [finding("src/a.ts", 11, 12), finding("src/a.ts", 42, 42), finding("src/a.ts", 100, 101, "medium", "Far away", "Not in the diff.")],
     fit: { verdict: "fits_with_concerns", summary: "It mostly belongs.", reasons: [{ point: "Adds a second cache.", source: "docs/design.md" }] },
-    hunks: parseHunks(DIFF),
     existing: [{ path: "src/a.ts", line: 42, start_line: null, body: MARKER }],
-    head: "abcdef0123456789", model: "vendor/model", minSeverity: "high",
   });
   assert.deepEqual(parts.comments.map((comment) => [comment.path, comment.start_line, comment.line]), [["src/a.ts", 11, 12]]);
-  assert.match(parts.body, /Reviewed commit abcdef0 with vendor\/model\. Only findings of high severity are reported\./);
+  assert.match(parts.body, /Reviewed commit abcdef0 with vendor\/model\./);
   assert.match(parts.body, /\*\*It fits, with concerns\.\*\* It mostly belongs\./);
   assert.match(parts.body, /- Adds a second cache\. \(docs\/design\.md\)/);
-  assert.match(parts.body, /1 finding\(s\) are posted as comments/);
+  assert.match(parts.body, /1 finding\(s\) of medium or high severity are posted as comments/);
   assert.match(parts.body, /1 finding\(s\) were left out because an earlier review/);
-  assert.match(parts.body, /`src\/a\.ts:100-101` Far away: not in the diff\./);
+  assert.match(parts.body, /- Medium, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
+  assert.doesNotMatch(parts.body, /<details>/);
 });
 
-test("says so when there is nothing to report", () => {
-  const parts = buildReview({ findings: [], fit: null, hunks: new Map(), existing: [], head: "a".repeat(40), model: "m", minSeverity: "low" });
-  assert.deepEqual(parts.comments, []);
-  assert.match(parts.body, /All findings are reported\./);
-  assert.match(parts.body, /No findings\./);
-  assert.doesNotMatch(parts.body, /belong in the project/);
+test("lists less severe findings in a collapsed section", () => {
+  const parts = buildReview({
+    ...base,
+    findings: [finding("src/a.ts", 11, 12, "medium"), finding("src/a.ts", 42, 42, "low", "Stale comment", "It names\nthe old function.")],
+  });
+  assert.equal(parts.comments.length, 1);
+  assert.match(parts.body, /<details>\n<summary>1 more finding\(s\), less severe<\/summary>\n\n- Low, `src\/a\.ts:42`\. \*\*Stale comment\.\*\* It names the old function\.\n\n<\/details>/);
 });
 
-test("says that less severe findings are not shown when a filter is on", () => {
-  const parts = buildReview({ findings: [], fit: null, hunks: new Map(), existing: [], head: "a".repeat(40), model: "m", minSeverity: "high" });
-  assert.match(parts.body, /No findings of high severity\. Less severe findings are not shown\./);
+test("moves findings past the cap on comments into the collapsed section", () => {
+  const parts = buildReview({ ...base, maxComments: 1, findings: [finding("src/a.ts", 11, 11), finding("src/a.ts", 12, 12, "medium", "Second")] });
+  assert.equal(parts.comments.length, 1);
+  assert.match(parts.body, /1 more finding\(s\), less severe or past the limit on comments/);
+  assert.match(parts.body, /- Medium, `src\/a\.ts:12`\. \*\*Second\.\*\*/);
+});
+
+test("says so when nothing reaches the level that gets a comment", () => {
+  const none = buildReview({ ...base, findings: [] });
+  assert.deepEqual(none.comments, []);
+  assert.match(none.body, /No findings of medium or high severity\./);
+  assert.doesNotMatch(none.body, /belong in the project|<details>/);
+
+  const onlyLow = buildReview({ ...base, minSeverity: "high", findings: [finding("src/a.ts", 11, 11, "low")] });
+  assert.deepEqual(onlyLow.comments, []);
+  assert.match(onlyLow.body, /No findings of high severity\./);
+  assert.match(onlyLow.body, /1 more finding\(s\), less severe/);
 });
 
 test("can move every line comment into the summary", () => {
-  const parts = buildReview({ findings: [finding("src/a.ts", 11, 12)], fit: null, hunks: parseHunks(DIFF), existing: [], head: "a".repeat(40), model: "m", minSeverity: "high" });
+  const parts = buildReview({ ...base, findings: [finding("src/a.ts", 11, 12)] });
   const moved = withoutLineComments(parts);
   assert.deepEqual(moved.comments, []);
-  assert.match(moved.body, /`src\/a\.ts:11-12` \*\*Title\*\* detail text\./);
+  assert.match(moved.body, /`src\/a\.ts:11-12` \*\*High severity\. Title\.\*\* Detail text\./);
   assert.equal(moved.body.split(MARKER).length, 2);
 });

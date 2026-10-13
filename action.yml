@@ -18,10 +18,10 @@ inputs:
     description: OpenRouter model that reviews and verifies.
     default: anthropic/claude-opus-5.5
   min-severity:
-    description: The least severe findings to report. One of high, medium or low.
+    description: The least severe findings that get a comment. One of high, medium or low. Less severe findings are listed in a collapsed section of the summary.
     default: medium
   max-findings:
-    description: Cap on the number of findings.
+    description: Cap on the number of findings that get a comment. Findings past the cap join the collapsed section.
     default: "10"
   fit:
     description: Set to "on" to also say whether the change belongs in the project, judged by the goals and design the project states.
@@ -121,8 +121,6 @@ runs:
         RB_BASE: ${{ steps.ask.outputs.base }}
         RB_HEAD: ${{ steps.ask.outputs.head }}
         RB_CONFIG_MODEL: ${{ inputs.model }}
-        RB_CONFIG_MIN_SEVERITY: ${{ inputs.min-severity }}
-        RB_CONFIG_MAX_FINDINGS: ${{ inputs.max-findings }}
         RB_CONFIG_TIME_BUDGET: ${{ inputs.time-budget }}
         RB_CONFIG_FIT: ${{ inputs.fit == 'on' && inputs.model || '' }}
       run: |
@@ -132,7 +130,7 @@ runs:
           -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
           -e OPENROUTER_API_KEY -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
-          -e RB_CONFIG_MODEL -e RB_CONFIG_MIN_SEVERITY -e RB_CONFIG_MAX_FINDINGS -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT \
+          -e RB_CONFIG_MODEL -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT -e RB_DETAILS_OUT=/work/out/details.json \
           -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json \
           -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \
           rev-engine-prime:action
@@ -150,11 +148,12 @@ runs:
         RB_HEAD: ${{ steps.ask.outputs.head }}
         REVIEW_MODEL: ${{ inputs.model }}
         MIN_SEVERITY: ${{ inputs.min-severity }}
+        MAX_COMMENTS: ${{ inputs.max-findings }}
       run: |
         set -euo pipefail
         docker run --rm --entrypoint node \
           -v "$GITHUB_ACTION_PATH/action:/agent/action:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime:/work:ro" \
-          -e GITHUB_TOKEN -e GITHUB_API_URL -e RB_NWO -e RB_PR_NUMBER -e RB_HEAD -e REVIEW_MODEL -e MIN_SEVERITY \
-          -e FINDINGS_PATH=/work/out/findings.json -e FIT_PATH=/work/out/fit.json -e DIFF_PATH=/work/pr/diff.patch \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e RB_NWO -e RB_PR_NUMBER -e RB_HEAD -e REVIEW_MODEL -e MIN_SEVERITY -e MAX_COMMENTS \
+          -e FINDINGS_PATH=/work/out/details.json -e FIT_PATH=/work/out/fit.json -e DIFF_PATH=/work/pr/diff.patch \
           rev-engine-prime:action /agent/action/post.ts

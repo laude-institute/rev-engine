@@ -54,6 +54,13 @@ try {
   const chat = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
   const outcome = await review(config, chat, log);
   await write(outcome.findings);
+  if (config.detailsOutPath) {
+    const details = outcome.ranked.map((candidate) => ({
+      file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
+      severity: candidate.severity, title: candidate.title, detail: candidate.detail,
+    }));
+    await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details }, null, 2)}\n`);
+  }
   if (outcome.fit) await writeFile(config.fitOutPath, `${JSON.stringify(outcome.fit, null, 2)}\n`);
   logUsageByCaller();
   log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}, ${Math.round((Date.now() - started) / 1000)}s`);

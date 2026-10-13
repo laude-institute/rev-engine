@@ -23,6 +23,8 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.budgetMs, 780_000);
   assert.equal(config.minSeverity, "low");
   assert.equal(config.fitModel, null);
+  assert.equal(config.detailsOutPath, null);
+  assert.equal(loadConfig({ ...BASE, RB_DETAILS_OUT: "/work/out/details.json" }).detailsOutPath, "/work/out/details.json");
 });
 
 test("reads the minimum severity and the fit model", () => {

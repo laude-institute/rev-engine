@@ -1,11 +1,15 @@
 // Turns a findings file into the parts of one GitHub pull request review:
 // comments on lines the diff shows, and a summary for everything else.
 
+export type Severity = "high" | "medium" | "low";
+
 export interface Finding {
   file: string;
   start_line: number;
   end_line: number;
-  message: string;
+  severity: Severity;
+  title: string;
+  detail: string;
 }
 
 export interface Fit {
@@ -91,13 +95,20 @@ export function place(finding: Finding, hunks: Hunks): { line: number; startLine
   return null;
 }
 
-/** The finding's message with its opening sentence in bold. */
+const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
+const SEVERITY_LABEL: Record<Severity, string> = { high: "High", medium: "Medium", low: "Low" };
+/** Keeps a long list of collapsed findings inside the size GitHub allows for a review. */
+const MAX_LISTED_DETAIL_CHARS = 700;
+
+function titled(finding: Finding): string {
+  const title = finding.title.replace(/[.:]+$/, "");
+  return finding.detail && finding.detail !== finding.title ? `**${title}.** ${finding.detail}` : `**${title}.**`;
+}
+
 export function commentBody(finding: Finding): string {
-  const split = finding.message.indexOf(": ");
-  const text = split > 0 && split < 200
-    ? `**${finding.message.slice(0, split)}**\n\n${finding.message.slice(split + 2)}`
-    : finding.message;
-  return `${text}\n\n${MARKER}`;
+  const title = finding.title.replace(/[.:]+$/, "");
+  const detail = finding.detail && finding.detail !== finding.title ? `\n\n${finding.detail}` : "";
+  return `**${SEVERITY_LABEL[finding.severity]} severity. ${title}.**${detail}\n\n${MARKER}`;
 }
 
 /** True when an earlier run of this action already commented on these lines of this file. */
@@ -122,7 +133,10 @@ export interface ReviewInput {
   existing: ExistingComment[];
   head: string;
   model: string;
-  minSeverity: string;
+  /** Findings at least this severe get a comment. The rest are listed collapsed in the summary. */
+  minSeverity: Severity;
+  /** Cap on comments. Findings past it join the collapsed list. */
+  maxComments: number;
 }
 
 function location(finding: Finding): string {
@@ -134,9 +148,19 @@ function fitSection(fit: Fit): string {
   return `#### Does this change belong in the project?\n\n**${VERDICTS[fit.verdict] ?? fit.verdict}.** ${fit.summary}${reasons ? `\n\n${reasons}` : ""}`;
 }
 
+function listed(finding: Finding): string {
+  const text = titled(finding);
+  const cut = text.length > MAX_LISTED_DETAIL_CHARS ? `${text.slice(0, MAX_LISTED_DETAIL_CHARS)}...` : text;
+  return `- ${SEVERITY_LABEL[finding.severity]}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
+}
+
 export function buildReview(input: ReviewInput): ReviewParts {
-  const fresh = input.findings.filter((finding) => !alreadyReported(finding, input.existing));
-  const repeated = input.findings.length - fresh.length;
+  // The findings arrive most severe first, so the cap keeps the most severe.
+  const serious = input.findings.filter((finding) => SEVERITY_RANK[finding.severity] <= SEVERITY_RANK[input.minSeverity]);
+  const shown = serious.slice(0, input.maxComments);
+  const collapsed = input.findings.filter((finding) => !shown.includes(finding));
+  const fresh = shown.filter((finding) => !alreadyReported(finding, input.existing));
+  const repeated = shown.length - fresh.length;
   const comments: LineComment[] = [];
   const unplaced: Finding[] = [];
   for (const finding of fresh) {
@@ -152,16 +176,20 @@ export function buildReview(input: ReviewInput): ReviewParts {
     });
   }
 
-  const scope = input.minSeverity === "low" ? "All findings are reported." : `Only findings of ${input.minSeverity} severity${input.minSeverity === "high" ? "" : " or above"} are reported.`;
-  const sections = [`### Automated review\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}. ${scope}`];
+  const level = input.minSeverity === "high" ? "high severity" : input.minSeverity === "medium" ? "medium or high severity" : "any severity";
+  const sections = [`### Automated review\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}.`];
   if (input.fit) sections.push(fitSection(input.fit));
 
   const lines: string[] = [];
-  if (!input.findings.length) lines.push(input.minSeverity === "low" ? "No findings." : `No findings of ${input.minSeverity} severity${input.minSeverity === "high" ? "" : " or above"}. Less severe findings are not shown.`);
-  if (comments.length) lines.push(`${comments.length} finding(s) are posted as comments on the changed lines.`);
+  if (!shown.length) lines.push(`No findings of ${level}.`);
+  if (comments.length) lines.push(`${comments.length} finding(s) of ${level} are posted as comments on the changed lines.`);
   if (repeated) lines.push(`${repeated} finding(s) were left out because an earlier review already commented on the same lines.`);
   if (unplaced.length) {
-    lines.push(`${unplaced.length} finding(s) are about lines the diff does not show:\n\n${unplaced.map((finding) => `- \`${location(finding)}\` ${finding.message}`).join("\n")}`);
+    lines.push(`${unplaced.length} finding(s) are about lines the diff does not show:\n\n${unplaced.map(listed).join("\n")}`);
+  }
+  if (collapsed.length) {
+    const why = serious.length > shown.length ? "less severe or past the limit on comments" : "less severe";
+    lines.push(`<details>\n<summary>${collapsed.length} more finding(s), ${why}</summary>\n\n${collapsed.map(listed).join("\n")}\n\n</details>`);
   }
   sections.push(`#### Findings\n\n${lines.join("\n\n")}`);
   return { body: `${sections.join("\n\n")}\n\n${MARKER}`, comments };

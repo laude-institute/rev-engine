@@ -76,6 +76,8 @@ export interface ReviewOutcome {
   findings: OutputFinding[];
   proposed: number;
   verified: boolean;
+  /** The final findings before they were flattened for the findings file, in the same order. */
+  ranked: Candidate[];
   /** Whether the change belongs in the project, when that was asked for and answered. */
   fit: FitAssessment | null;
 }
@@ -211,6 +213,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     }
   }
 
-  const findings = rank(survivors, config.maxFindings).map((candidate) => toOutput(candidate, config.agent));
-  return { findings, proposed: proposals.length, verified, fit: await fit };
+  const ranked = rank(survivors, config.maxFindings);
+  const findings = ranked.map((candidate) => toOutput(candidate, config.agent));
+  return { findings, ranked, proposed: proposals.length, verified, fit: await fit };
 }
