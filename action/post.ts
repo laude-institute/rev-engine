@@ -1,6 +1,6 @@
 // Posts the findings of one run to the pull request as a single review.
 import { readFile } from "node:fs/promises";
-import { buildReview, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewParts, type Severity } from "./comments.ts";
+import { buildReview, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewInput, type ReviewParts, type Severity } from "./comments.ts";
 
 const log = (message: string): void => console.error(`post: ${message}`);
 
@@ -46,6 +46,23 @@ async function submit(parts: ReviewParts): Promise<Response> {
   return github("POST", `/pulls/${number}/reviews`, { commit_id: head, event: "COMMENT", body: parts.body, comments: parts.comments });
 }
 
+/**
+ * A comment has no address until the review is posted, so the summary's list
+ * gets its links in a second step. A failure here leaves the list without links.
+ */
+async function linkComments(input: ReviewInput, parts: ReviewParts, review: number): Promise<void> {
+  try {
+    const response = await github("GET", `/pulls/${number}/reviews/${review}/comments?per_page=100`);
+    if (!response.ok) throw new Error(`listing the review's comments failed with status ${response.status}`);
+    const posted = await response.json() as Array<{ path: string; body: string; html_url: string }>;
+    const links = parts.comments.map((comment) => posted.find((other) => other.path === comment.path && other.body.trim() === comment.body.trim())?.html_url);
+    const update = await github("PUT", `/pulls/${number}/reviews/${review}`, { body: buildReview(input, links).body });
+    if (!update.ok) throw new Error(`updating the summary failed with status ${update.status}`);
+  } catch (error) {
+    log(`the summary has no links to its comments: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function optionalJson<T>(path: string | undefined): Promise<T | null> {
   if (!path) return null;
   try {
@@ -63,19 +80,23 @@ try {
   const output = JSON.parse(await readFile(required("FINDINGS_PATH"), "utf8")) as { findings: Finding[] };
   const fit = await optionalJson<Fit>(process.env.FIT_PATH);
   const diff = await readFile(required("DIFF_PATH"), "utf8");
-  const parts = buildReview({
+  const input = {
     findings: output.findings, fit, hunks: parseHunks(diff), existing: await existingComments(), head,
     model: process.env.REVIEW_MODEL?.trim() || "a model", minSeverity, maxComments,
-  });
+  };
+  const parts = buildReview(input);
 
+  let inline = parts.comments.length > 0;
   let response = await submit(parts);
   if (response.status === 422 && parts.comments.length) {
     // One line GitHub will not take rejects the whole review, so send it again as a summary only.
     log(`GitHub rejected the line comments: ${(await response.text()).slice(0, 500)}`);
     response = await submit(withoutLineComments(parts));
+    inline = false;
   }
   if (!response.ok) throw new Error(`posting the review failed with status ${response.status}: ${(await response.text()).slice(0, 500)}`);
-  log(`posted a review with ${parts.comments.length} line comment(s) on ${nwo}#${number}`);
+  if (inline) await linkComments(input, parts, (await response.json() as { id: number }).id);
+  log(`posted a review with ${inline ? parts.comments.length : 0} line comment(s) on ${nwo}#${number}`);
 } catch (error) {
   log(error instanceof Error ? error.message : String(error));
   process.exit(1);

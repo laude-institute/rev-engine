@@ -98,7 +98,7 @@ export function place(finding: Finding, hunks: Hunks): { line: number; startLine
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const SEVERITY_LABEL: Record<Severity, string> = { high: "High", medium: "Medium", low: "Low" };
 /** Keeps a long list of collapsed findings inside the size GitHub allows for a review. */
-const MAX_LISTED_DETAIL_CHARS = 700;
+const MAX_LISTED_DETAIL_CHARS = 1_500;
 
 function titled(finding: Finding): string {
   const title = finding.title.replace(/[.:]+$/, "");
@@ -148,13 +148,22 @@ function fitSection(fit: Fit): string {
   return `#### Does this change belong in the project?\n\n**${VERDICTS[fit.verdict] ?? fit.verdict}.** ${fit.summary}${reasons ? `\n\n${reasons}` : ""}`;
 }
 
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 function listed(finding: Finding): string {
   const text = titled(finding);
   const cut = text.length > MAX_LISTED_DETAIL_CHARS ? `${text.slice(0, MAX_LISTED_DETAIL_CHARS)}...` : text;
   return `- ${SEVERITY_LABEL[finding.severity]}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
 }
 
-export function buildReview(input: ReviewInput): ReviewParts {
+/**
+ * `links` holds the address of each line comment, in the order of the comments
+ * this returns. They exist only once the review is posted, so the review is
+ * built once without them and its summary is rebuilt with them afterwards.
+ */
+export function buildReview(input: ReviewInput, links: Array<string | undefined> = []): ReviewParts {
   // The findings arrive most severe first, so the cap keeps the most severe.
   const serious = input.findings.filter((finding) => SEVERITY_RANK[finding.severity] <= SEVERITY_RANK[input.minSeverity]);
   const shown = serious.slice(0, input.maxComments);
@@ -162,6 +171,7 @@ export function buildReview(input: ReviewInput): ReviewParts {
   const fresh = shown.filter((finding) => !alreadyReported(finding, input.existing));
   const repeated = shown.length - fresh.length;
   const comments: LineComment[] = [];
+  const placed: Finding[] = [];
   const unplaced: Finding[] = [];
   for (const finding of fresh) {
     const spot = place(finding, input.hunks);
@@ -169,6 +179,7 @@ export function buildReview(input: ReviewInput): ReviewParts {
       unplaced.push(finding);
       continue;
     }
+    placed.push(finding);
     comments.push({
       path: finding.file, line: spot.line, side: "RIGHT",
       ...(spot.startLine === null ? {} : { start_line: spot.startLine, start_side: "RIGHT" as const }),
@@ -182,14 +193,20 @@ export function buildReview(input: ReviewInput): ReviewParts {
 
   const lines: string[] = [];
   if (!shown.length) lines.push(`No findings of ${level}.`);
-  if (comments.length) lines.push(`${comments.length} finding(s) of ${level} are posted as comments on the changed lines.`);
-  if (repeated) lines.push(`${repeated} finding(s) were left out because an earlier review already commented on the same lines.`);
+  if (placed.length) {
+    const items = placed.map((finding, index) => {
+      const title = finding.title.replace(/[.:]+$/, "");
+      return `- ${SEVERITY_LABEL[finding.severity]} severity. ${links[index] ? `[${title}](${links[index]})` : title}.`;
+    });
+    lines.push(`${count(placed.length, "finding")} of ${level}, see the inline ${placed.length === 1 ? "comment" : "comments"}:\n\n${items.join("\n")}`);
+  }
+  if (repeated) lines.push(`${count(repeated, "finding")} ${repeated === 1 ? "was" : "were"} left out because an earlier review already commented on the same lines.`);
   if (unplaced.length) {
-    lines.push(`${unplaced.length} finding(s) are about lines the diff does not show:\n\n${unplaced.map(listed).join("\n")}`);
+    lines.push(`${count(unplaced.length, "finding")} about lines the diff does not show:\n\n${unplaced.map(listed).join("\n")}`);
   }
   if (collapsed.length) {
     const why = serious.length > shown.length ? "less severe or past the limit on comments" : "less severe";
-    lines.push(`<details>\n<summary>${collapsed.length} more finding(s), ${why}</summary>\n\n${collapsed.map(listed).join("\n")}\n\n</details>`);
+    lines.push(`<details>\n<summary>${count(collapsed.length, "more finding")}, ${why}</summary>\n\n${collapsed.map(listed).join("\n")}\n\n</details>`);
   }
   sections.push(`#### Findings\n\n${lines.join("\n\n")}`);
   return { body: `${sections.join("\n\n")}\n\n${MARKER}`, comments };
