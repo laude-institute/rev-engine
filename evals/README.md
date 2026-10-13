@@ -45,6 +45,8 @@ A case file looks like this:
 }
 ```
 
+The stored description is what the reviewer reads. Replace the names of people and deployments in it with general words, and change nothing else.
+
 Only label from a person's judgment. A finding that looks right to you but that nobody has confirmed stays `unlabeled`.
 
 ## Run the evals

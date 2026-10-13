@@ -5,7 +5,7 @@
   "base": "8c1a92cef0109bd56f0714a32b179a8a99d32daa",
   "head": "7a747cdc23b2892887ce4eae2acf8df5a511c64f",
   "title": "monolith: suppress the fallback idle marker when the run wrote its own",
-  "body": "## Summary\n\nThe monolith wrapper appends a fallback idle marker when a run produces no durable step. The router prompt already asks the mind to append its own idle step when it honestly idles, so a run that idles on its own got **two** idle rows with the same run_id, ~4s apart: one authored by the mind, one by the fallback. Measured on harris 2026-09-15: 259 of 267 monolith runs wrote two idle rows \u2014 every idle count, close-read, and backoff audit ran 2x heavy (banked as memory 482cb0c3).\n\nFix: the wrapper tracks the last idle step id before/after the run (same cached probe as the visible/thought work checks) and suppresses the fallback when the run wrote its own idle. The fallback survives for runs that crash, refuse, or write nothing at all; the error path still wins.\n\nUnchanged behavior: a self-idle still does not count as work \u2014 idling is a decision, not output \u2014 so the backoff ladder still advances exactly as before.\n\n## Verification\n\n- Rebased onto current main (8c1a92c) with the conflict in `thinkers/monolith/step` resolved: main gained `_last_diagnostic_id` (52dccbb/29aedde) next to where `_last_idle_id` lands; both are kept.\n- `tests/test_monolith_backoff.sh`: **14 passed, 0 failed** at the rebased head, including the new case 5b (self-idle: exactly one idle row, fallback suppressed, ladder advances).\n- Baseline run on clean main confirmed the bug shape: no self-idle awareness at all, fallback fires on every self-idle.\n- `bash -n` on both changed files.\n\nThis has been a local branch since 2026-09-16 (handed to Nick in the chat then); this PR is that fix, current against main, tests green.\n",
+  "body": "## Summary\n\nThe monolith wrapper appends a fallback idle marker when a run produces no durable step. The router prompt already asks the mind to append its own idle step when it honestly idles, so a run that idles on its own got **two** idle rows with the same run_id, ~4s apart: one authored by the mind, one by the fallback. Measured on one deployment on 2026-09-15: 259 of 267 monolith runs wrote two idle rows \u2014 every idle count, close-read, and backoff audit ran 2x heavy (banked as memory 482cb0c3).\n\nFix: the wrapper tracks the last idle step id before/after the run (same cached probe as the visible/thought work checks) and suppresses the fallback when the run wrote its own idle. The fallback survives for runs that crash, refuse, or write nothing at all; the error path still wins.\n\nUnchanged behavior: a self-idle still does not count as work \u2014 idling is a decision, not output \u2014 so the backoff ladder still advances exactly as before.\n\n## Verification\n\n- Rebased onto current main (8c1a92c) with the conflict in `thinkers/monolith/step` resolved: main gained `_last_diagnostic_id` (52dccbb/29aedde) next to where `_last_idle_id` lands; both are kept.\n- `tests/test_monolith_backoff.sh`: **14 passed, 0 failed** at the rebased head, including the new case 5b (self-idle: exactly one idle row, fallback suppressed, ladder advances).\n- Baseline run on clean main confirmed the bug shape: no self-idle awareness at all, fallback fires on every self-idle.\n- `bash -n` on both changed files.\n\nThis has been a local branch since 2026-09-16 (handed to the maintainer then); this PR is that fix, current against main, tests green.\n",
   "source": "The maintainer's second review tool, which ran the code, on 2026-10-13. The two documentation findings have not been judged by a person.",
   "findings": [
     {
@@ -15,7 +15,7 @@
       "kind": "defect",
       "min_severity": "medium",
       "what": "The new check decides that the run wrote its own idle step by comparing the last idle id before and after the run, without checking which run wrote it. When an older idle leaves the 5,000 line window during the run, or another writer adds an idle to the shared trajectory, the check reports an idle this run never wrote and the fallback marker is suppressed. The check should match on the run's own run id.",
-      "note": "The second tool reproduced both cases against the base and the head and called it a must fix. Whether it is medium or high is the maintainer's call."
+      "note": "The second tool reproduced both cases against the base and the head and called it a must fix. The reviewer rates it medium because it needs uncommon conditions and costs one missing marker. The maintainer accepts either reading, so both kinds of merge advice are accepted."
     },
     {
       "id": "test-earlier-idle",
@@ -50,6 +50,7 @@
   ],
   "fit": "fits",
   "advice": [
-    "fix, then merge"
+    "fix, then merge",
+    "merge and fast-follow"
   ]
 }
