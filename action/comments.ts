@@ -159,6 +159,26 @@ function listed(finding: Finding): string {
 }
 
 /**
+ * One line of merge advice, decided by plain rules from the findings and the fit
+ * assessment. A question about whether the change belongs comes before any defect.
+ */
+export function recommendation(findings: Finding[], fit: Fit | null): string {
+  const high = findings.filter((finding) => finding.severity === "high").length;
+  const medium = findings.filter((finding) => finding.severity === "medium").length;
+  let advice: string;
+  if (fit && fit.verdict !== "fits") {
+    advice = `**Recommendation: needs a maintainer's decision.** The assessment below raises a question about whether the change belongs in the project${high ? `, and ${count(high, "high severity finding")} should be fixed in any case` : ""}.`;
+  } else if (high) {
+    advice = `**Recommendation: fix, then merge.** ${count(high, "high severity finding")} should be fixed first.`;
+  } else if (medium) {
+    advice = `**Recommendation: merge and fast-follow.** ${count(medium, "medium severity finding")} can be fixed after the merge.`;
+  } else {
+    advice = "**Recommendation: merge.** The review found nothing of medium or high severity.";
+  }
+  return `${advice} The reviewer read the code without running it and did not look at the pull request's checks.`;
+}
+
+/**
  * `links` holds the address of each line comment, in the order of the comments
  * this returns. They exist only once the review is posted, so the review is
  * built once without them and its summary is rebuilt with them afterwards.
@@ -188,7 +208,7 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
   }
 
   const level = input.minSeverity === "high" ? "high severity" : input.minSeverity === "medium" ? "medium or high severity" : "any severity";
-  const sections = [`### Automated review\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}.`];
+  const sections = [`### Automated review\n\n${recommendation(input.findings, input.fit)}\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}.`];
   if (input.fit) sections.push(fitSection(input.fit));
 
   const lines: string[] = [];

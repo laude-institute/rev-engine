@@ -24,7 +24,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
 | `RB_CONFIG_FOLLOW_UP` | none | A model that reviews the change again in a new conversation after the seats finish, told what they found and asked for what they missed. Skipped when little review time is left. |
 | `RB_CONFIG_MIN_SEVERITY` | `low` | Drop findings less severe than this before verification. One of `high`, `medium` or `low`. |
-| `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It writes `fit.json` beside the findings file and never changes the findings. |
+| `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It runs after the review and is told the findings, writes `fit.json` beside the findings file, and never changes the findings. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
 | `RB_CONFIG_MAX_FINDINGS` | `25` | Cap on findings per pull request. |
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |
@@ -77,7 +77,7 @@ jobs:
           pr-number: ${{ inputs.pr-number }}
 ```
 
-By default the action reviews with `anthropic/claude-opus-5.5`, comments on at most 10 findings of medium or high severity, lists the less severe ones in a collapsed section of the summary, and adds a short answer to whether the change belongs in the project. The inputs `model`, `min-severity`, `max-findings`, `fit` and `time-budget` change those. Pull requests from forks are skipped unless `allow-forks` is `true`.
+By default the action reviews with `anthropic/claude-opus-5.5`, comments on at most 10 findings of medium or high severity, lists the less severe ones in a collapsed section of the summary, and adds a short answer to whether the change belongs in the project. The summary opens with one line of merge advice, decided by plain rules from the severities and that answer. The inputs `model`, `min-severity`, `max-findings`, `fit` and `time-budget` change those. Pull requests from forks are skipped unless `allow-forks` is `true`.
 
 The model only reads the pull request's code and never runs it. The review step holds the model key and no GitHub token, and the step that posts the review holds the GitHub token and no model key.
 

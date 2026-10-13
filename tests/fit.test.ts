@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fitPrompt, parseFit } from "../src/fit.ts";
+import type { Candidate } from "../src/findings.ts";
 
 test("accepts a well-formed fit assessment", () => {
   const fit = parseFit({
@@ -25,8 +26,11 @@ test("rejects a submission with no known verdict or no summary", () => {
 test("gives the fit prompt the rules from base and the documents to read", () => {
   const prompt = fitPrompt(
     { nwo: "owner/repo", number: 7, title: "Add a thing", body: "" },
-    new Map([["src/a.ts", [[1, 2]]]]), "diff --git a/src/a.ts b/src/a.ts", [{ path: "AGENTS.md", text: "Keep it small." }], ["docs/charter.md"], 9, 20,
+    new Map([["src/a.ts", [[1, 2]]]]), "diff --git a/src/a.ts b/src/a.ts", [{ path: "AGENTS.md", text: "Keep it small." }], ["docs/charter.md"],
+    [{ file: "src/a.ts", startLine: 3, endLine: 5, severity: "high", title: "Wrong sign" }] as unknown as Candidate[], 9, 20,
   );
+  assert.match(prompt, /- src\/a\.ts:3-5 \(high\) Wrong sign/);
+  assert.match(fitPrompt({ nwo: "o/r", number: 1, title: "", body: "" }, new Map(), "", [], [], [], 1, 1), /reported no defects/);
   assert.match(prompt, /owner\/repo#7/);
   assert.match(prompt, /<project_file path="AGENTS\.md">\nKeep it small\./);
   assert.match(prompt, /- docs\/charter\.md/);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { alreadyReported, buildReview, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
+import { alreadyReported, buildReview, recommendation, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 1111111..2222222 100644
@@ -74,6 +74,17 @@ test("builds one review with line comments, a summary and the fit assessment", (
   assert.match(parts.body, /1 finding about lines the diff does not show:/);
   assert.match(parts.body, /- Medium, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
   assert.doesNotMatch(parts.body, /<details>/);
+});
+
+test("gives merge advice from the findings and the fit assessment", () => {
+  const fits = { verdict: "fits", summary: "", reasons: [] };
+  assert.match(recommendation([], null), /^\*\*Recommendation: merge\.\*\* The review found nothing of medium or high severity\. The reviewer read the code without running it/);
+  assert.match(recommendation([finding("a", 1, 1, "low")], fits), /Recommendation: merge\.\*\*/);
+  assert.match(recommendation([finding("a", 1, 1, "medium"), finding("a", 2, 2, "medium")], fits), /Recommendation: merge and fast-follow\.\*\* 2 medium severity findings can be fixed after the merge\./);
+  assert.match(recommendation([finding("a", 1, 1, "high"), finding("a", 2, 2, "medium")], null), /Recommendation: fix, then merge\.\*\* 1 high severity finding should be fixed first\./);
+  assert.match(recommendation([finding("a", 1, 1, "high")], { ...fits, verdict: "does_not_fit" }), /needs a maintainer's decision\.\*\* .*belongs in the project, and 1 high severity finding should be fixed in any case\./);
+  assert.match(recommendation([], { ...fits, verdict: "unclear" }), /needs a maintainer's decision\.\*\* .*belongs in the project\. The reviewer/);
+  assert.match(buildReview({ ...base, findings: [finding("src/a.ts", 11, 12)] }).body, /^### Automated review\n\n\*\*Recommendation: fix, then merge\.\*\*/);
 });
 
 test("lists less severe findings in a collapsed section", () => {

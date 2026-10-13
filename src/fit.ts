@@ -1,9 +1,9 @@
 // An optional assessment of whether a change belongs in the project at all.
 //
-// It is kept apart from the review. It runs beside the review seats, writes its
-// own file, and never adds, removes or reorders a finding.
+// It is kept apart from the review. It runs once the findings are final, is told
+// what they are, writes its own file, and never adds, removes or reorders a finding.
 import { runAgent } from "./agent.ts";
-import type { ChangedLines } from "./findings.ts";
+import type { Candidate, ChangedLines } from "./findings.ts";
 import type { Chat } from "./llm.ts";
 import {
   changedFilesSection,
@@ -102,12 +102,22 @@ function documentsSection(documents: string[]): string {
   return `Documents that may state the project's purpose, scope or design. Read the relevant ones with read_base_file before you decide.\n${documents.map((path) => `- ${path}`).join("\n")}`;
 }
 
-export function fitPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], minutes: number, turns: number): string {
+/** Tells the assessment what the code review found, so the two do not contradict each other. */
+function findingsSection(findings: Candidate[]): string {
+  if (!findings.length) return "A separate review of this change's code reported no defects.";
+  const listed = findings.map((finding) => `- ${finding.file}:${finding.startLine}-${finding.endLine} (${finding.severity}) ${finding.title}`).join("\n");
+  return `A separate review of this change's code reported the defects below. The author will be shown them, so do not repeat them or add defects of your own. Your verdict is about what the change sets out to do and where it puts it, not about whether its code works. A defect is never a reason for "fits_with_concerns" or "does_not_fit": a change that belongs in the project and has a bug still fits, and the review deals with the bug. Use the findings in two ways only. Do not describe a part of the change as following the design when a finding shows that part does not work. And when a finding suggests the change departs from something a design document requires, read that document and say in your reasons whether it does.
+
+${listed}`;
+}
+
+export function fitPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], findings: Candidate[], minutes: number, turns: number): string {
   return [
     pullRequestSection(pr),
     `Your budget is ${turns} turns and about ${minutes} minutes. A turn can hold many tool calls.`,
     rulesSection(rules),
     documentsSection(documents),
+    findingsSection(findings),
     changedFilesSection(changed),
     diffSection(diff),
   ].join("\n\n");
@@ -140,6 +150,8 @@ export interface FitOptions {
   diff: string;
   rules: ProjectRule[];
   documents: string[];
+  /** The review's final findings. */
+  findings: Candidate[];
   workspace: Workspace;
   deadline: number;
   maxTurns: number;
@@ -154,7 +166,7 @@ export async function assessFit(options: FitOptions): Promise<FitAssessment | nu
   try {
     const submission = await runAgent({
       chat: options.chat, model, system: FIT_SYSTEM,
-      prompt: fitPrompt(options.pr, options.changed, options.diff, options.rules, options.documents, minutes, turns),
+      prompt: fitPrompt(options.pr, options.changed, options.diff, options.rules, options.documents, options.findings, minutes, turns),
       workspace: options.workspace, submit: submitFit, deadline: options.deadline, maxTurns: turns, log,
       caller: `fit (${model})`,
     });

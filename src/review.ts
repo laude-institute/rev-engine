@@ -43,6 +43,8 @@ const FINISH_SHARE = 0.92;
 const MIN_VERIFY_MS = 60_000;
 /** A follow-up review that starts with less time than this would only skim. */
 const MIN_FOLLOW_UP_MS = 150_000;
+/** The fit assessment needs time to read the project's documents and to write its answer. */
+const MIN_FIT_MS = 150_000;
 const MAX_INDEXED_FILES = 20_000;
 
 const MAX_FILES_LISTED = 25;
@@ -118,14 +120,6 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const changed = parseDiff(diff);
   const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
   log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
-
-  // The fit assessment runs beside the review and never touches the findings.
-  const fit = config.fitModel
-    ? assessFit({
-      chat, model: config.fitModel, pr, changed, diff, rules, documents, deadline: finishDeadline, maxTurns: config.maxTurns, log,
-      workspace: new Workspace(config.repoDir, config.diffPath, config.base),
-    })
-    : Promise.resolve(null);
 
   const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
   const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
@@ -215,5 +209,18 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
 
   const ranked = rank(survivors, config.maxFindings);
   const findings = ranked.map((candidate) => toOutput(candidate, config.agent));
-  return { findings, ranked, proposed: proposals.length, verified, fit: await fit };
+
+  // The fit assessment comes last, so it knows what the review found. It may use the
+  // time the review left over, and it never touches the findings.
+  let fit: FitAssessment | null = null;
+  const fitDeadline = started + config.budgetMs;
+  if (config.fitModel && fitDeadline - Date.now() >= MIN_FIT_MS) {
+    fit = await assessFit({
+      chat, model: config.fitModel, pr, changed, diff, rules, documents, findings: ranked, deadline: fitDeadline,
+      maxTurns: config.maxTurns, log, workspace: new Workspace(config.repoDir, config.diffPath, config.base),
+    });
+  } else if (config.fitModel) {
+    log("fit skipped: too little time is left");
+  }
+  return { findings, ranked, proposed: proposals.length, verified, fit };
 }
