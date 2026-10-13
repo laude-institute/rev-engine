@@ -39,29 +39,31 @@ test("derives the merge advice the action would show", () => {
 
 test("counts how often each labeled finding was reported, and how", () => {
   const results = [
-    run([finding("high", "defect", "Sign"), finding("low", "documentation", "Other")], { bug: 0, nit: null, wrong: null }),
-    run([finding("low", "test", "Sign as a test"), finding("low", "documentation", "Stale link")], { bug: 0, nit: null, wrong: 1 }),
+    run([finding("high", "defect", "Sign"), finding("low", "documentation", "Other")], { bug: [0], nit: [], wrong: [] }),
+    run([finding("low", "test", "Sign as a test"), finding("low", "documentation", "Stale link")], { bug: [0], nit: [], wrong: [1] }),
+    // A problem split into two findings counts as right when either part has the expected kind and severity.
+    run([finding("low", "maintainability", "Sign, part one"), finding("medium", "defect", "Sign, part two")], { bug: [0, 1], nit: [], wrong: [] }),
     { ...run([], {}), error: "the review failed" },
   ];
   const score = scoreCase(CASE, results);
-  assert.equal(score.runs, 2);
+  assert.equal(score.runs, 3);
   assert.equal(score.failed, 1);
   assert.deepEqual(score.expectations.map((entry) => [entry.expectation.id, entry.reported, entry.kindRight, entry.severityRight]), [
-    ["bug", 2, 1, 1], ["nit", 0, null, null], ["wrong", 1, null, null],
+    ["bug", 3, 2, 2], ["nit", 0, null, null], ["wrong", 1, null, null],
   ]);
-  assert.equal(score.fitRight, 2);
+  assert.equal(score.fitRight, 3);
   assert.equal(score.adviceRight, 1);
-  assert.deepEqual(score.advice, { "fix, then merge": 1, merge: 1 });
+  assert.deepEqual(score.advice, { "fix, then merge": 1, merge: 1, "merge and fast-follow": 1 });
   assert.deepEqual(score.unlabeled.map((entry) => entry.title), ["Other"]);
-  assert.equal(score.costUsd, 1.5);
+  assert.equal(score.costUsd, 2);
 
   const sum = totals([score]);
-  assert.deepEqual([sum.mustReported, sum.mustPossible, sum.invalidReported, sum.invalidPossible, sum.kindRight, sum.kindChecked], [2, 2, 1, 2, 1, 2]);
+  assert.deepEqual([sum.mustReported, sum.mustPossible, sum.invalidReported, sum.invalidPossible, sum.kindRight, sum.kindChecked], [3, 3, 1, 3, 2, 3]);
 
   const report = renderReport("demo", "Settings line.", [score], 0.02);
-  assert.match(report, /Findings every review should report: 2 of 2 reported\./);
-  assert.match(report, /Findings known to be wrong: 1 of 2 reported\. Lower is better\./);
-  assert.match(report, /\| bug: The sign is wrong\. \| must \| 2 of 2 \| 1 of 2 \| 1 of 2 \|/);
-  assert.match(report, /Review cost \$1\.50, matching cost \$0\.02\./);
+  assert.match(report, /Findings every review should report: 3 of 3 reported\./);
+  assert.match(report, /Findings known to be wrong: 1 of 3 reported\. Lower is better\./);
+  assert.match(report, /\| bug: The sign is wrong\. \| must \| 3 of 3 \| 2 of 3 \| 2 of 3 \|/);
+  assert.match(report, /Review cost \$2\.00, matching cost \$0\.02\./);
   assert.match(report, /- low, documentation, `a\.ts:1`\. Other/);
 });

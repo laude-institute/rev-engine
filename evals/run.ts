@@ -114,7 +114,7 @@ const submitMatches: ToolDefinition = {
   type: "function",
   function: {
     name: "submit_matches",
-    description: "Say which reported finding, if any, matches each expected finding.",
+    description: "Say which reported findings, if any, match each expected finding.",
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -125,10 +125,10 @@ const submitMatches: ToolDefinition = {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["id", "finding", "reason"],
+            required: ["id", "findings", "reason"],
             properties: {
               id: { type: "string", description: "The id of the expected finding." },
-              finding: { type: ["integer", "null"], description: "The number of the reported finding that matches, or null when none does." },
+              findings: { type: "array", items: { type: "integer" }, description: "The numbers of the reported findings that match. Empty when none does." },
               reason: { type: "string", description: "One sentence." },
             },
           },
@@ -138,13 +138,13 @@ const submitMatches: ToolDefinition = {
   },
 };
 
-const JUDGE_SYSTEM = `You compare two lists of code review findings about the same pull request. For each expected finding, decide whether one of the reported findings describes the same underlying problem. Two findings match when a developer who fixed one would have fixed the other. The same symptom with a different cause is not a match, and neither is a different problem in the same lines. Wording, severity and line numbers may differ. When several reported findings fit, choose the closest. Answer for every expected id by calling submit_matches.`;
+const JUDGE_SYSTEM = `You compare two lists of code review findings about the same pull request. For each expected finding, decide whether one of the reported findings describes the same underlying problem. Two findings match when a developer who fixed one would have fixed the other. The same symptom with a different cause is not a match, and neither is a different problem in the same lines. Wording, severity and line numbers may differ. A review sometimes splits one problem into two findings; list every reported finding that describes the expected problem or a part of it. Answer for every expected id by calling submit_matches.`;
 
 type Chat = ReturnType<typeof createChat>;
 
-async function match(evalCase: EvalCase, findings: Finding[], chat: Chat, judge: string): Promise<Record<string, number | null>> {
+async function match(evalCase: EvalCase, findings: Finding[], chat: Chat, judge: string): Promise<Record<string, number[]>> {
   const expected = evalCase.findings.filter((item) => item.label !== "unlabeled");
-  if (!expected.length || !findings.length) return Object.fromEntries(expected.map((item) => [item.id, null]));
+  if (!expected.length || !findings.length) return Object.fromEntries(expected.map((item) => [item.id, []]));
   const prompt = [
     `Pull request ${evalCase.repo}#${evalCase.pr}: ${evalCase.title}`,
     `Expected findings:\n${JSON.stringify(expected.map(({ id, what, file }) => ({ id, file, what })), null, 2)}`,
@@ -159,10 +159,10 @@ async function match(evalCase: EvalCase, findings: Finding[], chat: Chat, judge:
   let list = typeof submitted.matches === "string" ? JSON.parse(submitted.matches) as unknown : submitted.matches;
   if (list && typeof list === "object" && !Array.isArray(list)) list = (list as { matches?: unknown }).matches;
   if (!Array.isArray(list)) throw new Error(`the matching model answered without a list: ${JSON.stringify(submitted).slice(0, 200)}`);
-  const entries = list as Array<{ id: string; finding: number | null }>;
+  const entries = list as Array<{ id: string; findings?: unknown }>;
   return Object.fromEntries(expected.map((item) => {
-    const index = entries.find((entry) => entry.id === item.id)?.finding;
-    return [item.id, Number.isInteger(index) && findings[index as number] ? index as number : null];
+    const indexes = entries.find((entry) => entry.id === item.id)?.findings;
+    return [item.id, (Array.isArray(indexes) ? indexes : []).filter((index): index is number => Number.isInteger(index) && Boolean(findings[index as number]))];
   }));
 }
 

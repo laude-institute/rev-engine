@@ -64,13 +64,17 @@ export function parseCase(value: unknown, name: string): EvalCase {
   return { title: "", body: "", ...item } as unknown as EvalCase;
 }
 
-/** One review of one case. `matches` maps an expectation id to the index of the reported finding that matches it. */
+/**
+ * One review of one case. `matches` maps an expectation id to the indexes of the
+ * reported findings that match it. A review sometimes splits one problem into two
+ * findings, so there can be several.
+ */
 export interface RunResult {
   findings: Finding[];
   fit: string | null;
   costUsd: number;
   seconds: number;
-  matches: Record<string, number | null>;
+  matches: Record<string, number[]>;
   /** Set when the review or the matching failed; such a run is left out of every count. */
   error?: string;
 }
@@ -105,20 +109,22 @@ export interface CaseScore {
 export function scoreCase(evalCase: EvalCase, results: RunResult[]): CaseScore {
   const runs = results.filter((run) => !run.error);
   const expectations = evalCase.findings.filter((expectation) => expectation.label !== "unlabeled").map((expectation) => {
-    const hits = runs.map((run) => run.findings[run.matches[expectation.id] ?? -1]).filter((finding): finding is Finding => Boolean(finding));
+    // A run counts as right when any of its matching findings has the expected kind or severity.
+    const hits = runs.map((run) => (run.matches[expectation.id] ?? []).map((index) => run.findings[index]).filter((finding): finding is Finding => Boolean(finding)))
+      .filter((found) => found.length);
     return {
       expectation,
       reported: hits.length,
-      kindRight: expectation.kind ? hits.filter((finding) => finding.kind === expectation.kind).length : null,
+      kindRight: expectation.kind ? hits.filter((found) => found.some((finding) => finding.kind === expectation.kind)).length : null,
       severityRight: expectation.min_severity
-        ? hits.filter((finding) => SEVERITY_RANK[finding.severity]! <= SEVERITY_RANK[expectation.min_severity!]!).length
+        ? hits.filter((found) => found.some((finding) => SEVERITY_RANK[finding.severity]! <= SEVERITY_RANK[expectation.min_severity!]!)).length
         : null,
     };
   });
   const advice: Record<string, number> = {};
   for (const run of runs) advice[adviceLabel(run)] = (advice[adviceLabel(run)] ?? 0) + 1;
   const unlabeled = runs.flatMap((run) => {
-    const matched = new Set(Object.values(run.matches).filter((index) => index !== null));
+    const matched = new Set(Object.values(run.matches).flat());
     return run.findings.filter((_, index) => !matched.has(index));
   });
   return {
