@@ -48,6 +48,13 @@ test("leads a comment with the severity and the title, and marks it", () => {
   assert.equal(commentBody(finding("a", 1, 1, "medium", "Only a title.", "")), `**Medium severity. Only a title.**\n\n${MARKER}`);
 });
 
+test("names the kind of a finding that is not a defect in the code", () => {
+  assert.match(commentBody({ ...finding("a", 1, 1, "medium"), kind: "test" }), /^\*\*Medium severity, test coverage\. Title\.\*\*/);
+  assert.match(commentBody({ ...finding("a", 1, 1, "medium"), kind: "defect" }), /^\*\*Medium severity\. Title\.\*\*/);
+  const parts = buildReview({ ...base, findings: [{ ...finding("src/a.ts", 42, 42, "low"), kind: "documentation" }] });
+  assert.match(parts.body, /- Low severity, documentation, `src\/a\.ts:42`\./);
+});
+
 test("recognises lines an earlier run commented on", () => {
   const earlier = [{ path: "src/a.ts", line: 12, start_line: 11, body: `x\n${MARKER}` }];
   assert.equal(alreadyReported(finding("src/a.ts", 12, 14), earlier), true);
@@ -72,7 +79,7 @@ test("builds one review with line comments, a summary and the fit assessment", (
   assert.match(parts.body, /1 finding of medium or high severity, see the inline comment:\n\n- High severity\. Title\./);
   assert.match(parts.body, /1 finding was left out because an earlier review/);
   assert.match(parts.body, /1 finding about lines the diff does not show:/);
-  assert.match(parts.body, /- Medium, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
+  assert.match(parts.body, /- Medium severity, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
   assert.doesNotMatch(parts.body, /<details>/);
 });
 
@@ -93,7 +100,7 @@ test("lists less severe findings in a collapsed section", () => {
     findings: [finding("src/a.ts", 11, 12, "medium"), finding("src/a.ts", 42, 42, "low", "Stale comment", "It names\nthe old function.")],
   });
   assert.equal(parts.comments.length, 1);
-  assert.match(parts.body, /<details>\n<summary>1 more finding, less severe<\/summary>\n\n- Low, `src\/a\.ts:42`\. \*\*Stale comment\.\*\* It names the old function\.\n\n<\/details>/);
+  assert.match(parts.body, /<details>\n<summary>1 more finding, less severe<\/summary>\n\n- Low severity, `src\/a\.ts:42`\. \*\*Stale comment\.\*\* It names the old function\.\n\n<\/details>/);
 });
 
 test("links each listed finding to its comment once the addresses are known", () => {
@@ -108,7 +115,7 @@ test("moves findings past the cap on comments into the collapsed section", () =>
   const parts = buildReview({ ...base, maxComments: 1, findings: [finding("src/a.ts", 11, 11), finding("src/a.ts", 12, 12, "medium", "Second")] });
   assert.equal(parts.comments.length, 1);
   assert.match(parts.body, /1 more finding, less severe or past the limit on comments/);
-  assert.match(parts.body, /- Medium, `src\/a\.ts:12`\. \*\*Second\.\*\*/);
+  assert.match(parts.body, /- Medium severity, `src\/a\.ts:12`\. \*\*Second\.\*\*/);
 });
 
 test("says so when nothing reaches the level that gets a comment", () => {

@@ -4,6 +4,9 @@
 
 export type Severity = "high" | "medium" | "low";
 
+export const KINDS = ["defect", "test", "documentation", "maintainability"] as const;
+export type Kind = (typeof KINDS)[number];
+
 export interface Candidate {
   id: string;
   seat: string;
@@ -11,6 +14,7 @@ export interface Candidate {
   startLine: number;
   endLine: number;
   severity: Severity;
+  kind: Kind;
   title: string;
   detail: string;
   confidence: number;
@@ -148,7 +152,10 @@ export async function normalizeCandidates(raw: unknown, context: NormalizeContex
     const fallback = context.changed.get(file)?.[0]?.[0] ?? 1;
     const start = Math.min(positiveInteger(item.start_line) ?? fallback, lineCount);
     const end = Math.min(Math.max(positiveInteger(item.end_line) ?? start, start), lineCount);
-    const severity = (["high", "medium", "low"] as const).find((level) => level === item.severity) ?? "medium";
+    let severity = (["high", "medium", "low"] as const).find((level) => level === item.severity) ?? "medium";
+    const kind = KINDS.find((known) => known === item.kind) ?? "defect";
+    // Code that behaves wrongly is at least medium, so a real fault is never ranked with the small things.
+    if (item.kind === "defect" && item.severity === "low") severity = "medium";
     const confidence = Number(item.confidence);
 
     candidates.push({
@@ -158,6 +165,7 @@ export async function normalizeCandidates(raw: unknown, context: NormalizeContex
       startLine: start,
       endLine: end,
       severity,
+      kind,
       title: title || detail.slice(0, 120),
       detail,
       confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.5,

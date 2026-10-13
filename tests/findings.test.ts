@@ -39,7 +39,7 @@ deleted file mode 100644
 function candidate(overrides: Partial<Candidate>): Candidate {
   return {
     id: "s1-01", seat: "s1", file: "src/pool.ts", startLine: 10, endLine: 12,
-    severity: "medium", title: "Connections are read without the mutex", detail: "", confidence: 0.5,
+    severity: "medium", kind: "defect", title: "Connections are read without the mutex", detail: "", confidence: 0.5,
     ...overrides,
   };
 }
@@ -142,4 +142,13 @@ test("toOutput joins the title and detail into one message", () => {
     message: "Race in acquire: Two callers can take the same connection.", producer: "me",
   });
   assert.equal(toOutput(candidate({ title: "Only a title", detail: "" }), "me").message, "Only a title");
+});
+
+test("normalizeCandidates reads the kind and never leaves a defect at low severity", async () => {
+  const result = await normalizeCandidates([
+    { file: "src/pool.ts", start_line: 1, end_line: 1, severity: "low", kind: "defect", title: "T1", detail: "D1" },
+    { file: "src/pool.ts", start_line: 2, end_line: 2, severity: "low", kind: "documentation", title: "T2", detail: "D2" },
+    { file: "src/pool.ts", start_line: 3, end_line: 3, severity: "low", title: "T3", detail: "D3" },
+  ], { seat: "s1", repoDir: "/work/repo", changed: new Map(), headFile: async () => "1\n2\n3\n", log: () => {} });
+  assert.deepEqual(result.map(({ severity, kind }) => [severity, kind]), [["medium", "defect"], ["low", "documentation"], ["low", "defect"]]);
 });

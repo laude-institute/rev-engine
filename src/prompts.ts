@@ -91,16 +91,21 @@ What to report
 
 Report problems that this change introduces, or that it leaves unresolved in the code it touches. Be exhaustive: report every problem you can support, not only the most serious few. Low-severity findings are wanted when they are concrete and a maintainer would act on them. A thorough review of a change of a few hundred lines usually has ten or more findings spread across several lenses; a small clean change may have none.
 
-Do not report formatting or pure style preference, praise, a summary of the change, generic advice with no specific defect, problems that existed before this change in code it does not touch, or suspicions you could not support from code you read.
+Do not report formatting or pure style preference, praise, a summary of the change, generic advice with no specific defect, problems that existed before this change in code it does not touch, or suspicions you could not support from code you read. Being unable to check something is not a finding: do not report that a commit id, a link, a figure or a statement about the project's history may be wrong or out of date only because the checkout does not let you confirm it.
 
 Each finding must:
 - Describe one issue in one place. Do not split one issue across entries or repeat it per line. Two different problems in the same lines are two findings. The same defect in two files or two functions is also two findings, one at each place, because each needs its own fix.
 - Name the file and the line range in the file as it is after the change, using the line numbers read_file shows. Point at the lines that contain the problem, preferably lines the change added or modified.
 - Stand on its own. In detail, say what is wrong, when it goes wrong, and what happens as a result. Name the functions, variables, values and files involved, so that someone who has not seen your investigation can understand and check it.
-- Carry a severity. Rate it by what happens if the change ships as it is and by how likely that is, not by how much code is involved. When you cannot decide between two levels, choose the lower.
+- Carry a severity. Rate it by what happens if the change ships as it is and by how likely that is, not by how much code is involved. When you cannot decide between high and medium, choose medium.
   - high: in ordinary use the change breaks a feature, loses or corrupts data, gives data or access to a party that should not have it, or takes the system down. A maintainer would not merge until it is fixed. A defect in the very thing the change sets out to do is also high, even when it needs particular conditions: if the change exists to fix or add one behavior, and that behavior is still wrong in a case the change should cover, the change has not done its job.
   - medium: a real defect or gap with limited reach. It shows only under particular inputs, states or timing; or an error path fails badly; or a check is missing; or a test cannot fail or misses the case the change is about; or compatibility breaks where a workaround exists; or the design is damaged in a way that will cost later work. It should be fixed, though the change could ship before it is.
-  - low: the behavior users see is not at risk. Unclear names, stale comments, missing documentation, small duplication and minor inefficiency belong here.
+  - low: the behavior users see is not at risk. Unclear names, stale comments, missing documentation, small duplication and minor inefficiency belong here. Code that behaves wrongly in a case you can name is never low, however rare the case: it is a defect, and a defect is at least medium.
+- Carry a kind, so the author can tell a proven fault from a suggestion.
+  - defect: the code, as written, behaves wrongly in a case you can name.
+  - test: the code may be right, but a test is missing, cannot fail, or does not cover the case the change is about.
+  - documentation: a comment, a message, a guide or a description says something untrue, or leaves out something a reader needs.
+  - maintainability: the behavior is right today, but the structure, duplication or naming will cost later work.
 - State any outside behavior it depends on. When a finding depends on how code outside the checkout behaves, such as the language runtime, the standard library or a dependency, state that behavior exactly: name the function or feature and say what it does that makes this a problem. Point to anything in the checkout that supports it, such as the pinned version, a type definition, a test or another call site. Do not quote documentation or source you have not read. If you are not confident of the outside behavior, leave the finding out.
 
 When you are done, call submit_review. Submit an empty list when you found nothing worth raising.`;
@@ -172,7 +177,7 @@ For each finding, open the cited code with the read tools and check the claim ag
 
 Give each finding one verdict:
 - confirmed: the code shows the problem as described, and the problem comes from this change or sits in code this change touches. A finding that the change departs from a project rule or an existing pattern is confirmed when that rule or pattern exists where the finding says it does.
-- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference.
+- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, the finding is only a style preference, or its only basis is that the reviewer could not check something, such as a commit id or a statement about history.
 - uncertain: you could not settle it from the code available.
 
 A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
@@ -202,12 +207,13 @@ export const submitReview: ToolDefinition = {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["file", "start_line", "end_line", "severity", "title", "detail", "confidence"],
+            required: ["file", "start_line", "end_line", "severity", "kind", "title", "detail", "confidence"],
             properties: {
               file: { type: "string", description: "Path relative to the repository root." },
               start_line: { type: "integer", minimum: 1, description: "First line of the problem, in the file after the change." },
               end_line: { type: "integer", minimum: 1, description: "Last line of the problem. Equal to start_line for a single line." },
               severity: { type: "string", enum: ["high", "medium", "low"] },
+              kind: { type: "string", enum: ["defect", "test", "documentation", "maintainability"] },
               title: { type: "string", description: "The issue in one short sentence." },
               detail: { type: "string", description: "What is wrong, when it goes wrong, and the consequence. Two to five sentences." },
               confidence: { type: "number", minimum: 0, maximum: 1, description: "How sure you are that this is a real problem." },

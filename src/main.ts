@@ -57,7 +57,7 @@ try {
   if (config.detailsOutPath) {
     const details = outcome.ranked.map((candidate) => ({
       file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
-      severity: candidate.severity, title: candidate.title, detail: candidate.detail,
+      severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
     }));
     await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details }, null, 2)}\n`);
   }

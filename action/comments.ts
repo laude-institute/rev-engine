@@ -8,6 +8,7 @@ export interface Finding {
   start_line: number;
   end_line: number;
   severity: Severity;
+  kind?: string;
   title: string;
   detail: string;
 }
@@ -97,6 +98,13 @@ export function place(finding: Finding, hunks: Hunks): { line: number; startLine
 
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const SEVERITY_LABEL: Record<Severity, string> = { high: "High", medium: "Medium", low: "Low" };
+const KIND_LABEL: Record<string, string> = { test: "test coverage", documentation: "documentation", maintainability: "maintainability" };
+
+/** "Medium severity", with the kind added when the finding is something other than a defect in the code. */
+function rating(finding: Finding): string {
+  const kind = KIND_LABEL[finding.kind ?? ""];
+  return `${SEVERITY_LABEL[finding.severity]} severity${kind ? `, ${kind}` : ""}`;
+}
 /** Keeps a long list of collapsed findings inside the size GitHub allows for a review. */
 const MAX_LISTED_DETAIL_CHARS = 1_500;
 
@@ -108,7 +116,7 @@ function titled(finding: Finding): string {
 export function commentBody(finding: Finding): string {
   const title = finding.title.replace(/[.:]+$/, "");
   const detail = finding.detail && finding.detail !== finding.title ? `\n\n${finding.detail}` : "";
-  return `**${SEVERITY_LABEL[finding.severity]} severity. ${title}.**${detail}\n\n${MARKER}`;
+  return `**${rating(finding)}. ${title}.**${detail}\n\n${MARKER}`;
 }
 
 /** True when an earlier run of this action already commented on these lines of this file. */
@@ -155,7 +163,7 @@ function count(n: number, noun: string): string {
 function listed(finding: Finding): string {
   const text = titled(finding);
   const cut = text.length > MAX_LISTED_DETAIL_CHARS ? `${text.slice(0, MAX_LISTED_DETAIL_CHARS)}...` : text;
-  return `- ${SEVERITY_LABEL[finding.severity]}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
+  return `- ${rating(finding)}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
 }
 
 /**
@@ -216,7 +224,7 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
   if (placed.length) {
     const items = placed.map((finding, index) => {
       const title = finding.title.replace(/[.:]+$/, "");
-      return `- ${SEVERITY_LABEL[finding.severity]} severity. ${links[index] ? `[${title}](${links[index]})` : title}.`;
+      return `- ${rating(finding)}. ${links[index] ? `[${title}](${links[index]})` : title}.`;
     });
     lines.push(`${count(placed.length, "finding")} of ${level}, see the inline ${placed.length === 1 ? "comment" : "comments"}:\n\n${items.join("\n")}`);
   }

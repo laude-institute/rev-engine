@@ -30,7 +30,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |
 | `RB_CONFIG_MAX_TURNS` | `40` | Model turns allowed per review or verification pass. |
 
-Setting `RB_DETAILS_OUT` to a path makes the container also write the findings there with each one's severity, title and detail as separate fields. The GitHub Action uses it; the benchmark does not.
+Setting `RB_DETAILS_OUT` to a path makes the container also write the findings there with each one's severity, kind, title and detail as separate fields. The GitHub Action uses it; the benchmark does not.
 
 ## Run it locally
 
