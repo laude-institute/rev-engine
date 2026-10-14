@@ -153,32 +153,44 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   // An empty list would claim the change is clean, so a run where no seat finished must fail instead.
   if (!succeeded) throw new Error("no review seat completed");
 
-  if (config.followUpModel && reviewDeadline - Date.now() >= MIN_FOLLOW_UP_MS) {
-    // A model asked to look again in the same conversation tends to resubmit at once.
-    // A new conversation reads the change afresh, and is told what has been found.
-    const model = config.followUpModel;
+  /** One more review in a new conversation. It never throws: a failure keeps the findings so far. */
+  const reviewAgain = async (model: string, caller: string, section?: string): Promise<void> => {
     const seat = `s${config.models.length + 1}`;
     try {
-      const found = dedupe(proposals);
-      const cited = new Set(found.map((candidate) => candidate.file));
-      const quiet = [...changed.keys()].filter((file) => !cited.has(file) && !GENERATED.test(file)).slice(0, MAX_FILES_LISTED);
-      const followUpBudget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
+      const againBudget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
       const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
       const submission = await runAgent({
         chat, model, system: reviewerSystem(null),
-        prompt: reviewerPrompt(pr, changed, diff, rules, documents, followUpBudget, followUpSection(found, quiet)),
-        workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log,
-        caller: `follow-up (${model})`,
+        prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section),
+        workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
         ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
       });
       const candidates = await normalizeCandidates(submission.findings, {
         seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,
       });
-      log(`follow-up (${model}): ${candidates.length} finding(s)`);
+      log(`${caller}: ${candidates.length} finding(s)`);
       proposals.push(...candidates);
     } catch (error) {
-      log(`follow-up (${model}) failed, keeping the findings so far: ${error instanceof Error ? error.message : String(error)}`);
+      log(`${caller} failed, keeping the findings so far: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+
+  if (!proposals.length && config.retryEmpty) {
+    // An empty list claims the change is clean, so it needs two independent reviews that agree.
+    // The retry is not told the first review was empty, so it is not pushed to find something.
+    // It runs at most once, and whatever it returns is final.
+    if (reviewDeadline - Date.now() >= MIN_FOLLOW_UP_MS) {
+      await reviewAgain(config.models[0]!, `retry (${config.models[0]})`);
+    } else {
+      log("retry skipped: too little review time is left");
+    }
+  } else if (config.followUpModel && reviewDeadline - Date.now() >= MIN_FOLLOW_UP_MS) {
+    // A model asked to look again in the same conversation tends to resubmit at once.
+    // A new conversation reads the change afresh, and is told what has been found.
+    const found = dedupe(proposals);
+    const cited = new Set(found.map((candidate) => candidate.file));
+    const quiet = [...changed.keys()].filter((file) => !cited.has(file) && !GENERATED.test(file)).slice(0, MAX_FILES_LISTED);
+    await reviewAgain(config.followUpModel, `follow-up (${config.followUpModel})`, followUpSection(found, quiet));
   } else if (config.followUpModel) {
     log("follow-up skipped: too little review time is left");
   }

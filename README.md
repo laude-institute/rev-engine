@@ -23,6 +23,7 @@ The container follows the benchmark's [agent contract](https://github.com/review
 | `RB_CONFIG_VERIFY` | `lenient` | `lenient` drops rejected findings, `strict` keeps only confirmed ones, `off` skips the pass. |
 | `RB_CONFIG_SECOND_LOOK` | `on` | After a reviewer's first submission, ask it to look again for what it missed. |
 | `RB_CONFIG_FOLLOW_UP` | none | A model that reviews the change again in a new conversation after the seats finish, told what they found and asked for what they missed. Skipped when little review time is left. |
+| `RB_CONFIG_RETRY_EMPTY` | `on` | When every seat proposes nothing, review once more in a new conversation with the first seat's model, so that two independent reviews agree before the change is called clean. It runs at most once and is skipped when little review time is left. |
 | `RB_CONFIG_MIN_SEVERITY` | `low` | Drop findings less severe than this before verification. One of `high`, `medium` or `low`. |
 | `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It runs after the review and is told the findings, writes `fit.json` beside the findings file, and never changes the findings. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |

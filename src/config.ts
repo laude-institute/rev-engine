@@ -29,6 +29,8 @@ export interface Config {
   secondLook: boolean;
   /** A model that reviews again after the seats, told what they found. Null for none. */
   followUpModel: string | null;
+  /** Review once more in a new conversation when every seat proposed nothing. */
+  retryEmpty: boolean;
   /** Findings less severe than this are dropped before verification. */
   minSeverity: Severity;
   /** A model that judges whether the change belongs in the project. Null for none. */
@@ -91,6 +93,9 @@ export function loadConfig(env: Env): Config {
   const secondLook = env.RB_CONFIG_SECOND_LOOK?.trim() || "on";
   if (!["on", "off"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on or off");
 
+  const retryEmpty = env.RB_CONFIG_RETRY_EMPTY?.trim() || "on";
+  if (!["on", "off"].includes(retryEmpty)) throw new Error("RB_CONFIG_RETRY_EMPTY must be on or off");
+
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
 
@@ -115,6 +120,7 @@ export function loadConfig(env: Env): Config {
     verify,
     secondLook: secondLook === "on",
     followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
+    retryEmpty: retryEmpty === "on",
     minSeverity,
     fitModel: env.RB_CONFIG_FIT?.trim() || null,
     fitOutPath: join(dirname(outPath), "fit.json"),
@@ -134,6 +140,7 @@ export function describeSettings(config: Config): string {
     `verify=${config.verify}`,
     `second_look=${config.secondLook ? "on" : "off"}`,
     `follow_up=${config.followUpModel ?? "off"}`,
+    `retry_empty=${config.retryEmpty ? "on" : "off"}`,
     `min_severity=${config.minSeverity}`,
     `fit=${config.fitModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,

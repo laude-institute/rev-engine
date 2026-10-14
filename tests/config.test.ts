@@ -36,6 +36,14 @@ test("reads the minimum severity and the fit model", () => {
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MIN_SEVERITY: "urgent" }), /RB_CONFIG_MIN_SEVERITY/);
 });
 
+test("retries an empty review unless told not to", () => {
+  assert.equal(loadConfig(BASE).retryEmpty, true);
+  const config = loadConfig({ ...BASE, RB_CONFIG_RETRY_EMPTY: "off" });
+  assert.equal(config.retryEmpty, false);
+  assert.ok(describeSettings(config).includes("retry_empty=off"));
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_RETRY_EMPTY: "twice" }), /RB_CONFIG_RETRY_EMPTY/);
+});
+
 test("reads the reviewer settings from RB_CONFIG variables", () => {
   const config = loadConfig({
     ...BASE,
