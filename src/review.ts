@@ -84,7 +84,7 @@ export interface ReviewOutcome {
   fit: FitAssessment | null;
 }
 
-async function loadPullRequest(config: Config): Promise<PullRequestInfo> {
+export async function loadPullRequest(config: Config): Promise<PullRequestInfo> {
   const info: PullRequestInfo = { nwo: config.nwo, number: config.prNumber, title: "", body: "" };
   try {
     const parsed = JSON.parse(await readFile(config.prJsonPath, "utf8")) as Record<string, unknown>;

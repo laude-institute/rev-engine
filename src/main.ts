@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
 import { createChat, emptyUsage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
+import { naiveReview } from "./naive.ts";
 import { review } from "./review.ts";
 
 const log = (message: string): void => console.error(`agent: ${message}`);
@@ -52,7 +53,7 @@ function logUsageByCaller(): void {
 
 try {
   const chat = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
-  const outcome = await review(config, chat, log);
+  const outcome = await (config.naive ? naiveReview : review)(config, chat, log);
   await write(outcome.findings);
   if (config.detailsOutPath) {
     const details = outcome.ranked.map((candidate) => ({

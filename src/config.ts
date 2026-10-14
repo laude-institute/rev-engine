@@ -31,6 +31,8 @@ export interface Config {
   followUpModel: string | null;
   /** Review once more in a new conversation when every seat proposed nothing. */
   retryEmpty: boolean;
+  /** Replace the whole review with one model call over the diff, as a baseline to compare against. */
+  naive: boolean;
   /** Findings less severe than this are dropped before verification. */
   minSeverity: Severity;
   /** A model that judges whether the change belongs in the project. Null for none. */
@@ -96,6 +98,9 @@ export function loadConfig(env: Env): Config {
   const retryEmpty = env.RB_CONFIG_RETRY_EMPTY?.trim() || "on";
   if (!["on", "off"].includes(retryEmpty)) throw new Error("RB_CONFIG_RETRY_EMPTY must be on or off");
 
+  const naive = env.RB_CONFIG_NAIVE?.trim() || "off";
+  if (!["on", "off"].includes(naive)) throw new Error("RB_CONFIG_NAIVE must be on or off");
+
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
 
@@ -121,6 +126,7 @@ export function loadConfig(env: Env): Config {
     secondLook: secondLook === "on",
     followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
     retryEmpty: retryEmpty === "on",
+    naive: naive === "on",
     minSeverity,
     fitModel: env.RB_CONFIG_FIT?.trim() || null,
     fitOutPath: join(dirname(outPath), "fit.json"),
@@ -134,6 +140,7 @@ export function loadConfig(env: Env): Config {
 
 /** The settings line the benchmark looks for: every configured label value must appear in the output. */
 export function describeSettings(config: Config): string {
+  if (config.naive) return `naive=on model=${config.models[0]} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000}`;
   return [
     `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,

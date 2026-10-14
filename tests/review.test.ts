@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import type { Chat, ChatMessage } from "../src/llm.ts";
+import { naiveReview } from "../src/naive.ts";
 import { review } from "../src/review.ts";
 
 let dir = "";
@@ -78,4 +79,17 @@ test("a review with findings is not retried", async () => {
   const { chat, reviews } = reviewer([finding]);
   await review(configFor({ RB_CONFIG_VERIFY: "off" }), chat, () => {});
   assert.equal(reviews(), 1);
+});
+
+test("the naive baseline makes one call with no tools but the submit tool", async () => {
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const requests: Array<{ tools: number }> = [];
+  const chat: Chat = async (request) => {
+    requests.push({ tools: request.tools.length });
+    return { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "submit_review", arguments: JSON.stringify({ findings: [finding] }) } }] };
+  };
+  const outcome = await naiveReview(configFor({ RB_CONFIG_NAIVE: "on" }), chat, () => {});
+  assert.deepEqual(requests, [{ tools: 1 }]);
+  assert.equal(outcome.findings.length, 1);
+  assert.equal(outcome.verified, false);
 });
