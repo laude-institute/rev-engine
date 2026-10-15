@@ -1,0 +1,63 @@
+{
+  "id": "headlong-155",
+  "repo": "laude-institute/headlong",
+  "pr": 155,
+  "base": "8c1a92cef0109bd56f0714a32b179a8a99d32daa",
+  "head": "e8584005c553ba924c0b7f72144dee97a1daaa8e",
+  "title": "mem: redact credentials at the write point",
+  "body": "Port of fork PR 10 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
+  "source": "The maintainer's review evaluation posted on the pull request on 2026-10-15, built on an independent review and reproduction checks of the disputed claims.",
+  "findings": [
+    {
+      "id": "f1",
+      "label": "valid",
+      "what": "The aws_secret_access_key rule always writes `key=<redacted:aws-secret>`, so an unquoted YAML line `aws_secret_access_key: value` comes back as `aws_secret_access_key=<redacted:aws-secret>` and the stored snippet changes syntax.",
+      "file": "bin/mem",
+      "kind": "defect",
+      "note": "Confirmed for an unquoted YAML `key: value`. The quoted JSON key does not match this rule at all, so a claim that it eats the closing quote and comma is wrong."
+    },
+    {
+      "id": "f2",
+      "label": "must",
+      "what": "The private-key rule is a sed range from a BEGIN line to an END line. When a memory has a BEGIN line and no END line, the range never closes and every line after it is deleted, so ordinary notes are lost at write time.",
+      "file": "bin/mem",
+      "kind": "defect",
+      "note": "Confirmed with macOS and GNU sed. Destructive, so it must be fixed before merge."
+    },
+    {
+      "id": "f3",
+      "label": "must",
+      "what": "The card rules redact ordinary numbers: the 4-4-4 digit-group and 15 or 16 digit rules erase lists of years and other long numbers with no card context, and the keyword rule turns 'credit 2026-09-05 12:30' into 'credit <redacted:card>:30'. The facts are lost from the stored body and its summary.",
+      "file": "bin/mem",
+      "kind": "defect",
+      "note": "Covers both card rules that over-match. Confirmed: 'credit 2026-09-05 12:30' becomes 'credit <redacted:card>:30', and a list of years is erased. The 'visa 2026-10-01 to 2026-12-31' example is not changed, because 'to' breaks the run of digits."
+    },
+    {
+      "id": "f5",
+      "label": "valid",
+      "what": "`mem edit --slug` text is not redacted, so a credential can still land in the filename. `mem_redact` is applied to `text`, but the `--slug` value goes straight to `slugify` and into the new filename (lines 599-606). `slugify` lowercases the text and squeezes characters outside [a-z0-9] into hyphens, but it keeps the alphanumeric body of a token. A token passed as the slug therefore still reaches the memory's filename, which `mem list` and the search prefilter show. The PR promises redaction at the write point, but this write path is missed.",
+      "file": "bin/mem",
+      "kind": "defect",
+      "note": "A remaining gap in the new protection, not a new leak. Lowercasing and truncation mean a credential does not always survive in the slug."
+    },
+    {
+      "id": "f6",
+      "label": "must",
+      "what": "The change rewrites every memory body on add and edit with about 25 redaction rules but adds no tests of what it keeps and what it removes, while the existing memory suites do not exercise the redactor.",
+      "file": "bin/mem",
+      "kind": "test"
+    },
+    {
+      "id": "f7",
+      "label": "valid",
+      "what": "Silent redaction is undocumented in usage and not reported to the caller. `mem add` and `mem edit` now rewrite the body (including card-like numbers) without any notice on stderr. The `usage()` text (lines 618-663) does not mention redaction either. An agent or user who stores a number and later finds `<redacted:card>` in its place has no hint of why. A one-line stderr notice when something was redacted, plus a usage note, would make this behaviour visible.",
+      "file": "bin/mem",
+      "kind": "documentation",
+      "note": "Documenting the behavior is useful. A new stderr notice is optional."
+    }
+  ],
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "id": "headlong-151",
+  "repo": "laude-institute/headlong",
+  "pr": 151,
+  "base": "8c1a92cef0109bd56f0714a32b179a8a99d32daa",
+  "head": "d2480b5f2afb93b17028702e5d79df7b6b44b35b",
+  "title": "thinkers: count a papers window spent from its completion receipt",
+  "body": "Port of fork PR 5 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.\n\nNote on the closed-keys manifest (raised in review): the producer is fork-side tooling, not a missing half. bin/papers-skip writes the .skip records into notes/daily-papers/sent-receipts, and bin/papers-closedkeys regenerates the manifest notes/daily-papers/closed-keys.md by scanning those .skip records, so the manifest is derivable from the records alone. Nothing in this PR tree sets SCHEDULE_CLOSED_KEYS because the manifest is produced by the fork tooling beside the receipts, and pointing SCHEDULE_CLOSED_KEYS at that manifest is what closes a window through this path.",
+  "source": "The maintainer's review evaluation posted on the pull request on 2026-10-15, built on an independent review and reproduction checks of the disputed claims.",
+  "findings": [
+    {
+      "id": "f1",
+      "label": "must",
+      "what": "The change removes `due=\"\"` from the branch for a window that was sent. When an earlier window is still open and a later window has been sent, the earlier one stays due and fires DUE NOW. The base cleared it.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "defect",
+      "note": "One scheduler invariant with f2, with two required regression cases."
+    },
+    {
+      "id": "f2",
+      "label": "must",
+      "what": "When a later window has a skip record, the loop continues without clearing the earlier window's due candidate, so a skipped later window lets an earlier open window fire DUE NOW.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "defect",
+      "note": "Only a later window that has opened should clear the current candidate; a future skip must not."
+    },
+    {
+      "id": "f3",
+      "label": "valid",
+      "what": "Any .skip file at all, even empty or half-written, closes the window. `_receipt_skip_reason` only checks that `<key>.skip` exists. With no `reason=` line, or with an empty or truncated file, it falls back to 'no reason given' and the window is suppressed. The receipt path, by contrast, rejects claim files and half-written receipts (it requires a valid `sent=` and a non-empty `ids=`). It also never checks that the record's `key=` line matches. A stray or partly written .skip file therefore silently drops a scheduled post with no DUE NOW and no miss. The comment saying 'the skip record always carries one' is not enforced.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "defect",
+      "note": "Conditional hardening. tests/test_scheduled_goals.sh:180-183 deliberately accepts a skip with no reason, so do not require a nonempty reason as the fix."
+    },
+    {
+      "id": "f4",
+      "label": "must",
+      "what": "The generic schedule code in thinkers/_lib/common.sh, shared by every identity, now reads receipt and skip files at a hard-coded notes/daily-papers/sent-receipts path, written by bin/papers-receipt and bin/papers-skip, which exist only in the contributor's fork. One deployment's tooling becomes a second record of whether a window is done, beside the sent ledger the design names as that record.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "maintainability",
+      "note": "The hard-coded path and the producers that live only in the fork are real integration concerns. A generic configurable file hook alone would not resolve it."
+    },
+    {
+      "id": "f5",
+      "label": "invalid",
+      "what": "The final fallback in `_receipts_dir` resolves to a path relative to the current directory, which the comment above it says the code avoids.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "defect",
+      "note": "The relative fallback is reached only after no adjacent workdir and no configured workdir or identity is available, and the code keeps that chain on purpose. No supported configuration or failing caller is shown."
+    },
+    {
+      "id": "f6",
+      "label": "valid",
+      "what": "The receipt path the PR is titled after has no direct test, and the claim-file case is untested. The title is 'count a papers window spent from its completion receipt', but the only receipt test also has a .skip file present. No test covers a receipt alone marking a window sent with no ledger key. No test covers a claim file or half-written receipt (no `sent=`, empty `ids=`, malformed timestamp) and checks that the window stays DUE NOW, which is the safety property the `_receipt_sent` comments stress. Add these cases.",
+      "file": "tests/test_scheduled_goals.sh",
+      "kind": "test",
+      "note": "The receipt-over-skip test does exercise receipt recognition, so the path is not wholly untested."
+    },
+    {
+      "id": "f7",
+      "label": "valid",
+      "what": "No test for the regression where a later window is sent or skipped while an earlier one is still open. The existing 'only the latest window is due' test (line 133) covers only the case where the earlier window was sent. Nothing exercises a sent or skipped later window with an earlier open window, so the removal of `due=\"\"` at common.sh line 326 passes the suite. Add a test for schedule `11:00 12:00` with 12:00 sent (and another with 12:00 skipped) at about 12:05, and assert there is no DUE NOW for -1100.",
+      "file": "tests/test_scheduled_goals.sh",
+      "kind": "test",
+      "note": "Part of the must scheduler finding; do not require it as a separate finding."
+    },
+    {
+      "id": "f8",
+      "label": "valid",
+      "what": "The receipts-directory resolution in `_receipts_dir` is untested. The tests always set PAPERS_RECEIPTS_DIR explicitly. The `PAPERS_RECEIPTS` alternate spelling, the BASH_SOURCE-anchored workdir lookup and the env fallback chain never run, even though the comments justify them as the fix for a false DUE NOW.",
+      "file": "tests/test_scheduled_goals.sh",
+      "kind": "test"
+    },
+    {
+      "id": "f9",
+      "label": "valid",
+      "what": "Schedule docs still say a window is done only through the sent ledger; skip and receipt states are undocumented. The header comment above `_fm` and design/scheduled_goals.md §2 still define 'done' as the key being in the sent ledger, with no 'skipped' state. Receipts and .skip records now also mark a window done or skipped, and the DUE NOW line now carries the `said` summary. Neither the design doc nor its Size and Code sections were updated.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "documentation"
+    },
+    {
+      "id": "f10",
+      "label": "valid",
+      "what": "The PR description's closed-keys manifest / SCHEDULE_CLOSED_KEYS mechanism does not exist in the code. The description says that pointing SCHEDULE_CLOSED_KEYS at the closed-keys manifest is what closes a window through this path. Nothing in the tree reads SCHEDULE_CLOSED_KEYS: a search finds no use, and windows are closed only by per-key .skip files. The description therefore claims behavior the change does not implement, which misleads operators who configure it.",
+      "file": "thinkers/_lib/common.sh",
+      "kind": "documentation"
+    },
+    {
+      "id": "side-state",
+      "label": "valid",
+      "file": "thinkers/_lib/common.sh",
+      "what": "The receipt and skip files are authoritative state that cannot be rebuilt from trajectory entries, so restoring the trajectory alone can change scheduling decisions.",
+      "note": "The evaluation marks this must under CHARTER.md:14-18, but CHARTER.md was added to main on 2026-10-07, after this pull request's base, so the reviewer could not see it. Labeled valid for that reason. The review's fit section already raised the second source of truth from design/scheduled_goals.md."
+    }
+  ],
+  "fit": "does_not_fit",
+  "advice": [
+    "needs a maintainer's decision"
+  ]
+}

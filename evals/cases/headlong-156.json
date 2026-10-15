@@ -1,0 +1,232 @@
+{
+  "id": "headlong-156",
+  "repo": "laude-institute/headlong",
+  "pr": 156,
+  "base": "2a63d92ce1038eba0d5fb9c14f6accded9edbb5f",
+  "head": "7bf41d441438ce3b36cf7e6c315d40821d853e3e",
+  "title": "skill-compiler: compile skills into validated cached adapters, with pool-attested pass verification",
+  "body": "Port of fork PR 12 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
+  "source": "The maintainer's review evaluation posted on the pull request on 2026-10-15, built on an independent review and reproduction checks of the disputed claims.",
+  "findings": [
+    {
+      "id": "f1",
+      "label": "valid",
+      "what": "`skill-compiler` command is never put on PATH, and the cache is wiped on reinstall. The Usage section invokes a bare `skill-compiler`, but install.sh `_install_skills` only copies or symlinks skill directories into ~/.skills/core-skills and links no executables into ~/.local/bin. The documented commands therefore fail with 'command not found' unless the user knows the full path. Because COMPILED_DIR is `$SCRIPT_DIR/.compiled`, copy-mode installs also lose every compiled cache when `rm -rf \"${skills_prefix:?}/$name\"` runs on the next idempotent re-install.",
+      "file": "skills/skill-compiler/SKILL.md",
+      "kind": "defect",
+      "note": "The cache is derived data, not the primary memory store."
+    },
+    {
+      "id": "f2",
+      "label": "valid",
+      "what": "parse_skill_spec body still contains the frontmatter, and the Usage extraction drops the last line. `sed -n '/^---$/,${//!p;}'` starts its range at the opening `---` on line 1, so the frontmatter lines (minus the first, removed by `sed '1d'`) end up in `body`. Any `---` rule inside the body is also removed. In addition, when `## Usage` is the last section, `sed '$d'` removes its final real line instead of a following heading. The spec handed to the teacher is therefore slightly wrong.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f3",
+      "label": "must",
+      "what": "The live run that feeds the phrase pool changes into an empty scratch directory and then runs the script named in SKILL.md by its bare relative name, so the script is never found and phrases the tool prints only at run time never reach the pool.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f4",
+      "label": "valid",
+      "what": "Progress logging sends the test JSON to stderr and pipes nothing into jq. `$(printf >&2 '%s' \"$test_json\" | jq -r '.name')` sends printf's output to stderr, so jq reads empty stdin. The info line comes out as 'Running test 1/N: ' with no name, and the raw test JSON is dumped to stderr. Line 1312 has the same problem with `result_json`, so 'Test result:' is always empty and the full result JSON goes to stderr unformatted. The `>&2` should be removed from the printf.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "A diagnostic bug, separate from the result computation."
+    },
+    {
+      "id": "f5",
+      "label": "valid",
+      "what": "Teacher is hard-wired to OpenRouter and silently falls back to SHELLM_MODEL. synthesize_tests always calls `llm --provider openrouter`, but the project supports ANTHROPIC/OPENAI/GEMINI keys as well (AGENTS.md, bin/shellm lines 60-76). A user with only ANTHROPIC_API_KEY cannot compile at all. On top of that, cmd_compile passes an empty teacher_model, so `${2:-${SHELLM_MODEL:-nvidia/...}}` uses SHELLM_MODEL when it is set, and the installer does set it. An Anthropic user's `claude-opus-4-7` then goes to OpenRouter and fails, and an OpenRouter user gets their think model as teacher instead of the documented nemotron default. The provider should follow the configured key, or `llm` should pick it.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "Overriding the model through the environment is the project's idiom. The mismatch with the fixed provider and the wrong documented default are the defects."
+    },
+    {
+      "id": "f6",
+      "label": "valid",
+      "what": "Auto-harvest trajectory path ignores HEADLONG_HOME/SHELLM_HOME and the ~/.shellm fallback. The default `${TRAJ_DIR:-$HOME/.headlong/trajectories}` hard-codes ~/.headlong. bin/shellm (line 45-47) resolves the state home from HEADLONG_HOME or SHELLM_HOME, and AGENTS.md says pre-rename installs keep using ~/.shellm. On those installs, and wherever the state home is overridden, the harvest finds nothing and returns. The 'default on' history pool is then silently empty, and TOOL-OUTPUT provenance never fires.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "Identities with TRAJ_DIR set are not affected."
+    },
+    {
+      "id": "f7",
+      "label": "must",
+      "what": "real_output_corpus collects every string in the harvested history JSON, including descriptive metadata fields such as the script name, so a phrase that appears only in metadata is labeled TOOL-OUTPUT as if the tool had printed it.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f8",
+      "label": "valid",
+      "what": "POOL-FRAGMENT accepts any 4-character substring, so bare words count as VERIFIED. label_literal returns POOL-FRAGMENT when `len(lit) >= 4 and any(lit in entry for entry in pool)`, and write_cache counts a fragment as VERIFIED. The pool also contains frontmatter key names (emit_meta keeps anything of 2+ chars, e.g. `name`, `description`). So literals like `name`, `test` or `error`, which rule 9 of the teacher prompt itself forbids as bare words, are reported as verified pool-attested passes. That defeats the pass-verification guarantee the PR advertises. skill-deletion-gate uses a 12-character floor for the same 'fragment' concept, so the two tools also disagree.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "VERIFIED is defined as pass plus pool-attested vocabulary, not proof that a test detects meaningful behavior."
+    },
+    {
+      "id": "f9",
+      "label": "must",
+      "what": "The relative path rewrite uses `\\|` alternation in a basic sed regex, which only GNU sed supports. With stock macOS sed, 'run skills/foo/a.py' is left unchanged, so prompts that rely on the rewrite name relative paths that do not exist in the empty workdir.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "Reproduced with /usr/bin/sed on macOS."
+    },
+    {
+      "id": "f10",
+      "label": "valid",
+      "what": "Every invocation leaks a temp dir, and every test leaks a full run dir under $HOME/scratch. The bootstrap does `mktemp -d \"$SC_TMP_BASE/XXXXXX\"` on every call, including `list`, `show` and `--help`, and never removes it (there is no trap). execute_test (lines 711-716) also creates `$HOME/scratch/skill-compiler-runs/<uuid>` for each test, with its trajectory, memories and workdir, and never cleans it up. Over repeated compiles these pile up without bound in a `scratch/` directory in the user's home, outside the state home layout AGENTS.md describes. Line 11 also creates `$SHELLM_RUNDIR/tmp`, which nothing uses.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f11",
+      "label": "valid",
+      "what": "One failing test harness aborts the whole compile and discards all earlier results. execute_test runs in `$(...)`, so its `die` calls (e.g. 'cannot create rundir') only exit the subshell and leave result_json empty. The next line, `jq --argjson r \"$result_json\"`, then fails on the empty JSON, and with `set -e` at top level the script exits with a cryptic jq error. write_cache never runs, so every test that had already finished is lost. Failed results should be recorded as FAIL entries instead.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect",
+      "note": "The headline is right, but the mechanism is not a later jq error: the command substitution itself returns nonzero and set -e exits. Do not expect a jq error."
+    },
+    {
+      "id": "f12",
+      "label": "must",
+      "what": "assert_compile_allowed compares the raw --skill string with the refused names, while the directory lookup also accepts spellings such as ./name and name/. Those spellings bypass the documented refusal of messaging and live-store skills.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f13",
+      "label": "valid",
+      "what": "clean leaves the pool and provenance cache files behind. cmd_clean removes only `<skill>.md` and `<skill>.json`. compile also writes `pool-<skill>.json`, which write_cache later reads to label POOL-DROPPED, and `<skill>.json.prov`. After `clean`, a stale pool file stays and is read by the next compile's labeler if capture_phrase_pool fails to rewrite it.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "defect"
+    },
+    {
+      "id": "f14",
+      "label": "valid",
+      "what": "Claimed adapter loading does not exist; nothing reads .compiled. SKILL.md and the PR title say the compiled cache is a 'few-shot adapter' that 'future loads of the skill can include'. No code in bin/skills or anywhere else reads `.compiled/` (a search for `.compiled` in bin/ finds nothing). The markdown cache also holds only pass/fail lines, not the few-shot prompts. The end-to-end capability the description promises is therefore not delivered.",
+      "file": "skills/skill-compiler/SKILL.md",
+      "kind": "documentation",
+      "note": "The wording 'future loads can include' allows later integration, but the claim that a usable few-shot adjunct is stored should be corrected or implemented."
+    },
+    {
+      "id": "f15",
+      "label": "valid",
+      "what": "Shipped deletion gate only supports counterpoint/fugue skills that are not in this repo, and nothing documents or calls it. skill-deletion-gate hard-codes `choices=['counterpoint','fugue']` and generates music-note cases, but neither skill exists under skills/. SKILL.md never mentions the tool, and no test or script invokes it. It is an identity-specific research experiment, not part of the described compile pipeline, and it gets copied to every install by install.sh `_install_skills`.",
+      "file": "skills/skill-compiler/skill-deletion-gate",
+      "kind": "maintainability",
+      "note": "Does not by itself make the skill a poor fit for the project."
+    },
+    {
+      "id": "f16",
+      "label": "valid",
+      "what": "Offline test is not hermetic: it writes into the repo, $HOME/scratch, and reads real trajectories. run_sc does not set HOME, SC_TMP_BASE, SC_RUNS_BASE or SKILL_AUTO_HARVEST=0. Every compile therefore creates dirs under the developer's `$HOME/scratch`, auto-harvests from the real `~/.headlong/trajectories`, and writes caches into `$REPO/skills/skill-compiler/.compiled`. Cleanup is partial: fixture-bins pool, `.json.prov` and fixture-greet.md files are left behind. Results can depend on the machine's real trajectory contents, and the CI/dev box accumulates artifacts. HOME and COMPILED_DIR inputs should be pointed into $WORK.",
+      "file": "tests/test_skill_compiler.sh",
+      "kind": "test"
+    },
+    {
+      "id": "f17",
+      "label": "valid",
+      "what": "Stub agent always prints every expected literal, so the matcher's failure paths are never tested. The shellm stub writes all expect_contains literals into both stdout and the final answer in every mode, so every test passes. Nothing checks that a missing literal fails, or the denial-aware rule (a bare 'violation' must not match 'No violations found'). The digit-glue rule in _phrase_match ('5 tests passed' vs '15 tests passed'), the echo filter subtracting prompt/fixture lines, and the clean-case term dropping are untested too. These are the core matching rules the change adds.",
+      "file": "tests/test_skill_compiler.sh",
+      "kind": "test",
+      "note": "The suite does test provenance distinctions and the echo filter."
+    },
+    {
+      "id": "f18",
+      "label": "valid",
+      "what": "Documented defaults disagree with the code and with each other. SKILL.md says the default teacher is nemotron, but the code prefers SHELLM_MODEL whenever it is set (line 505). SKILL.md says the --max-iterations default is 15, while the script's own usage() text (line 49) says 10. cmd_compile actually uses 15. Users who read either source get wrong expectations.",
+      "file": "skills/skill-compiler/SKILL.md",
+      "kind": "documentation"
+    },
+    {
+      "id": "f19",
+      "label": "valid",
+      "what": "Harvest TTL cache sits under a TMPDIR that is new on each run, so it never hits across runs. cache_dir defaults to `${TMPDIR}/skill-harvest-cache`. The bootstrap sets TMPDIR to a fresh mktemp directory on every invocation, so the SKILL_HARVEST_TTL cache never survives from one run to the next. Each compile or pool command re-runs `grep -r` over every trajectory file. The TTL and REFRESH logic is effectively dead unless SKILL_HARVEST_CACHE is set explicitly.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "maintainability"
+    },
+    {
+      "id": "f20",
+      "label": "valid",
+      "what": "Output and test-format docs omit POOL-DROPPED/GREEN-ON-DROPPED and list an unsupported 'thought' expect. The Output section names three literal labels and three verification statuses. The code also emits POOL-DROPPED and GREEN-ON-DROPPED, plus the literal_sources classification, and writes pool-<skill>.json and .json.prov files that are not mentioned. The test-case format lists `expect: observation|thought|error`, but execute_test handles final/observation/shell-output/error, so a `thought` expectation can never pass, while `final`, the value every example uses, is missing from the docs.",
+      "file": "skills/skill-compiler/SKILL.md",
+      "kind": "documentation"
+    },
+    {
+      "id": "f21",
+      "label": "valid",
+      "what": "Summary message counts GREEN-ON-DROPPED passes as 'green on invented literals'. `$((passed - verified)) green on invented literals` lumps GREEN-ON-DROPPED tests in with GREEN-ON-INVENTED. The json summary keeps the two counts apart, so the console line contradicts the cache. The message should use summary.green_on_invented.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "documentation"
+    },
+    {
+      "id": "f22",
+      "label": "valid",
+      "what": "Dead placeholder runner and duplicated case generation in deletion gate. Lines 192-195 build counterpoint cases and define a `run()` marked '# placeholder' that is never called. Lines 197-198 then regenerate the same cases. Also, `import re` on line 2 sits ahead of the module docstring, so the docstring is no longer the module's `__doc__`. This is leftover debug scaffolding in shipped code.",
+      "file": "skills/skill-compiler/skill-deletion-gate",
+      "kind": "maintainability"
+    },
+    {
+      "id": "f23",
+      "label": "valid",
+      "what": "Generic harvester and teacher prompt carry music-specific heuristics and skills not in the repo. harvest_history_pool's is_input_echo filters note tokens (`[A-G](#|b)?\\d`) and interval tokens, a heuristic that only makes sense for the out-of-tree counterpoint skill. It is copied from skill-deletion-gate's _echo_class rather than shared. The teacher prompt (lines 556, 598-612) uses counterpoint and git-diff-summarizer examples, and COMPILE_SKIP_SKILLS names several skills (github-api, goal-review, recap, traj) that are not under skills/. All of this couples a general tool to one identity's private skill set.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "maintainability",
+      "note": "Counterpoint examples or skill names that are not bundled are not bugs on their own, because user skills are supported."
+    },
+    {
+      "id": "f24",
+      "label": "valid",
+      "what": "Comments cite private notes and scratch files not in the repo, and write from one identity's point of view. Comments point readers to `scratch/skill-compiler-realharvest-2026-10-01/FINDING.md`, `RECLASSIFY.md`, `notes/skill-compiler/pool-vacuity-map-2026-09-27.md` and 'my live identity memories' (line 726), none of which exist in the checkout. Line 108 also has two comments run together on one line, and line 517 has a comment glued onto the end of a code line. Maintainers cannot follow the cited rationale.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "kind": "documentation",
+      "note": "Do not infer a functional defect from the author's point of view."
+    },
+    {
+      "id": "f25",
+      "label": "valid",
+      "what": "Pool test passes from source literals alone and cannot detect the broken live-run capture. 'phrase pool carries the tool's real output literal' passes because `print(\"Hello, phrase-pool world!\")` is picked up by the source-literal scan. The live run of fixture_greet.py, which actually fails because of the relative path, is never checked on its own. A fixture whose output is computed rather than written as a string literal would expose the bug.",
+      "file": "tests/test_skill_compiler.sh",
+      "kind": "test",
+      "note": "Coverage for the must live-probe finding, not a separate runtime defect."
+    },
+    {
+      "id": "workdir-scan",
+      "label": "valid",
+      "file": "skills/skill-compiler/skill-compiler",
+      "what": "The evidence scan of the test workdir (around lines 882 to 883) counts non-JSON fixtures and source files as executed output, so a matching phrase in a fixture that never ran can produce a VERIFIED result.",
+      "note": "Missed by the review. The evaluation marks it must; the maintainer chose valid because it is subtle."
+    },
+    {
+      "id": "run-id-pairing",
+      "label": "valid",
+      "file": "skills/skill-compiler/skill-compiler",
+      "what": "History harvesting (around lines 280 to 309) pairs output with the last command in the file instead of matching its run_id, so when runs interleave the skill's own output is dropped and another run's output is attributed to it.",
+      "note": "Missed by the review. The evaluation marks it must; the maintainer chose valid because it is subtle."
+    },
+    {
+      "id": "argument-size",
+      "label": "valid",
+      "file": "skills/skill-compiler/skill-compiler",
+      "what": "Skill bodies, prompts, result JSON and combined environment values are passed as single process arguments or environment strings (around lines 130, 637, 768, 1044 and 1313), so a payload above Linux's per-string size limit makes the compile fail.",
+      "note": "Missed by the review. The evaluation marks it must; the maintainer chose valid because it is subtle."
+    },
+    {
+      "id": "source-caps",
+      "label": "valid",
+      "file": "skills/skill-compiler/skill-compiler",
+      "what": "Each phrase source is capped on its own before the combined truncation is recorded (around lines 310, 353 and 373), so a real phrase dropped at a source cap can be labeled INVENTED while pool_truncated stays false.",
+      "note": "Missed by the review. The evaluation marks it must; the maintainer chose valid because it is subtle."
+    }
+  ],
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ]
+}
