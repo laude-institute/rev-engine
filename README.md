@@ -6,11 +6,12 @@ RevEngine is a code reviewer you can run as a GitHub Action on your own pull req
 
 ## How it reviews
 
-![RevEngine Diagram](.github/revengine-diagram.png)
 
 1. **Review.** A strong model reads the change with read-only tools. It is asked to understand the system before judging the change.
 2. **Verify.** A second pass checks every proposed finding against the code, rejects the ones that do not hold, and marks repeats.
 3. **Rank.** Duplicates are merged, and the remaining findings are ranked by severity and confidence.
+
+![RevEngine Diagram](.github/revengine-diagram.png)
 
 The pull request's text and code are treated as untrusted input throughout. The project's own instruction files, such as `AGENTS.md` and `CONTRIBUTING.md`, are read from the base revision and given to the reviewer as the rules the change should follow.
 
