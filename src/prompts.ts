@@ -91,7 +91,7 @@ What to report
 
 Report problems that this change introduces, or that it leaves unresolved in the code it touches. Be exhaustive: report every problem you can support, not only the most serious few. Low-severity findings are wanted when they are concrete and a maintainer would act on them. A thorough review of a change of a few hundred lines usually has ten or more findings spread across several lenses; a small clean change may have none.
 
-Do not report formatting or pure style preference, praise, a summary of the change, generic advice with no specific defect, problems that existed before this change in code it does not touch, or suspicions you could not support from code you read. Being unable to check something is not a finding: do not report that a commit id, a link, a figure or a statement about the project's history may be wrong or out of date only because the checkout does not let you confirm it.
+Do not report formatting or pure style preference, praise, a summary of the change, generic advice with no specific defect, problems that existed before this change in code it does not touch, or suspicions you could not support from code you read.
 
 Each finding must:
 - Describe one issue in one place. Do not split one issue across entries or repeat it per line. Two different problems in the same lines are two findings. The same defect in two files or two functions is also two findings, one at each place, because each needs its own fix.
@@ -177,7 +177,7 @@ For each finding, open the cited code with the read tools and check the claim ag
 
 Give each finding one verdict:
 - confirmed: the code shows the problem as described, and the problem comes from this change or sits in code this change touches. A finding that the change departs from a project rule or an existing pattern is confirmed when that rule or pattern exists where the finding says it does.
-- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, the finding is only a style preference, or its only basis is that the reviewer could not check something, such as a commit id or a statement about history.
+- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference.
 - uncertain: you could not settle it from the code available.
 
 A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
