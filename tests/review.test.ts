@@ -81,6 +81,23 @@ test("a review with findings is not retried", async () => {
   assert.equal(reviews(), 1);
 });
 
+test("the log names each finding verification dropped", async () => {
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const other = { ...finding, start_line: 1, end_line: 1, title: "Misnamed", detail: "a says nothing about its purpose." };
+  const chat: Chat = async (request) => {
+    const verifying = request.tools.some((tool) => tool.function.name === "submit_verdicts");
+    const args = verifying
+      ? { verdicts: [{ id: "s1-01", verdict: "confirmed" }, { id: "s1-02", verdict: "rejected" }] }
+      : { findings: [finding, other] };
+    const name = verifying ? "submit_verdicts" : "submit_review";
+    return { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+  };
+  const logs: string[] = [];
+  const outcome = await review(configFor(), chat, (message) => logs.push(message));
+  assert.equal(outcome.findings.length, 1);
+  assert.ok(logs.includes("verification dropped s1-02 (rejected): a.ts:1 Misnamed"), logs.join("\n"));
+});
+
 test("the naive baseline makes one call with no tools but the submit tool", async () => {
   const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
   const requests: Array<{ tools: number }> = [];

@@ -57,6 +57,15 @@ function fileList(files: string[]): string {
   return files.length > MAX_FILES_LISTED ? `${listed}\n- and ${files.length - MAX_FILES_LISTED} more` : listed;
 }
 
+/** Logs each finding a step removed, so a run's log shows where a finding was lost. */
+function logDropped(step: string, before: Candidate[], after: Candidate[], log: (message: string) => void, why: (candidate: Candidate) => string): void {
+  const kept = new Set(after.map((candidate) => candidate.id));
+  for (const candidate of before) {
+    if (kept.has(candidate.id)) continue;
+    log(`${step} dropped ${candidate.id} (${why(candidate)}): ${candidate.file}:${candidate.startLine} ${candidate.title.slice(0, 120)}`);
+  }
+}
+
 /**
  * Asks the reviewer to look again, naming the changed files it never opened.
  * The first pass's findings are kept beside the second pass's; the reduction step merges repeats.
@@ -196,6 +205,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
 
   let survivors = dedupe(proposals);
+  logDropped("merge", proposals, survivors, log, () => "repeats a finding that was kept");
   if (config.minSeverity !== "low") {
     const before = survivors.length;
     survivors = atLeast(survivors, config.minSeverity);
@@ -209,10 +219,16 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
         prompt: verifierPrompt(pr, changed, diff, survivors), workspace, submit: submitVerdicts,
         deadline: finishDeadline, maxTurns: config.maxTurns, log, caller: `verifier (${config.verifierModel})`,
       });
-      const before = survivors.length;
-      survivors = applyVerdicts(survivors, parseVerdicts(submission.verdicts), config.verify === "strict");
+      const before = survivors;
+      const verdicts = new Map(parseVerdicts(submission.verdicts).map((verdict) => [verdict.id, verdict]));
+      survivors = applyVerdicts(survivors, [...verdicts.values()], config.verify === "strict");
       verified = true;
-      log(`verification kept ${survivors.length} of ${before} finding(s)`);
+      log(`verification kept ${survivors.length} of ${before.length} finding(s)`);
+      logDropped("verification", before, survivors, log, (candidate) => {
+        const verdict = verdicts.get(candidate.id);
+        if (!verdict) return "no verdict";
+        return verdict.duplicateOf && verdict.verdict !== "rejected" ? `repeats ${verdict.duplicateOf}` : verdict.verdict;
+      });
     } catch (error) {
       // A failed check should not throw away a finished review.
       log(`verification failed, keeping unverified findings: ${error instanceof Error ? error.message : String(error)}`);
@@ -220,6 +236,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
 
   const ranked = rank(survivors, config.maxFindings);
+  logDropped("cap", survivors, ranked, log, () => `beyond the cap of ${config.maxFindings}`);
   const findings = ranked.map((candidate) => toOutput(candidate, config.agent));
 
   // The fit assessment comes last, so it knows what the review found. It may use the
