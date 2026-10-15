@@ -2,10 +2,9 @@
 
 ![RevEngine](.github/banner.png)
 
-RevEngine is a code reviewer you can run as a GitHub Action on your own pull requests. This is still early work, and the prompts and settings may change.
+RevEngine is a code review tool you can run as a GitHub Action on your own pull requests. This is still early work, and the prompts and settings may change.
 
 ## How it reviews
-
 
 1. **Review.** A strong model reads the change with read-only tools. It is asked to understand the system before judging the change.
 2. **Verify.** A second pass checks every proposed finding against the code, rejects the ones that do not hold, and marks repeats.
