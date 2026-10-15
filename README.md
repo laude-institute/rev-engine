@@ -5,7 +5,8 @@
 </p>
 
 <p align="center">
-  A code reviewer you can run as a GitHub Action on your own pull requests.
+  A code reviewer you can run as a GitHub Action on your own pull requests.<br>
+  <sub>This is still early work, and the prompts and settings may change.</sub>
 </p>
 
 <p align="center">
@@ -14,11 +15,9 @@
   <a href="https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934">Another example</a>
 </p>
 
-This is still early work, and the prompts and settings may change.
-
 ## Use it
 
-A person with write access starts a review by commenting `/review` on a pull request. The findings come back as one review, with comments on the changed lines and a short summary that opens with merge advice. With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens. See [docs/INSTALL.md](docs/INSTALL.md) to set it up.
+Comment `/review` on a pull request to start a review. The findings come back as one review, with comments on the changed lines and a short summary that opens with merge advice. With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens. See [docs/INSTALL.md](docs/INSTALL.md) to set it up.
 
 ## How it reviews
 

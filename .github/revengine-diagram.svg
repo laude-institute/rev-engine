@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 400" width="1240" height="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 320" width="1240" height="320" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
     </marker>
   </defs>
-  <rect width="1240" height="400" fill="#ffffff"/>
+  <rect width="1240" height="320" fill="#ffffff"/>
 
   <!-- Inputs -->
   <text x="30" y="58" font-size="15" font-weight="600" fill="#6b7280">INPUTS</text>
@@ -56,7 +56,4 @@
   <text x="1145" y="168" font-size="15" text-anchor="middle" fill="#111827">Review on</text>
   <text x="1145" y="189" font-size="15" text-anchor="middle" fill="#111827">the pull request</text>
   <text x="1145" y="210" font-size="12" text-anchor="middle" fill="#4b5563">via GitHub Action</text>
-
-  <!-- Footer -->
-  <text x="620" y="345" font-size="15" text-anchor="middle" fill="#4b5563">With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in tokens.</text>
 </svg>
