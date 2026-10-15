@@ -9,7 +9,11 @@
 
 ## Use it
 
-Comment `/review` on a pull request to start a review. The findings come back as one review, with comments on the changed lines and a short summary that opens with merge advice. With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens. See [docs/INSTALL.md](docs/INSTALL.md) to set it up.
+1. Set up the Action with [docs/INSTALL.md](docs/INSTALL.md).
+2. Comment `/review` on a pull request.
+3. The findings come back as one review, with comments on the changed lines and a short summary that opens with merge advice.
+
+With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens.
 
 ## How it reviews
 
