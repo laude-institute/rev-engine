@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { dedupe, normalizeCandidates, parseDiff, rank, toOutput, type Candidate } from "../src/findings.ts";
-import { createChat, emptyUsage, type ChatMessage } from "../src/llm.ts";
+import { createChat, emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
 import type { ToolDefinition } from "../src/tools.ts";
 import { readTools } from "../src/tools.ts";
 
@@ -52,7 +52,8 @@ const env = await readFile(join(here, ".env"), "utf8").catch(() => "");
 const apiKey = process.env.OPENROUTER_API_KEY || /^OPENROUTER_API_KEY=(.*)$/m.exec(env)?.[1]?.trim().replace(/^["']|["']$/g, "");
 if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
 const usage = emptyUsage();
-const chat = createChat({ apiKey, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage });
+const byCaller = new Map<string, Usage>();
+const chat = createChat({ apiKey, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage, usageByCaller: byCaller });
 
 const runDir = join(here, "runs", recorded);
 const outDir = join(runDir, ".try-agent", "out");
@@ -75,9 +76,11 @@ async function replayOne(key: string, sample: number): Promise<string> {
   const model = modelOverride || found.model;
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...found.messages, { role: "user", content: SUBMIT_NOW }];
 
+  const caller = `${key} ${sample}`;
+  const started = Date.now();
   let submission: Record<string, unknown> | null = null;
   for (let attempt = 0; attempt < 3 && !submission; attempt += 1) {
-    const reply = await chat({ model, messages, tools: [...readTools, variant.submitReview], timeoutMs: TIMEOUT_MS, caller: "replay" });
+    const reply = await chat({ model, messages, tools: [...readTools, variant.submitReview], timeoutMs: TIMEOUT_MS, caller });
     const call = reply.tool_calls?.find((item) => item.function.name === "submit_review");
     if (call) {
       try { submission = JSON.parse(call.function.arguments); } catch { /* asked again below */ }
@@ -102,12 +105,25 @@ async function replayOne(key: string, sample: number): Promise<string> {
   const ranked = rank(dedupe(candidates), MAX_FINDINGS);
   const dir = join(here, "runs", samples > 1 ? `${target}-${sample}` : target!, "findings");
   await mkdir(dir, { recursive: true });
-  const output = { pr: recordedFindings.pr, agent: "replay", findings: ranked.map((candidate) => toOutput(candidate, "replay")) };
+  const spent = byCaller.get(caller) ?? emptyUsage();
+  const output = {
+    pr: recordedFindings.pr, agent: "replay", findings: ranked.map((candidate) => toOutput(candidate, "replay")),
+    usage: {
+      prompt_tokens: spent.promptTokens, completion_tokens: spent.completionTokens, total_tokens: spent.promptTokens + spent.completionTokens,
+      cached_tokens: spent.cachedTokens, time_in_ms: Date.now() - started, cost_usd: Number(spent.costUsd.toFixed(6)),
+    },
+  };
   await writeFile(join(dir, `${key}.json`), `${JSON.stringify(output, null, 2)}\n`);
   return `${key}: ${ranked.length} finding(s)`;
 }
 
-const tasks = keys.flatMap((key) => Array.from({ length: samples }, (_, index) => () => replayOne(key, index + 1)));
+// The samples of one pull request run one after another, so the later ones read the
+// conversation from the provider's prompt cache instead of paying for it again.
+const tasks = keys.map((key) => async () => {
+  const lines: string[] = [];
+  for (let sample = 1; sample <= samples; sample += 1) lines.push(await replayOne(key, sample));
+  return lines.join("\n");
+});
 let next = 0;
 await Promise.all(Array.from({ length: Math.min(jobs, tasks.length) }, async () => {
   while (next < tasks.length) {
