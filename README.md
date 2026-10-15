@@ -1,19 +1,11 @@
-<h1 align="center">RevEngine</h1>
+![RevEngine](.github/banner.png)
 
-<p align="center">
-  <img src=".github/banner.png" alt="RevEngine">
-</p>
+**RevEngine** is a code reviewer you can run as a GitHub Action in your own repo.
 
-<p align="center">
-  A code reviewer you can run as a GitHub Action on your own pull requests.<br>
-  <sub>This is still early work, and the prompts and settings may change.</sub>
-</p>
+[Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934)
 
-<p align="center">
-  <a href="docs/INSTALL.md">Install</a> &nbsp;|&nbsp;
-  <a href="https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020">Example review</a> &nbsp;|&nbsp;
-  <a href="https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934">Another example</a>
-</p>
+> [!IMPORTANT]
+> RevEngine is early work, and the prompts and settings may change. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
 
 ## Use it
 
