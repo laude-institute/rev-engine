@@ -1,4 +1,4 @@
-# rev-engine-prime
+# RevEngine
 
 ![RevEngine](.github/banner.png)
 
