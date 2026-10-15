@@ -2,7 +2,7 @@
 
 A pull request reviewer packaged as a container for [ReviewBench](https://github.com/review-bench/ReviewBench), an open benchmark for AI code review.
 
-This is early work. It has not been registered with the benchmark and has no published score.
+It is registered with the benchmark as Laude RevEngine Prime, reviewing with `anthropic/claude-opus-5.5`. The same reviewer also runs as a GitHub Action on your own pull requests. This is still early work, and the prompts and settings may change.
 
 ## How it reviews
 
