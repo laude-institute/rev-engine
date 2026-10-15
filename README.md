@@ -5,7 +5,7 @@
 [Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934)
 
 > [!IMPORTANT]
-> RevEngine is early work, and the prompts and settings may change. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
+> RevEngine is early work. Expect frequent changes. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
 
 ## Use it
 
