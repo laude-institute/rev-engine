@@ -21,3 +21,5 @@ If you use the GitHub Action, set its inputs instead. They are listed in [INSTAL
 | `RB_CONFIG_MAX_TURNS` | `40` | Model turns allowed per review or verification pass. |
 
 Setting `RB_DETAILS_OUT` to a path makes the container also write the findings there with each one's severity, kind, title and detail as separate fields. The GitHub Action uses it, and the benchmark does not.
+
+Setting `RB_TRANSCRIPT_OUT` to a path makes the container also write every model conversation of the run there, including the code the reviewer read. `scripts/replay.ts` uses it to try prompt changes without a full review. The file holds the reviewed code, so keep it out of git like any other run output.

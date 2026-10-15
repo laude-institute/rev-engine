@@ -41,6 +41,8 @@ export interface Config {
   fitOutPath: string;
   /** When set, the findings are also written here with their severity, title and detail kept apart. */
   detailsOutPath: string | null;
+  /** When set, every model conversation of the run is written here, for replaying the review offline. */
+  transcriptOutPath: string | null;
   effort: string | null;
   maxFindings: number;
   /** Wall-clock budget for the whole run. */
@@ -131,6 +133,7 @@ export function loadConfig(env: Env): Config {
     fitModel: env.RB_CONFIG_FIT?.trim() || null,
     fitOutPath: join(dirname(outPath), "fit.json"),
     detailsOutPath: env.RB_DETAILS_OUT?.trim() || null,
+    transcriptOutPath: env.RB_TRANSCRIPT_OUT?.trim() || null,
     effort: env.RB_CONFIG_EFFORT?.trim() || null,
     maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", 25, 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,

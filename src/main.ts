@@ -2,7 +2,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
-import { createChat, emptyUsage, type Usage } from "./llm.ts";
+import { createChat, emptyUsage, type Chat, type ChatMessage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
 import { naiveReview } from "./naive.ts";
 import { review } from "./review.ts";
@@ -51,8 +51,23 @@ function logUsageByCaller(): void {
   }
 }
 
+/** Each caller's conversation. The tool loop sends its whole message list on every call, so the last list a caller sent is its conversation. */
+const transcripts = new Map<string, { model: string; messages: ChatMessage[] }>();
+
+async function writeTranscripts(): Promise<void> {
+  if (!config.transcriptOutPath) return;
+  const conversations = [...transcripts].map(([caller, { model, messages }]) => ({ caller, model, messages }));
+  await writeFile(config.transcriptOutPath, `${JSON.stringify({ nwo: config.nwo, pr_number: config.prNumber, head: config.head, conversations })}\n`);
+}
+
 try {
-  const chat = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
+  const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
+  const chat: Chat = config.transcriptOutPath
+    ? (request) => {
+      transcripts.set(request.caller ?? request.model, { model: request.model, messages: request.messages });
+      return send(request);
+    }
+    : send;
   const outcome = await (config.naive ? naiveReview : review)(config, chat, log);
   await write(outcome.findings);
   if (config.detailsOutPath) {
@@ -63,6 +78,7 @@ try {
     await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details }, null, 2)}\n`);
   }
   if (outcome.fit) await writeFile(config.fitOutPath, `${JSON.stringify(outcome.fit, null, 2)}\n`);
+  await writeTranscripts();
   logUsageByCaller();
   log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}, ${Math.round((Date.now() - started) / 1000)}s`);
 } catch (error) {
