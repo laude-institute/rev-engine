@@ -51,6 +51,7 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `scripts/score.sh` | Scores a run with the benchmark's judging CLI. |
 | `scripts/box.sh` | Creates an EC2 box and runs a queue of experiments on it. |
 | `scripts/box-queue.sh` | Runs on the box: review, score and upload each experiment. |
+| `docs/` | Install guide, settings reference and the ReviewBench notes the README links to. |
 | `evals/` | Our own review evals: labeled cases, the runner and the command that starts a case. |
 | `experiments/` | Queue files for `scripts/box.sh start`. |
 
