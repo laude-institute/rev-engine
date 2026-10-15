@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 400" width="1240" height="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <rect width="1240" height="400" fill="#ffffff"/>
+
+  <!-- Inputs -->
+  <text x="30" y="58" font-size="15" font-weight="600" fill="#6b7280">INPUTS</text>
+  <rect x="30" y="94" width="200" height="50" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="130" y="124" font-size="15" text-anchor="middle" fill="#111827">Pull request</text>
+  <rect x="30" y="154" width="200" height="50" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="130" y="184" font-size="15" text-anchor="middle" fill="#111827">Repository checkout</text>
+  <rect x="30" y="214" width="200" height="50" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="130" y="244" font-size="15" text-anchor="middle" fill="#111827">Project rules and docs</text>
+
+  <path d="M230,119 L252,119 L252,239 L230,239 M230,179 L282,179" fill="none" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 1 -->
+  <rect x="290" y="74" width="210" height="210" rx="10" fill="#eff6ff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="395" y="108" font-size="13" font-weight="600" text-anchor="middle" fill="#1d4ed8">STEP 1</text>
+  <text x="395" y="134" font-size="19" font-weight="600" text-anchor="middle" fill="#111827">Review</text>
+  <text x="395" y="170" font-size="14" text-anchor="middle" fill="#374151">A strong model reads</text>
+  <text x="395" y="190" font-size="14" text-anchor="middle" fill="#374151">the code with read-only</text>
+  <text x="395" y="210" font-size="14" text-anchor="middle" fill="#374151">tools and submits</text>
+  <text x="395" y="230" font-size="14" text-anchor="middle" fill="#374151">findings</text>
+
+  <line x1="500" y1="179" x2="542" y2="179" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 2 -->
+  <rect x="550" y="74" width="210" height="210" rx="10" fill="#f0fdf4" stroke="#22c55e" stroke-width="2"/>
+  <text x="655" y="108" font-size="13" font-weight="600" text-anchor="middle" fill="#15803d">STEP 2</text>
+  <text x="655" y="134" font-size="19" font-weight="600" text-anchor="middle" fill="#111827">Verify</text>
+  <text x="655" y="170" font-size="14" text-anchor="middle" fill="#374151">A second pass rechecks</text>
+  <text x="655" y="190" font-size="14" text-anchor="middle" fill="#374151">each finding against</text>
+  <text x="655" y="210" font-size="14" text-anchor="middle" fill="#374151">the code and drops</text>
+  <text x="655" y="230" font-size="14" text-anchor="middle" fill="#374151">wrong or unsupported ones</text>
+
+  <line x1="760" y1="179" x2="802" y2="179" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Step 3 -->
+  <rect x="810" y="74" width="210" height="210" rx="10" fill="#fefce8" stroke="#eab308" stroke-width="2"/>
+  <text x="915" y="108" font-size="13" font-weight="600" text-anchor="middle" fill="#a16207">STEP 3</text>
+  <text x="915" y="134" font-size="19" font-weight="600" text-anchor="middle" fill="#111827">Rank</text>
+  <text x="915" y="170" font-size="14" text-anchor="middle" fill="#374151">Remove duplicates</text>
+  <text x="915" y="190" font-size="14" text-anchor="middle" fill="#374151">and rank findings</text>
+  <text x="915" y="210" font-size="14" text-anchor="middle" fill="#374151">by severity and</text>
+  <text x="915" y="230" font-size="14" text-anchor="middle" fill="#374151">confidence</text>
+
+  <line x1="1020" y1="179" x2="1062" y2="179" stroke="#6b7280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Output -->
+  <text x="1070" y="58" font-size="15" font-weight="600" fill="#6b7280">OUTPUT</text>
+  <rect x="1070" y="134" width="150" height="90" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="1145" y="168" font-size="15" text-anchor="middle" fill="#111827">Review on</text>
+  <text x="1145" y="189" font-size="15" text-anchor="middle" fill="#111827">the pull request</text>
+  <text x="1145" y="210" font-size="12" text-anchor="middle" fill="#4b5563">via GitHub Action</text>
+
+  <!-- Footer -->
+  <text x="620" y="345" font-size="15" text-anchor="middle" fill="#4b5563">With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in tokens.</text>
+</svg>
