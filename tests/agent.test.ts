@@ -112,17 +112,31 @@ test("asks for a second look, then joins both submissions", async () => {
     toolCall("submit_review", '{"findings":["second"]}', "c3"),
   ]);
   const secondLook = {
-    message: () => "look again",
-    combine: (first: Record<string, unknown>, second: Record<string, unknown>) =>
-      ({ findings: [...(first.findings as string[]), ...(second.findings as string[])] }),
+    message: (round: number) => round === 1 ? "look again" : null,
+    combine: (submissions: Array<Record<string, unknown>>) => ({ findings: submissions.flatMap((item) => item.findings as string[]) }),
   };
   assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first", "second"] });
   assert.match(String(requests[1]!.messages.at(-1)!.content), /look again/);
 });
 
+test("runs every round the second look asks for, then joins all submissions", async () => {
+  const { chat, requests } = scripted([
+    toolCall("submit_review", '{"findings":["first"]}'),
+    toolCall("submit_review", '{"findings":["a"]}', "c2"),
+    toolCall("submit_review", '{"findings":["b"]}', "c3"),
+  ]);
+  const secondLook = {
+    message: (round: number) => round <= 2 ? `round ${round}` : null,
+    combine: (submissions: Array<Record<string, unknown>>) => ({ findings: submissions.flatMap((item) => item.findings as string[]) }),
+  };
+  assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first", "a", "b"] });
+  assert.match(String(requests[2]!.messages.at(-1)!.content), /round 2/);
+  assert.equal(requests.length, 3);
+});
+
 test("keeps the first submission when the second look fails", async () => {
   const { chat } = scripted([toolCall("submit_review", '{"findings":["first"]}'), new Error("network down")]);
-  const secondLook = { message: () => "look again", combine: () => ({ findings: [] }) };
+  const secondLook = { message: () => "look again", combine: (submissions: Array<Record<string, unknown>>) => submissions[0]! };
   assert.deepEqual(await runAgent({ ...options(chat), secondLook }), { findings: ["first"] });
 });
 

@@ -4,6 +4,7 @@ import type { Severity } from "./findings.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
+export type SecondLookMode = "on" | "off" | "sweep" | "sweep-low";
 
 export interface Config {
   nwo: string;
@@ -25,8 +26,12 @@ export interface Config {
   focuses: Array<string | null>;
   verifierModel: string;
   verify: VerifyMode;
-  /** Ask each reviewer to look again after its first submission. */
-  secondLook: boolean;
+  /**
+   * What each reviewer does after its first submission: look again once ("on"), go
+   * through the changed hunks in rounds ("sweep"), the same while asking for small
+   * problems too ("sweep-low"), or nothing ("off").
+   */
+  secondLook: SecondLookMode;
   /** A model that reviews again after the seats, told what they found. Null for none. */
   followUpModel: string | null;
   /** Review once more in a new conversation when every seat proposed nothing. */
@@ -95,8 +100,8 @@ export function loadConfig(env: Env): Config {
   const verify = (env.RB_CONFIG_VERIFY?.trim() || "lenient") as VerifyMode;
   if (!["off", "lenient", "strict"].includes(verify)) throw new Error("RB_CONFIG_VERIFY must be off, lenient or strict");
 
-  const secondLook = env.RB_CONFIG_SECOND_LOOK?.trim() || "on";
-  if (!["on", "off"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on or off");
+  const secondLook = (env.RB_CONFIG_SECOND_LOOK?.trim() || "on") as SecondLookMode;
+  if (!["on", "off", "sweep", "sweep-low"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on, off, sweep or sweep-low");
 
   const retryEmpty = env.RB_CONFIG_RETRY_EMPTY?.trim() || "on";
   if (!["on", "off"].includes(retryEmpty)) throw new Error("RB_CONFIG_RETRY_EMPTY must be on or off");
@@ -126,7 +131,7 @@ export function loadConfig(env: Env): Config {
     focuses,
     verifierModel: env.RB_CONFIG_VERIFIER?.trim() || models[0]!,
     verify,
-    secondLook: secondLook === "on",
+    secondLook,
     followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
     retryEmpty: retryEmpty === "on",
     naive: naive === "on",
@@ -150,7 +155,7 @@ export function describeSettings(config: Config): string {
     `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,
     `verify=${config.verify}`,
-    `second_look=${config.secondLook ? "on" : "off"}`,
+    `second_look=${config.secondLook}`,
     `follow_up=${config.followUpModel ?? "off"}`,
     `retry_empty=${config.retryEmpty ? "on" : "off"}`,
     `min_severity=${config.minSeverity}`,

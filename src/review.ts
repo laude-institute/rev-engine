@@ -2,11 +2,12 @@
 // pass over what they found, then a deterministic reduction to the final list.
 import { readFile } from "node:fs/promises";
 import { runAgent, type SecondLook } from "./agent.ts";
-import type { Config } from "./config.ts";
+import type { Config, SecondLookMode } from "./config.ts";
 import { pickDesignDocs } from "./docs.ts";
 import { assessFit, type FitAssessment } from "./fit.ts";
 import {
   applyVerdicts,
+  type ChangedLines,
   atLeast,
   dedupe,
   normalizeCandidates,
@@ -22,6 +23,7 @@ import {
   diffInPrompt,
   reviewerSystem,
   SECOND_LOOK,
+  sweepMessage,
   followUpSection,
   VERIFIER_SYSTEM,
   reviewerPrompt,
@@ -73,15 +75,70 @@ function logDropped(step: string, before: Candidate[], after: Candidate[], log: 
  */
 function secondLookFor(workspace: Workspace, changedFiles: string[]): SecondLook {
   return {
-    message: () => {
+    message: (round) => {
+      if (round > 1) return null;
       const unopened = changedFiles.filter((file) => !workspace.opened.has(file) && !GENERATED.test(file));
       if (!unopened.length) return SECOND_LOOK;
       return `${SECOND_LOOK}\n\nChanged files you have not opened yet. The diff shows only the changed lines, so open the ones that hold code, tests or configuration:\n${fileList(unopened)}`;
     },
-    combine: (first, second) => ({
-      findings: [...(Array.isArray(second.findings) ? second.findings : []), ...(Array.isArray(first.findings) ? first.findings : [])],
-    }),
+    combine: combineSubmissions,
   };
+}
+
+/** Later rounds come first, so when two rounds repeat a finding the merge keeps the more considered one. */
+function combineSubmissions(submissions: Array<Record<string, unknown>>): Record<string, unknown> {
+  return { findings: submissions.toReversed().flatMap((submission) => Array.isArray(submission.findings) ? submission.findings : []) };
+}
+
+/** Changed lines per sweep round; a file larger than this gets a round of its own. */
+const SWEEP_ROUND_LINES = 150;
+const MAX_SWEEP_ROUNDS = 6;
+/** Added lines closer than this are one hunk to the reviewer. */
+const HUNK_GAP = 6;
+
+/**
+ * Splits the changed lines of hand-written files into rounds, in diff order. Each
+ * round lists files and their changed line ranges. A large change gets larger rounds
+ * rather than more of them, so the sweep fits the time budget.
+ */
+export function sweepRounds(changed: ChangedLines): string[] {
+  const files = [...changed].filter(([file, ranges]) => ranges.length && !GENERATED.test(file)).map(([file, ranges]) => {
+    const hunks: Array<[number, number]> = [];
+    for (const [start, end] of ranges) {
+      const last = hunks.at(-1);
+      if (last && start - last[1] <= HUNK_GAP) last[1] = Math.max(last[1], end);
+      else hunks.push([start, end]);
+    }
+    return { file, hunks, size: ranges.reduce((sum, [start, end]) => sum + end - start + 1, 0) };
+  });
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  const target = Math.max(SWEEP_ROUND_LINES, Math.ceil(total / MAX_SWEEP_ROUNDS));
+  const rounds: Array<typeof files> = [];
+  let size = 0;
+  for (const file of files) {
+    if (!rounds.length || size + file.size > target) {
+      rounds.push([]);
+      size = 0;
+    }
+    rounds.at(-1)!.push(file);
+    size += file.size;
+  }
+  return rounds.map((round) => round.map(({ file, hunks }) =>
+    `- ${file}: ${hunks.map(([start, end]) => start === end ? `line ${start}` : `lines ${start} to ${end}`).join(", ")}`).join("\n"));
+}
+
+function sweepFor(changed: ChangedLines, mode: SecondLookMode): SecondLook {
+  const rounds = sweepRounds(changed);
+  return {
+    message: (round) => round <= rounds.length ? sweepMessage(round, rounds.length, rounds[round - 1]!, mode === "sweep-low") : null,
+    combine: combineSubmissions,
+  };
+}
+
+function afterFirstSubmission(config: Config, workspace: Workspace, changed: ChangedLines): { secondLook?: SecondLook } {
+  if (config.secondLook === "off") return {};
+  if (config.secondLook === "on") return { secondLook: secondLookFor(workspace, [...changed.keys()]) };
+  return { secondLook: sweepFor(changed, config.secondLook) };
 }
 
 export interface ReviewOutcome {
@@ -155,7 +212,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     const submission = await runAgent({
       chat, model, system: reviewerSystem(focus), prompt, workspace: seatWorkspace, submit: submitReview,
       deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
-      ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
+      ...afterFirstSubmission(config, seatWorkspace, changed),
     });
     const candidates = await normalizeCandidates(submission.findings, {
       seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,
@@ -187,7 +244,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
         chat, model, system: reviewerSystem(null),
         prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section),
         workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
-        ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
+        ...afterFirstSubmission(config, seatWorkspace, changed),
       });
       const candidates = await normalizeCandidates(submission.findings, {
         seat, repoDir: config.repoDir, changed, headFile: (path) => workspace.headFile(path), log,

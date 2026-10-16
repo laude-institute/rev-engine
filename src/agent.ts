@@ -14,10 +14,13 @@ const WRAP_UP_MS = 100_000;
 /** Conversation size, in characters, past which the model is told to submit. Bounds the cost of every later turn. */
 const MAX_CONTEXT_CHARS = 800_000;
 
-/** A request to look again after the first submission, and how to join the two submissions. */
+/**
+ * Requests to look again after the first submission, one per round, and how to join
+ * the submissions. message(1) answers the first submission; null ends the review.
+ */
 export interface SecondLook {
-  message: () => string;
-  combine: (first: Record<string, unknown>, second: Record<string, unknown>) => Record<string, unknown>;
+  message: (round: number) => string | null;
+  combine: (submissions: Array<Record<string, unknown>>) => Record<string, unknown>;
 }
 
 export interface AgentOptions {
@@ -30,7 +33,7 @@ export interface AgentOptions {
   /** Epoch milliseconds by which the submission must be in. */
   deadline: number;
   maxTurns: number;
-  /** When set, the first submission is answered with this request and the model submits once more. */
+  /** When set, each submission is answered with the next request, and the model submits again. */
   secondLook?: SecondLook;
   /** Names this run in the usage totals, such as "s1" or "verifier". */
   caller?: string;
@@ -101,21 +104,21 @@ function label(name: string, rawArguments: string): string {
   return `${name} ${target}`.trim().slice(0, 80);
 }
 
-/** What the model has handed in so far: a first submission, and the complete entries of one that was cut off. */
+/** What the model has handed in so far: whole submissions, and the complete entries of one that was cut off. */
 interface Held {
-  first: Record<string, unknown> | null;
+  submissions: Array<Record<string, unknown>>;
   partial: Record<string, unknown> | null;
 }
 
 export async function runAgent(options: AgentOptions): Promise<Record<string, unknown>> {
   // What was handed in is kept, so a failure later on still returns that work.
-  const held: Held = { first: null, partial: null };
+  const held: Held = { submissions: [], partial: null };
   try {
     return await loop(options, held);
   } catch (error) {
-    if (held.first) {
-      options.log(`${options.model}: second look failed, keeping the first submission: ${describe(error)}`);
-      return held.partial && options.secondLook ? options.secondLook.combine(held.first, held.partial) : held.first;
+    if (held.submissions.length && options.secondLook) {
+      options.log(`${options.model}: second look failed, keeping the submissions so far: ${describe(error)}`);
+      return options.secondLook.combine(held.partial ? [...held.submissions, held.partial] : held.submissions);
     }
     if (!held.partial) throw error;
     options.log(`${options.model}: failed after a cut-off submission, keeping its complete entries: ${describe(error)}`);
@@ -185,15 +188,14 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
       if (!value && held.partial && wrappingUp) {
         // There is no time to ask again, and another cut-off answer would lose these too.
         log(`${model}: the submission was cut off; keeping its complete entries`);
-        return held.first && secondLook ? secondLook.combine(held.first, held.partial) : held.partial;
+        return held.submissions.length && secondLook ? secondLook.combine([...held.submissions, held.partial]) : held.partial;
       }
-      if (value && held.first && secondLook) return secondLook.combine(held.first, value);
-      const lookAgain = Boolean(value && secondLook && !wrappingUp && deadline - Date.now() > 2 * WRAP_UP_MS);
-      if (value && !lookAgain) return value;
-      if (value) held.first = value;
+      if (value) held.submissions.push(value);
+      const next = value && secondLook && !wrappingUp && deadline - Date.now() > 2 * WRAP_UP_MS ? secondLook.message(held.submissions.length) : null;
+      if (value && !next) return secondLook && held.submissions.length > 1 ? secondLook.combine(held.submissions) : value;
       // Every call needs a result before the next turn. An unparsable submission is usually output cut off mid-JSON.
       const content = value
-        ? JSON.stringify({ ok: true, status: "received, not final yet", next: secondLook!.message() })
+        ? JSON.stringify({ ok: true, status: "received, not final yet", next })
         : JSON.stringify({ ok: false, error: `the ${submitName} arguments were not valid JSON; call it again with fewer or shorter entries` });
       for (const call of calls) push({ role: "tool", tool_call_id: call.id, content });
       continue;

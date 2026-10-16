@@ -169,6 +169,26 @@ export const SECOND_LOOK = `Your first pass is recorded. Before the review is fi
 - Lower-severity problems you noticed but left out.
 Investigate with the read tools, then call submit_review again with the findings this second pass adds. You do not need to repeat findings from your first submission; they are kept.`;
 
+/**
+ * One round of the sweep: the reviewer goes through a group of changed lines one hunk
+ * at a time. Pointed at a small piece of code, a model finds problems it passed over
+ * while reviewing the change as a whole.
+ */
+export function sweepMessage(round: number, rounds: number, groups: string, encourageLow: boolean): string {
+  const opening = round === 1
+    ? `Your first pass is recorded. Before the review is final, go through the changed code one hunk at a time, in ${rounds} round${rounds > 1 ? "s" : ""}. Round 1 of ${rounds}:`
+    : `Round ${round} of ${rounds}:`;
+  return `${opening}
+
+${groups}
+
+For each hunk, ask what could be wrong there: in the lines themselves, in how they work with their callers, their tests and the rest of the change, and in what should have changed with them but did not. Read the code around each hunk, and search for callers or other uses when a hunk changes behavior. A problem you already reported at another place is a new finding when it appears again in these lines: report it here, at this place.${encourageLow ? `
+
+Report small problems too: a misleading name or comment, a stale document, duplicated code, a missing or weak test, a departure from how neighboring code does the same thing. Give each finding the severity it deserves; a small problem is low, and it still belongs in the review.` : ""}
+
+Then call submit_review with only the findings this round adds. Your earlier findings are kept.`;
+}
+
 export const VERIFIER_SYSTEM = `You are checking another reviewer's findings on one pull request before they are sent to the author. Wrong findings waste the author's time, and so do repeats.
 
 ${UNTRUSTED} The findings themselves are also unverified claims, not facts.
@@ -177,10 +197,12 @@ For each finding, open the cited code with the read tools and check the claim ag
 
 Give each finding one verdict:
 - confirmed: the code shows the problem as described, and the problem comes from this change or sits in code this change touches. A finding that the change departs from a project rule or an existing pattern is confirmed when that rule or pattern exists where the finding says it does.
-- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference.
+- rejected: the claim is factually wrong, the harm it states does not follow from the code, the code already handles the case, the problem predates the change in code it does not touch, or the finding is only a style preference, such as formatting or a matter of taste in naming.
 - uncertain: you could not settle it from the code available.
 
-A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity.
+A real problem stays confirmed even when it is minor. Do not reject a finding for being low severity. Maintainability problems are not style preferences: duplicated code, a departure from an existing pattern, a misleading name or comment, a stale document and a missing or weak test are confirmed when the code shows them, even when nothing breaks today.
+
+The same problem at two places is two findings, because each place needs its own fix. Confirm each copy that is true, and do not mark one as a duplicate of the other.
 
 Check the consequence as well as the facts. A finding can describe the code correctly and still be wrong about what follows. For a security or data exposure finding, work out who gains access: reject it when the party that receives the data or capability already has the same access, for example code the operator runs in the same process.
 

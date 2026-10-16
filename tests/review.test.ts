@@ -6,7 +6,7 @@ import { after, before, test } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import type { Chat, ChatMessage } from "../src/llm.ts";
 import { naiveReview } from "../src/naive.ts";
-import { review } from "../src/review.ts";
+import { review, sweepRounds } from "../src/review.ts";
 
 let dir = "";
 
@@ -109,4 +109,20 @@ test("the naive baseline makes one call with no tools but the submit tool", asyn
   assert.deepEqual(requests, [{ tools: 1 }]);
   assert.equal(outcome.findings.length, 1);
   assert.equal(outcome.verified, false);
+});
+
+test("the sweep joins nearby changed lines into hunks, skips generated files and packs files into rounds", () => {
+  const changed = new Map<string, Array<[number, number]>>([
+    ["src/a.ts", [[1, 3], [6, 8], [40, 40]]],
+    ["package-lock.json", [[1, 500]]],
+    ["src/b.ts", [[10, 200]]],
+    ["src/c.ts", [[5, 9]]],
+  ]);
+  assert.deepEqual(sweepRounds(changed), [
+    "- src/a.ts: lines 1 to 8, line 40",
+    "- src/b.ts: lines 10 to 200",
+    "- src/c.ts: lines 5 to 9",
+  ]);
+  const small = new Map<string, Array<[number, number]>>([["a.ts", [[1, 2]]], ["b.ts", [[3, 3]]]]);
+  assert.deepEqual(sweepRounds(small), ["- a.ts: lines 1 to 2\n- b.ts: line 3"]);
 });
