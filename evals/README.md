@@ -2,7 +2,7 @@
 
 These cases check the reviewer on pull requests where a person has already said which findings were right. They track what ReviewBench does not score: severity, kind, merge advice, the fit answer and known false positives.
 
-The set is small, so read it as a list of regression checks and not as a score. The same rule applies here as for the benchmark: a change to the reviewer must be general, and never written to make one case pass.
+The cases are both regression checks and a score to improve. The same rule applies here as for the benchmark: a change to the reviewer must be general, and never written to make one case pass. While the set is small, read a change in score case by case rather than as one number.
 
 ## Collect a case
 

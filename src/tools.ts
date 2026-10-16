@@ -70,6 +70,24 @@ function numberedSlice(text: string, start: unknown, count: unknown): { content:
   return { content, total_lines: lines.length };
 }
 
+/** The first and last line numbers a slice actually returned, after any cut for size. */
+function sliceRange(content: string): [number, number] | null {
+  const numbers = content.split("\n").map((line) => Number(/^(\d+): /.exec(line)?.[1])).filter((value) => value > 0);
+  return numbers.length ? [numbers[0]!, numbers.at(-1)!] : null;
+}
+
+/**
+ * One thing a model looked at. Lines are file lines for read_file (at head) and
+ * read_base_file (at base), and diff lines for read_diff. Paths and numbers only, never content.
+ */
+export interface ReadRecord {
+  tool: string;
+  path?: string;
+  lines?: [number, number];
+  query?: string;
+  hits?: Array<{ path: string; line: number }>;
+}
+
 export function safeRelativePath(value: unknown): string {
   if (typeof value !== "string" || value.includes("\0") || isAbsolute(value)) throw new Error("path must be relative");
   const normalized = value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
@@ -101,6 +119,8 @@ export class Workspace {
   readonly base: string;
   /** Files this workspace's model has read, at head or at base. */
   readonly opened = new Set<string>();
+  /** Everything this workspace's model read, in order, so a run can show what context the review had. */
+  readonly reads: ReadRecord[] = [];
   private outputBytes = 0;
   private root: string | null = null;
 
@@ -189,7 +209,12 @@ export class Workspace {
     return this.walk(await this.canonicalRoot(), limit);
   }
 
-  private async search(query: unknown, path: unknown, ignoreCase: unknown): Promise<unknown> {
+  private record(entry: ReadRecord, content: string): void {
+    const lines = sliceRange(content);
+    this.reads.push(lines ? { ...entry, lines } : entry);
+  }
+
+  private async search(query: unknown, path: unknown, ignoreCase: unknown): Promise<{ ok: true; results: Array<{ path: string; line: number; text: string }>; truncated: boolean }> {
     if (typeof query !== "string" || !query || query.length > 500) throw new Error("query is invalid");
     const root = await this.canonicalRoot();
     const needle = ignoreCase ? query.toLowerCase() : query;
@@ -209,25 +234,38 @@ export class Workspace {
 
   private async dispatch(name: string, args: Record<string, unknown>): Promise<unknown> {
     if (name === "read_diff") {
-      return { ok: true, ...numberedSlice(await this.diff(), args.start_line, args.line_count) };
+      const slice = numberedSlice(await this.diff(), args.start_line, args.line_count);
+      this.record({ tool: name }, slice.content);
+      return { ok: true, ...slice };
     }
     if (name === "read_file") {
       const path = await this.contained(args.path);
       const text = await this.textFile(path);
-      this.opened.add(safeRelativePath(args.path));
-      return { ok: true, ...numberedSlice(text, args.start_line, args.line_count) };
+      const relativePath = safeRelativePath(args.path);
+      this.opened.add(relativePath);
+      const slice = numberedSlice(text, args.start_line, args.line_count);
+      this.record({ tool: name, path: relativePath }, slice.content);
+      return { ok: true, ...slice };
     }
     if (name === "read_base_file") {
       const text = await this.baseFile(String(args.path ?? ""));
       if (text === null) throw new Error("file does not exist at the base revision");
-      this.opened.add(safeRelativePath(args.path));
-      return { ok: true, ...numberedSlice(text, args.start_line, args.line_count) };
+      const relativePath = safeRelativePath(args.path);
+      this.opened.add(relativePath);
+      const slice = numberedSlice(text, args.start_line, args.line_count);
+      this.record({ tool: name, path: relativePath }, slice.content);
+      return { ok: true, ...slice };
     }
     if (name === "list_files") {
       const files = await this.walk(await this.contained(args.path ?? ""), MAX_LIST_FILES);
+      this.reads.push({ tool: name, path: String(args.path ?? "") });
       return { ok: true, files, truncated: files.length >= MAX_LIST_FILES };
     }
-    if (name === "search") return this.search(args.query, args.path, args.ignore_case);
+    if (name === "search") {
+      const found = await this.search(args.query, args.path, args.ignore_case);
+      this.reads.push({ tool: name, query: String(args.query), hits: found.results.map(({ path, line }) => ({ path, line })) });
+      return found;
+    }
     return { ok: false, error: "unknown tool" };
   }
 

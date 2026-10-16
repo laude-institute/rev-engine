@@ -287,8 +287,13 @@ export function changedFilesSection(changed: ChangedLines): string {
   return `Files present after the change, with the line ranges it added or modified:\n${lines.join("\n") || "(none)"}`;
 }
 
+/** Whether the whole diff goes into the prompt, or is left for the read_diff tool. */
+export function diffInPrompt(diff: string): boolean {
+  return diff.length <= INLINE_DIFF_CHARS;
+}
+
 export function diffSection(diff: string): string {
-  if (diff.length <= INLINE_DIFF_CHARS) return `The full diff:\n\n<diff>\n${diff}\n</diff>`;
+  if (diffInPrompt(diff)) return `The full diff:\n\n<diff>\n${diff}\n</diff>`;
   const lines = diff.split("\n").length;
   return `The diff is ${lines} lines long, too large to include here. Read it with read_diff, a few hundred lines at a time. Use the list of changed files to decide the order: hand-written source, configuration and tests first. Skim generated files, lockfiles and vendored code only far enough to see whether anything unexpected is in them.`;
 }

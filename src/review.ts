@@ -19,6 +19,7 @@ import {
 } from "./findings.ts";
 import type { Chat } from "./llm.ts";
 import {
+  diffInPrompt,
   reviewerSystem,
   SECOND_LOOK,
   followUpSection,
@@ -30,7 +31,7 @@ import {
   type ProjectRule,
   type PullRequestInfo,
 } from "./prompts.ts";
-import { Workspace } from "./tools.ts";
+import { Workspace, type ReadRecord } from "./tools.ts";
 
 /** Instruction files read from the base revision, so the change cannot rewrite the rules it is judged by. */
 const RULE_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", ".github/copilot-instructions.md", ".cursorrules"];
@@ -91,6 +92,14 @@ export interface ReviewOutcome {
   ranked: Candidate[];
   /** Whether the change belongs in the project, when that was asked for and answered. */
   fit: FitAssessment | null;
+  /** What each model read, so a run can show whether the review had enough context. */
+  context: ReviewContext;
+}
+
+export interface ReviewContext {
+  /** Whether the whole diff was in the reviewer's prompt, rather than read through read_diff. */
+  diffInPrompt: boolean;
+  readers: Array<{ caller: string; reads: ReadRecord[] }>;
 }
 
 export async function loadPullRequest(config: Config): Promise<PullRequestInfo> {
@@ -132,14 +141,20 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
 
   const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
   const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
+  const context: ReviewContext = { diffInPrompt: diffInPrompt(diff), readers: [] };
+  const track = (caller: string, tracked: Workspace): Workspace => {
+    context.readers.push({ caller, reads: tracked.reads });
+    return tracked;
+  };
   const seats = await Promise.allSettled(config.models.map(async (model, index) => {
     const seat = `s${index + 1}`;
     const focus = config.focuses[index] ?? null;
     // Each seat gets its own workspace, so what one model has opened is tracked apart from the others.
-    const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
+    const caller = `${seat} (${model}${focus ? `@${focus}` : ""})`;
+    const seatWorkspace = track(caller, new Workspace(config.repoDir, config.diffPath, config.base));
     const submission = await runAgent({
       chat, model, system: reviewerSystem(focus), prompt, workspace: seatWorkspace, submit: submitReview,
-      deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller: `${seat} (${model}${focus ? `@${focus}` : ""})`,
+      deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
       ...(config.secondLook ? { secondLook: secondLookFor(seatWorkspace, [...changed.keys()]) } : {}),
     });
     const candidates = await normalizeCandidates(submission.findings, {
@@ -167,7 +182,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     const seat = `s${config.models.length + 1}`;
     try {
       const againBudget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
-      const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
+      const seatWorkspace = track(caller, new Workspace(config.repoDir, config.diffPath, config.base));
       const submission = await runAgent({
         chat, model, system: reviewerSystem(null),
         prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section),
@@ -213,6 +228,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   }
   let verified = false;
   if (verifying && survivors.length && finishDeadline - Date.now() >= MIN_VERIFY_MS) {
+    track(`verifier (${config.verifierModel})`, workspace);
     try {
       const submission = await runAgent({
         chat, model: config.verifierModel, system: VERIFIER_SYSTEM,
@@ -246,10 +262,10 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   if (config.fitModel && fitDeadline - Date.now() >= MIN_FIT_MS) {
     fit = await assessFit({
       chat, model: config.fitModel, pr, changed, diff, rules, documents, findings: ranked, deadline: fitDeadline,
-      maxTurns: config.maxTurns, log, workspace: new Workspace(config.repoDir, config.diffPath, config.base),
+      maxTurns: config.maxTurns, log, workspace: track(`fit (${config.fitModel})`, new Workspace(config.repoDir, config.diffPath, config.base)),
     });
   } else if (config.fitModel) {
     log("fit skipped: too little time is left");
   }
-  return { findings, ranked, proposed: proposals.length, verified, fit };
+  return { findings, ranked, proposed: proposals.length, verified, fit, context };
 }

@@ -23,3 +23,5 @@ If you use the GitHub Action, set its inputs instead. They are listed in [INSTAL
 Setting `RB_DETAILS_OUT` to a path makes the container also write the findings there with each one's severity, kind, title and detail as separate fields. The GitHub Action uses it, and the benchmark does not.
 
 Setting `RB_TRANSCRIPT_OUT` to a path makes the container also write every model conversation of the run there, including the code the reviewer read. `scripts/replay.ts` uses it to try prompt changes without a full review. The file holds the reviewed code, so keep it out of git like any other run output.
+
+Setting `RB_CONTEXT_OUT` to a path makes the container write what each model read: every file and line range, every diff slice and every search with the lines it hit. It holds paths and line numbers only, no code. `scripts/local-run.sh` always sets it, and `scripts/coverage.ts` uses it to show whether the reviewer read the code behind each expected finding.

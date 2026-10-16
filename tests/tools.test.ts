@@ -71,6 +71,21 @@ test("list_files and search skip symlinks, .git and node_modules", async () => {
   assert.deepEqual((await call(workspace, "search", { query: "needle", path: "", ignore_case: false })).results, []);
 });
 
+test("the workspace records the lines each read returned, and nothing for a failed read", async () => {
+  const { workspace } = fixture();
+  await call(workspace, "read_file", { path: "./src/a.ts", start_line: 2, line_count: 400 });
+  await call(workspace, "read_base_file", { path: "src/a.ts", start_line: 1, line_count: 1 });
+  await call(workspace, "read_diff", { start_line: 2, line_count: 2 });
+  await call(workspace, "search", { query: "NEEDLE", path: "", ignore_case: false });
+  await call(workspace, "read_file", { path: "leak.txt", start_line: 1, line_count: 10 });
+  assert.deepEqual(workspace.reads, [
+    { tool: "read_file", path: "src/a.ts", lines: [2, 3] },
+    { tool: "read_base_file", path: "src/a.ts", lines: [1, 1] },
+    { tool: "read_diff", lines: [2, 3] },
+    { tool: "search", query: "NEEDLE", hits: [{ path: "src/a.ts", line: 2 }] },
+  ]);
+});
+
 test("bad arguments and unknown tools return errors instead of throwing", async () => {
   const { workspace } = fixture();
   assert.equal(JSON.parse(await workspace.call("read_file", "{not json")).error, "arguments must be a JSON object");

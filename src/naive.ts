@@ -36,5 +36,6 @@ export async function naiveReview(config: Config, chat: Chat, log: (message: str
   });
   log(`naive (${config.models[0]}): ${candidates.length} finding(s)`);
   const ranked = rank(candidates, config.maxFindings);
-  return { findings: ranked.map((candidate) => toOutput(candidate, config.agent)), ranked, proposed: candidates.length, verified: false, fit: null };
+  return { findings: ranked.map((candidate) => toOutput(candidate, config.agent)), ranked, proposed: candidates.length, verified: false, fit: null,
+    context: { diffInPrompt: diff.length <= MAX_DIFF_CHARS, readers: [] } };
 }

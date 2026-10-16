@@ -98,7 +98,7 @@ async function review(evalCase: EvalCase, directory: string, out: string, option
   await mkdir(out, { recursive: true });
   const env = {
     RB_NWO: evalCase.repo, RB_PR_NUMBER: String(evalCase.pr), RB_BASE: evalCase.base, RB_HEAD: evalCase.head,
-    RB_CONFIG_MODEL: options.model, RB_CONFIG_FIT: options.model, RB_DETAILS_OUT: "/work/out/details.json",
+    RB_CONFIG_MODEL: options.model, RB_CONFIG_FIT: options.model, RB_DETAILS_OUT: "/work/out/details.json", RB_CONTEXT_OUT: "/work/out/context.json",
     RB_REPO: "/work/repo", RB_DIFF: "/work/pr/diff.patch", RB_PR_JSON: "/work/pr/pr.json", RB_OUT: "/work/out/findings.json", RB_ATTEMPT: "1",
   };
   const args = [

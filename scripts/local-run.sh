@@ -42,7 +42,7 @@ single=0
 case " $* " in *" --pr "*|*" --set full "*) single=1 ;; esac
 
 if [ "$single" -eq 1 ] || { [ "$jobs" -le 1 ] && [ "$prs" = all ]; }; then
-  "$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY "$@" 2>&1 | tee "logs/run.log"
+  "$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json "$@" 2>&1 | tee "logs/run.log"
   exit "${PIPESTATUS[0]}"
 fi
 
@@ -55,7 +55,7 @@ count=$(wc -l <<<"$indexes" | tr -d ' ')
 export bench image
 rm -rf findings logs/pr-*.log
 xargs -P "$jobs" -I{} sh -c \
-  '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@" <<<"$indexes"
+  '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@" <<<"$indexes"
 done_count=$(find findings -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 grep -h -E '^(==|   (ok|FAIL))' logs/pr-*.log || true
 echo "$done_count of $count pull requests produced a valid findings file; logs in $run/logs" >&2

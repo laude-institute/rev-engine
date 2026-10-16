@@ -24,11 +24,13 @@ The reviewer gives one or more models read-only tools over the checkout, has eac
 
 ## Tuning without overfitting
 
+The goal is a reviewer we use for our own pull requests. The benchmark score is one measure of that, not the goal.
+
 The benchmark publishes all 219 pull requests and their expected findings. That makes it easy to fit the reviewer to the answers, and this project should not.
 
 - Tune prompts and settings on the 25 pull request test set only. Read misses only there.
 - Run the remaining pull requests rarely, and look only at the aggregate score. A large gap between the two sets means the reviewer has overfit.
-- The cases in `evals/` follow the same rule. They are regression checks on real reviews, not a score to climb. A prompt changed until those cases pass has learned those cases.
+- The cases in `evals/` are both regression checks and a score to improve, because they are reviews of the pull requests we use the reviewer on. A change that helps them must still be general. As the set grows, keep some cases aside that are only checked, so a gain is confirmed on cases the change was not tuned on.
 - Every change must be general, such as "report tests that cannot fail". Never add anything specific to a repository or pull request in the benchmark, and never put expected findings in the image.
 
 ## Layout
@@ -49,6 +51,8 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `action/` | Turns the findings file into one GitHub review and posts it. |
 | `scripts/local-run.sh` | Builds the image and runs benchmark pull requests locally. |
 | `scripts/score.sh` | Scores a run with the benchmark's judging CLI. |
+| `scripts/coverage.ts` | Shows whether a run's reviewers read the code behind each expected finding. |
+| `scripts/replay.ts` | Replays the reporting step of a recorded run with another prompt. |
 | `scripts/box.sh` | Creates an EC2 box and runs a queue of experiments on it. |
 | `scripts/box-queue.sh` | Runs on the box: review, score and upload each experiment. |
 | `docs/` | Install guide, settings reference and the ReviewBench notes the README links to. |

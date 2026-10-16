@@ -78,6 +78,10 @@ try {
     await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details }, null, 2)}\n`);
   }
   if (outcome.fit) await writeFile(config.fitOutPath, `${JSON.stringify(outcome.fit, null, 2)}\n`);
+  if (config.contextOutPath) {
+    const context = { nwo: config.nwo, pr_number: config.prNumber, head: config.head, diff_in_prompt: outcome.context.diffInPrompt, readers: outcome.context.readers };
+    await writeFile(config.contextOutPath, `${JSON.stringify(context)}\n`);
+  }
   await writeTranscripts();
   logUsageByCaller();
   log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}, ${Math.round((Date.now() - started) / 1000)}s`);
