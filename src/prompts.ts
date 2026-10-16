@@ -169,6 +169,16 @@ export const SECOND_LOOK = `Your first pass is recorded. Before the review is fi
 - Lower-severity problems you noticed but left out.
 Investigate with the read tools, then call submit_review again with the findings this second pass adds. You do not need to repeat findings from your first submission; they are kept.`;
 
+/** A last round for the small problems a review for defects passes over. */
+export const SMALL_PROBLEMS = `Your findings so far are recorded. Before the review is final, make one more pass over the change, this time only for small problems that a careful maintainer would still ask the author to fix:
+- Comments, docstrings, documentation and changelog entries that the change made wrong, left stale or that describe something the code does not do.
+- Names that are misleading, or that break the naming the same file or module already uses.
+- Code duplicated within the change, or a helper rewritten when the project already has one.
+- New behavior with no test, and tests that check too little to fail when the code is wrong.
+- Leftover debug output, dead code, unused parameters or imports, and changes unrelated to the pull request's purpose.
+- The same problem repeated at another place: report each place.
+Check each one against the code before you report it; a small problem must still be real. Give each the severity it deserves, usually low. Then call submit_review with only the findings this pass adds. Your earlier findings are kept.`;
+
 /**
  * One round of the sweep: the reviewer goes through a group of changed lines one hunk
  * at a time. Pointed at a small piece of code, a model finds problems it passed over

@@ -23,6 +23,7 @@ import {
   diffInPrompt,
   reviewerSystem,
   SECOND_LOOK,
+  SMALL_PROBLEMS,
   sweepMessage,
   followUpSection,
   VERIFIER_SYSTEM,
@@ -73,9 +74,10 @@ function logDropped(step: string, before: Candidate[], after: Candidate[], log: 
  * Asks the reviewer to look again, naming the changed files it never opened.
  * The first pass's findings are kept beside the second pass's; the reduction step merges repeats.
  */
-function secondLookFor(workspace: Workspace, changedFiles: string[]): SecondLook {
+function secondLookFor(workspace: Workspace, changedFiles: string[], smallProblems = false): SecondLook {
   return {
     message: (round) => {
+      if (round === 2 && smallProblems) return SMALL_PROBLEMS;
       if (round > 1) return null;
       const unopened = changedFiles.filter((file) => !workspace.opened.has(file) && !GENERATED.test(file));
       if (!unopened.length) return SECOND_LOOK;
@@ -137,7 +139,9 @@ function sweepFor(changed: ChangedLines, mode: SecondLookMode): SecondLook {
 
 function afterFirstSubmission(config: Config, workspace: Workspace, changed: ChangedLines): { secondLook?: SecondLook } {
   if (config.secondLook === "off") return {};
-  if (config.secondLook === "on") return { secondLook: secondLookFor(workspace, [...changed.keys()]) };
+  if (config.secondLook === "on" || config.secondLook === "small") {
+    return { secondLook: secondLookFor(workspace, [...changed.keys()], config.secondLook === "small") };
+  }
   return { secondLook: sweepFor(changed, config.secondLook) };
 }
 

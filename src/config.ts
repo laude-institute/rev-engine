@@ -4,7 +4,7 @@ import type { Severity } from "./findings.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
-export type SecondLookMode = "on" | "off" | "sweep" | "sweep-low";
+export type SecondLookMode = "on" | "off" | "sweep" | "sweep-low" | "small";
 
 export interface Config {
   nwo: string;
@@ -29,7 +29,8 @@ export interface Config {
   /**
    * What each reviewer does after its first submission: look again once ("on"), go
    * through the changed hunks in rounds ("sweep"), the same while asking for small
-   * problems too ("sweep-low"), or nothing ("off").
+   * problems too ("sweep-low"), look again and then make a pass for small problems
+   * ("small"), or nothing ("off").
    */
   secondLook: SecondLookMode;
   /** A model that reviews again after the seats, told what they found. Null for none. */
@@ -101,7 +102,7 @@ export function loadConfig(env: Env): Config {
   if (!["off", "lenient", "strict"].includes(verify)) throw new Error("RB_CONFIG_VERIFY must be off, lenient or strict");
 
   const secondLook = (env.RB_CONFIG_SECOND_LOOK?.trim() || "on") as SecondLookMode;
-  if (!["on", "off", "sweep", "sweep-low"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on, off, sweep or sweep-low");
+  if (!["on", "off", "sweep", "sweep-low", "small"].includes(secondLook)) throw new Error("RB_CONFIG_SECOND_LOOK must be on, off, sweep, sweep-low or small");
 
   const retryEmpty = env.RB_CONFIG_RETRY_EMPTY?.trim() || "on";
   if (!["on", "off"].includes(retryEmpty)) throw new Error("RB_CONFIG_RETRY_EMPTY must be on or off");
