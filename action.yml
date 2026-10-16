@@ -12,7 +12,7 @@ inputs:
     description: Pull request to review. Leave empty when the workflow is started by a comment on a pull request.
     default: ""
   command:
-    description: A comment starts a review only when it begins with this text.
+    description: A comment starts a review only when it is this text, or this text followed by a space.
     default: /review
   model:
     description: OpenRouter model that reviews and verifies.
@@ -59,7 +59,7 @@ runs:
         number="${INPUT_NUMBER:-$EVENT_NUMBER}"
         if [ "$EVENT_NAME" = issue_comment ]; then
           [ -n "$COMMENT_ON_PR" ] || skip "the comment is not on a pull request"
-          case "$COMMENT" in "$COMMAND"*) ;; *) skip "the comment does not begin with $COMMAND" ;; esac
+          case "$COMMENT" in "$COMMAND"|"$COMMAND "*) ;; *) skip "the comment is not $COMMAND" ;; esac
           number="$EVENT_NUMBER"
         fi
         case "$number" in ''|*[!0-9]*) echo "::error::No pull request number. Set pr-number."; exit 1 ;; esac

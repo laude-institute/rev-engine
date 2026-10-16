@@ -21,7 +21,7 @@ permissions:
   pull-requests: write
 jobs:
   review:
-    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && startsWith(github.event.comment.body, '/review'))
+    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && (startsWith(github.event.comment.body, '/review ') || github.event.comment.body == '/review'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -46,7 +46,7 @@ By default the action reviews with `anthropic/claude-opus-5.5`, comments on at m
 | `max-findings` | `10` | Cap on findings that get a comment. The rest join the collapsed section. |
 | `fit` | `on` | Say whether the change belongs in the project. |
 | `time-budget` | `780` | Seconds allowed for the review. |
-| `command` | `/review` | A comment starts a review only when it begins with this text. |
+| `command` | `/review` | A comment starts a review only when it is this text, or this text followed by a space. |
 | `allow-forks` | `false` | Set to `true` to review pull requests from forks. |
 
 ## Security
