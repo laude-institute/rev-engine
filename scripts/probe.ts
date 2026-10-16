@@ -1,12 +1,15 @@
 // Asks a recorded reviewer about the expected findings it missed, to learn why it missed them.
 //
-//   node scripts/probe.ts <run> [--keys <key,key>] [--levels opened,diff]
+//   node scripts/probe.ts <run> [--keys <key,key>] [--levels opened,diff,file,none]
 //
 // For each missed finding that scripts/coverage.ts lists, this continues the first
 // reviewer's recorded conversation after its final submission, points it at the
 // finding's lines without saying what is wrong, and asks whether there is a problem
 // and, if so, why the review left it out. A second model then decides whether the
-// answer describes the expected finding. Each miss lands in one of these groups:
+// answer describes the expected finding. The question quotes the lines, so the reviewer
+// knows which code is meant even when it saw them only in the diff. The probes of one
+// pull request are asked in turn in one conversation, so each reads the ones before it
+// from the prompt cache. Each miss lands in one of these groups:
 //
 //   found      pointed at the lines, the reviewer names the expected problem
 //   other      it names a different problem in those lines
@@ -19,7 +22,9 @@
 // The probes point at the expected answers, so they are for diagnosis on the 25 pull
 // request test set only. Nothing here goes into the prompts or the image. Results
 // land in runs/<run>/probes.json and runs/<run>/probes.md.
+import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { join, resolve } from "node:path";
 import { createChat, emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
 import { readTools, type ToolDefinition } from "../src/tools.ts";
@@ -27,6 +32,8 @@ import { readTools, type ToolDefinition } from "../src/tools.ts";
 const here = resolve(import.meta.dirname, "..");
 const JUDGE_MODEL = process.env.JUDGE_MODEL ?? "google/gemini-3.5-flash";
 const TIMEOUT_MS = 300_000;
+const MAX_QUOTED_LINES = 60;
+const run = promisify(execFile);
 
 function option(name: string): string | null {
   const index = process.argv.indexOf(name);
@@ -35,11 +42,11 @@ function option(name: string): string | null {
 
 const name = process.argv[2];
 if (!name || name.startsWith("--")) {
-  console.error("usage: node scripts/probe.ts <run> [--keys <key,key>] [--levels opened,diff]");
+  console.error("usage: node scripts/probe.ts <run> [--keys <key,key>] [--levels opened,diff,file,none]");
   process.exit(2);
 }
 const keys = option("--keys")?.split(",") ?? null;
-const levels = (option("--levels") ?? "opened,diff").split(",");
+const levels = (option("--levels") ?? "opened,diff,file,none").split(",");
 const runDir = join(here, "runs", name);
 
 const env = await readFile(join(here, ".env"), "utf8").catch(() => "");
@@ -56,12 +63,15 @@ const answerProbe: ToolDefinition = {
     description: "Answer the question about the lines you were pointed at.",
     parameters: {
       type: "object", additionalProperties: false,
-      required: ["problem_found", "problem", "already_reported", "reason_left_out"],
+      required: ["problem_found", "problem", "during_review", "reason_left_out"],
       properties: {
         problem_found: { type: "boolean", description: "Whether those lines hold a problem a reviewer should raise on this pull request." },
         problem: { type: "string", description: "The problem, in one to three sentences. Empty when there is none." },
-        already_reported: { type: "boolean", description: "Whether your submitted review already raised this problem." },
-        reason_left_out: { type: "string", description: "When you found a problem your review did not raise, why it was left out. Empty otherwise." },
+        during_review: {
+          type: "string", enum: ["reported it", "noticed it but left it out", "did not notice it", "no problem"],
+          description: "What happened to this problem in the review you submitted.",
+        },
+        reason_left_out: { type: "string", description: "When you noticed the problem but left it out, why. Empty otherwise." },
       },
     },
   },
@@ -104,7 +114,7 @@ async function missedFindings(): Promise<Miss[]> {
 }
 
 /** The first reviewer's whole conversation, closed off after its final submission. */
-async function conversation(key: string): Promise<{ model: string; messages: ChatMessage[] } | null> {
+async function conversation(key: string): Promise<{ model: string; messages: ChatMessage[]; head: string } | null> {
   const transcript = JSON.parse(await readFile(join(runDir, ".try-agent", "out", key, "transcript.json"), "utf8"));
   const seat = transcript.conversations.find((item: { caller: string }) => item.caller.startsWith("s1 "));
   if (!seat) return null;
@@ -113,22 +123,42 @@ async function conversation(key: string): Promise<{ model: string; messages: Cha
   for (const call of (last?.role === "assistant" && last.tool_calls) || []) {
     messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ ok: true, message: "Review received." }) });
   }
-  return { model: seat.model, messages };
+  return { model: seat.model, messages, head: transcript.head };
 }
 
-async function probe(miss: Miss, base: { model: string; messages: ChatMessage[] }) {
-  const question = `Your review is submitted. One more question. Look at ${miss.file}, lines ${miss.start} to ${miss.end}, as the file is after the change. Is there a problem in those lines that a reviewer should raise on this pull request? Answer from what you have already read, with answer_probe. You cannot open more files now.`;
+/** The finding's lines at head, numbered, from the cached checkout that local runs share. */
+async function quote(key: string, head: string, miss: Miss): Promise<string> {
+  const repo = join(here, "runs", ".cache", "repos", key.replace(/_[0-9]+-[0-9a-f]+$/, ""));
+  try {
+    const { stdout } = await run("git", ["-C", repo, "show", `${head}:${miss.file}`], { maxBuffer: 64 * 1024 * 1024 });
+    const lines = stdout.split("\n").slice(miss.start - 1, Math.min(miss.end, miss.start - 1 + MAX_QUOTED_LINES));
+    const cut = miss.end - miss.start + 1 > MAX_QUOTED_LINES ? "\n[cut here]" : "";
+    return `\n\n<lines>\n${lines.map((line, index) => `${miss.start + index}: ${line}`).join("\n")}${cut}\n</lines>`;
+  } catch {
+    return "";
+  }
+}
+
+interface Answer { problem_found: boolean; problem: string; during_review: string; reason_left_out: string }
+
+/** Asks about one miss at the end of the conversation, and leaves the exchange in it for the next probe. */
+async function probe(miss: Miss, messages: ChatMessage[], model: string, head: string, first: boolean) {
+  const opening = first ? "Your review is submitted. A few more questions follow, each about different lines. Answer each one on its own." : "Next question, about different lines.";
+  const question = `${opening} Look at ${miss.file}, lines ${miss.start} to ${miss.end}, as the file is after the change.${await quote(miss.key, head, miss)}\n\nIs there a problem in those lines that a reviewer should raise on this pull request? Answer from what you have already read, with answer_probe. You cannot open more files now.`;
+  messages.push({ role: "user", content: question });
   // Some models refuse a forced tool choice, so the answer tool is offered and asked for again if skipped.
-  const messages: ChatMessage[] = [...base.messages, { role: "user", content: question }];
-  let answer: { problem_found: boolean; problem: string; already_reported: boolean; reason_left_out: string } | null = null;
+  let answer: Answer | null = null;
   for (let attempt = 0; attempt < 3 && !answer; attempt += 1) {
-    const reply = await chat({ model: base.model, messages, tools: [...readTools, answerProbe], timeoutMs: TIMEOUT_MS, caller: `probe ${miss.key}` });
+    const reply = await chat({ model, messages, tools: [...readTools, answerProbe], timeoutMs: TIMEOUT_MS, caller: `probe ${miss.key}` });
+    messages.push(reply);
     const call = reply.tool_calls?.find((item) => item.function.name === answerProbe.function.name);
     if (call) {
       try { answer = JSON.parse(call.function.arguments); } catch { /* asked again below */ }
     }
-    if (answer) break;
-    messages.push(reply);
+    if (answer) {
+      for (const item of reply.tool_calls ?? []) messages.push({ role: "tool", tool_call_id: item.id, content: JSON.stringify({ ok: true }) });
+      break;
+    }
     for (const other of reply.tool_calls ?? []) messages.push({ role: "tool", tool_call_id: other.id, content: "No more files can be opened. Answer from what you have read." });
     messages.push({ role: "user", content: "Answer with answer_probe now, from what you have already read." });
   }
@@ -157,9 +187,9 @@ const results: Array<Awaited<ReturnType<typeof probe>>> = [];
 await Promise.all([...byKey].map(async ([key, group]) => {
   const base = await conversation(key);
   if (!base) { console.error(`${key}: no first reviewer in the transcript, skipped`); return; }
-  for (const miss of group) {
+  for (const [index, miss] of group.entries()) {
     try {
-      const result = await probe(miss, base);
+      const result = await probe(miss, base.messages, base.model, base.head, index === 0);
       results.push(result);
       console.error(`${key} ${miss.file}:${miss.start}: ${result.outcome}`);
     } catch (error) {
@@ -171,21 +201,32 @@ await Promise.all([...byKey].map(async ([key, group]) => {
 await writeFile(join(runDir, "probes.json"), `${JSON.stringify(results, null, 2)}\n`);
 const cell = (text: string) => text.replace(/\s+/g, " ").replaceAll("|", "\\|");
 const outcomes = ["found", "other", "not found", "no answer"];
+const crossTable = (title: string, values: string[], group: (result: typeof results[number]) => string) => [
+  `| ${title} | ${outcomes.join(" | ")} | All |`,
+  `|---|${outcomes.map(() => "---|").join("")}---|`,
+  ...values.map((value) => {
+    const inGroup = results.filter((result) => group(result) === value);
+    return `| ${value} | ${outcomes.map((outcome) => inGroup.filter((result) => result.outcome === outcome).length).join(" | ")} | ${inGroup.length} |`;
+  }),
+].join("\n");
 const report = [
   `# Probes of missed findings in ${name}`,
   "",
-  "| Outcome | Misses | Lines opened | Lines only in diff |",
-  "|---|---|---|---|",
-  ...outcomes.map((outcome) => {
-    const inGroup = results.filter((result) => result.outcome === outcome);
-    return `| ${outcome} | ${inGroup.length} | ${inGroup.filter((result) => result.level === "opened").length} | ${inGroup.filter((result) => result.level === "diff").length} |`;
-  }),
+  "How close the reviewers came, against the probe's outcome:",
   "",
-  "| Pull request | Where | Severity | Outcome | Expected | Answer | Reason left out |",
-  "|---|---|---|---|---|---|---|",
-  ...results.map((result) => `| ${result.key} | ${result.file}:${result.start}-${result.end} | ${result.severity} | ${result.outcome} | ${cell(result.message).slice(0, 200)} | ${cell(result.answer?.problem ?? "").slice(0, 200)} | ${cell(result.answer?.reason_left_out ?? "")} |`),
+  crossTable("Reviewers", ["opened", "diff", "file", "none"], (result) => result.level),
+  "",
+  crossTable("Severity", ["high", "medium", "low"], (result) => result.severity),
+  "",
+  "What the reviewer says happened during its review. Its own account, not a reliable explanation:",
+  "",
+  crossTable("During review", ["reported it", "noticed it but left it out", "did not notice it", "no problem", ""], (result) => result.answer?.during_review ?? ""),
+  "",
+  "| Pull request | Where | Severity | Outcome | During review | Expected | Answer | Reason left out |",
+  "|---|---|---|---|---|---|---|---|",
+  ...results.map((result) => `| ${result.key} | ${result.file}:${result.start}-${result.end} | ${result.severity} | ${result.outcome} | ${result.answer?.during_review ?? ""} | ${cell(result.message).slice(0, 200)} | ${cell(result.answer?.problem ?? "").slice(0, 200)} | ${cell(result.answer?.reason_left_out ?? "")} |`),
 ].join("\n");
 await writeFile(join(runDir, "probes.md"), `${report}\n`);
 const probeCost = [...byCaller].filter(([caller]) => caller.startsWith("probe")).reduce((sum, [, spent]) => sum + spent.costUsd, 0);
-console.log(report.split("\n").slice(0, 8).join("\n"));
+console.log(report.split("\n").slice(0, 28).join("\n"));
 console.error(`${usage.calls} model call(s), ${usage.promptTokens} prompt token(s) (${usage.cachedTokens} cached), $${usage.costUsd.toFixed(2)} ($${probeCost.toFixed(2)} for probes)`);
