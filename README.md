@@ -1,10 +1,10 @@
 ![RevEngine](.github/banner.png)
 
-[![ReviewBench: #1 at 59.6% F1](https://img.shields.io/badge/ReviewBench-%231%20at%2059.6%25%20F1-f6b84a?style=flat-square&labelColor=1a1a1a)](https://review-bench.ai)
+[![ReviewBench: #1 at 59.6% F1, Oct 16 2026](https://img.shields.io/badge/ReviewBench-%231%20at%2059.6%25%20F1%2C%20Oct%2016%202026-f6b84a?style=flat-square&labelColor=1a1a1a)](https://review-bench.ai)
 
 **RevEngine** is a code reviewer you can run as a GitHub Action in your own repo.
 
-[Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934) | [Benchmark results](docs/REVIEWBENCH.md#results)
+[Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934) | [Benchmark results](docs/REVIEWBENCH.md#results) | [Announcement on X](https://x.com/LaudeInstitute/status/2111263666763116982)
 
 > [!IMPORTANT]
 > RevEngine is early work. Expect frequent changes. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
