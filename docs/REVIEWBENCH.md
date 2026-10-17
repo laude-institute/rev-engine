@@ -12,7 +12,7 @@ On the [leaderboard](https://review-bench.ai) as of October 16, 2026, the regist
 |---|---|---|---|
 | 59.6% | 83.6% | 46.3% | 3m 2s |
 
-The registered image was built from commit [`b7d795c`](https://github.com/laude-institute/rev-engine/commit/b7d795c0eab5de6d6f4c3064bee5a23c1ac1c5e5). The code has changed since then, so later versions may score differently.
+The registered image was built from commit [`b7d795c`](https://github.com/laude-institute/rev-engine/commit/b7d795c0eab5de6d6f4c3064bee5a23c1ac1c5e5). The code has changed since then, so later versions may score differently. See the [announcement on X](https://x.com/LaudeInstitute/status/2111263666763116982).
 
 Prompts and settings were tuned only on the benchmark's 25 pull request test set. The other 194 were checked only as part of the full run's total.
 

@@ -1,10 +1,10 @@
 ![RevEngine](.github/banner.png)
 
+[![ReviewBench: #1 at 59.6% F1](https://img.shields.io/badge/ReviewBench-%231%20at%2059.6%25%20F1-f6b84a?style=flat-square&labelColor=1a1a1a)](https://review-bench.ai)
+
 **RevEngine** is a code reviewer you can run as a GitHub Action in your own repo.
 
-It ranks first on the [ReviewBench leaderboard](https://review-bench.ai) as of October 16, 2026, with a grounded F1 of 59.6% and the shortest mean review time of the 11 agents listed. The benchmarked version is commit [`b7d795c`](https://github.com/laude-institute/rev-engine/commit/b7d795c0eab5de6d6f4c3064bee5a23c1ac1c5e5). See the [announcement](https://x.com/LaudeInstitute/status/2111263666763116982) and [docs/REVIEWBENCH.md](docs/REVIEWBENCH.md#results).
-
-[Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934)
+[Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934) | [Benchmark results](docs/REVIEWBENCH.md#results)
 
 > [!IMPORTANT]
 > RevEngine is early work. Expect frequent changes. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
