@@ -2,6 +2,8 @@
 
 **RevEngine** is a code reviewer you can run as a GitHub Action in your own repo.
 
+It ranks first on the [ReviewBench leaderboard](https://review-bench.ai) as of October 16, 2026, with a grounded F1 of 59.6% and the shortest mean review time of the 11 agents listed. The benchmarked version is commit [`b7d795c`](https://github.com/laude-institute/rev-engine/commit/b7d795c0eab5de6d6f4c3064bee5a23c1ac1c5e5). See the [announcement](https://x.com/LaudeInstitute/status/2111263666763116982) and [docs/REVIEWBENCH.md](docs/REVIEWBENCH.md#results).
+
 [Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934)
 
 > [!IMPORTANT]

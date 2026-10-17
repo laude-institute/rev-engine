@@ -4,6 +4,18 @@ The reviewer is packaged as a container for [ReviewBench](https://github.com/rev
 
 The benchmark starts one container per pull request, mounts the checkout and the diff, and reads the findings file the container writes. The container follows the benchmark's [agent contract](https://github.com/review-bench/ReviewBench/blob/main/AGENT_CONTRACT.md). Its settings are in [SETTINGS.md](SETTINGS.md).
 
+## Results
+
+On the [leaderboard](https://review-bench.ai) as of October 16, 2026, the registered image ranks first of 11 agents on all 219 pull requests, averaged over three rounds:
+
+| Grounded F1 | Precision | Recall | Mean review time |
+|---|---|---|---|
+| 59.6% | 83.6% | 46.3% | 3m 2s |
+
+The registered image was built from commit [`b7d795c`](https://github.com/laude-institute/rev-engine/commit/b7d795c0eab5de6d6f4c3064bee5a23c1ac1c5e5). The code has changed since then, so later versions may score differently.
+
+Prompts and settings were tuned only on the benchmark's 25 pull request test set. The other 194 were checked only as part of the full run's total.
+
 ## Run it locally
 
 You need Docker, Node 24, `git`, `jq`, a clone of ReviewBench beside this repository, and an OpenRouter key.
