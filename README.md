@@ -1,6 +1,6 @@
 ![RevEngine](.github/banner.png)
 
-[![ReviewBench: #1 at 59.6% F1, Oct 16 2026](https://img.shields.io/badge/ReviewBench-%231%20at%2059.6%25%20F1%2C%20Oct%2016%202026-f6b84a?style=flat-square&labelColor=1a1a1a)](https://review-bench.ai)
+[![ReviewBench: #1 at 59.6% F1, Oct 16 2026](https://img.shields.io/badge/ReviewBench-%231%20at%2059.6%25%20F1%2C%20Oct%2016%202026-129f6b?style=flat-square&labelColor=555555)](https://review-bench.ai)
 
 **RevEngine** is a code reviewer you can run as a GitHub Action in your own repo.
 
