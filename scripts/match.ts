@@ -11,7 +11,9 @@
 //
 // It writes results.json (macro and per pull request grounded scores, in the
 // judge's field names) and results.details.json (which expected findings each
-// finding covered, as scripts like misses.ts read it).
+// finding covered, as scripts like misses.ts read it). Run again on the same
+// output, it keeps the pull requests already scored and matches only the rest,
+// so one that failed can be retried without matching the others a second time.
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -65,11 +67,24 @@ async function scorePr(key: string): Promise<Scored> {
 const keys = (await readdir(join(runDir, "findings"))).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -5)).sort();
 const limit = Math.max(1, Number(concurrencyText) || 25);
 const results: Scored[] = [];
+// Pull requests an earlier pass already scored, with what each finding covered.
+try {
+  const earlier = JSON.parse(await readFile(resolve(outDir, "results.json"), "utf8")) as { per_pr: Array<{ pr_key: string; metrics: { overall: Omit<Scored, "covered"> } }> };
+  const details = JSON.parse(await readFile(resolve(outDir, "results.details.json"), "utf8")) as Array<{ pr_key: string; candidate_findings: Array<{ covered_golden_indices: number[] }> }>;
+  for (const entry of earlier.per_pr) {
+    const covered = details.find((item) => item.pr_key === entry.pr_key)?.candidate_findings.map((finding) => finding.covered_golden_indices);
+    if (covered && keys.includes(entry.pr_key)) results.push({ ...entry.metrics.overall, covered });
+  }
+  if (results.length) console.log(`  keeping ${results.length} pull request(s) scored before`);
+} catch {
+  // Nothing scored yet.
+}
+const todo = keys.filter((key) => !results.some((item) => item.pr_key === key));
 let next = 0;
 let failed = 0;
-await Promise.all(Array.from({ length: Math.min(limit, keys.length) }, async () => {
-  while (next < keys.length) {
-    const key = keys[next++]!;
+await Promise.all(Array.from({ length: Math.min(limit, todo.length) }, async () => {
+  while (next < todo.length) {
+    const key = todo[next++]!;
     try {
       results.push(await scorePr(key));
     } catch (error) {
