@@ -7,6 +7,23 @@
   "title": "mem: redact credentials at the write point",
   "body": "Port of fork PR 10 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
   "source": "The maintainer's review evaluation posted on the pull request on 2026-10-15, built on an independent review and reproduction checks of the disputed claims.",
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ],
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+      "commit": "e8584005c553ba924c0b7f72144dee97a1daaa8e",
+      "date": "2026-10-15",
+      "fit": "fits"
+    }
+  ],
+  "fixes": [
+    "c2c607e726cb02bbe99d60433aa37cd1ec173179"
+  ],
   "findings": [
     {
       "id": "f1",
@@ -14,7 +31,24 @@
       "what": "The aws_secret_access_key rule always writes `key=<redacted:aws-secret>`, so an unquoted YAML line `aws_secret_access_key: value` comes back as `aws_secret_access_key=<redacted:aws-secret>` and the stored snippet changes syntax.",
       "file": "bin/mem",
       "kind": "defect",
-      "note": "Confirmed for an unquoted YAML `key: value`. The quoted JSON key does not match this rule at all, so a claim that it eats the closing quote and comma is wrong."
+      "note": "Confirmed for an unquoted YAML `key: value`. The quoted JSON key does not match this rule at all, so a claim that it eats the closing quote and comma is wrong.",
+      "start_line": 160,
+      "end_line": 160,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "aws_secret_access_key rule rewrites `key: value` as `key=...`, breaking YAML/JSON-shaped notes. The replacement is fixed as `\\1=<redacted:aws-secret>`, whatever separator was matched. A stored YAML snippet like `aws_secret_access_key: abc...` becomes `aws_secret_access_key=<redacted:aws-secret>`, which changes the snippet's syntax. Because `[^[:space:]]+` runs to the next whitespace, a JSON value also loses its closing quote and comma. Capturing the separator and reusing it would keep the stored structure intact."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f2",
@@ -22,7 +56,24 @@
       "what": "The private-key rule is a sed range from a BEGIN line to an END line. When a memory has a BEGIN line and no END line, the range never closes and every line after it is deleted, so ordinary notes are lost at write time.",
       "file": "bin/mem",
       "kind": "defect",
-      "note": "Confirmed with macOS and GNU sed. Destructive, so it must be fixed before merge."
+      "note": "Confirmed with macOS and GNU sed. Destructive, so it must be fixed before merge.",
+      "start_line": 149,
+      "end_line": 150,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "A private-key BEGIN line with no END line silently deletes the rest of the memory. The `/-----BEGIN ...PRIVATE KEY-----/,/-----END ...PRIVATE KEY-----/c\\` range deletes every line from the BEGIN line on. In GNU sed, `c` on a range writes its text only when the range closes, so if input ends while the range is still open nothing is written for those lines. A truncated key, or a note that only quotes the BEGIN header, therefore wipes the BEGIN line and every line after it, with no `<redacted:private-key>` marker. If the whole body was a key, `text` becomes empty after the `[[ -z \"$text\" ]] && die` check has already run, so `mem add`/`mem edit` stores an empty memory (and `mem add` writes a filename with an empty slug). Any text sharing the BEGIN or END line is also lost."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f3",
@@ -30,7 +81,24 @@
       "what": "The card rules redact ordinary numbers: the 4-4-4 digit-group and 15 or 16 digit rules erase lists of years and other long numbers with no card context, and the keyword rule turns 'credit 2026-09-05 12:30' into 'credit <redacted:card>:30'. The facts are lost from the stored body and its summary.",
       "file": "bin/mem",
       "kind": "defect",
-      "note": "Covers both card rules that over-match. Confirmed: 'credit 2026-09-05 12:30' becomes 'credit <redacted:card>:30', and a list of years is erased. The 'visa 2026-10-01 to 2026-12-31' example is not changed, because 'to' breaks the run of digits."
+      "note": "Covers both card rules that over-match. Confirmed: 'credit 2026-09-05 12:30' becomes 'credit <redacted:card>:30', and a list of years is erased. The 'visa 2026-10-01 to 2026-12-31' example is not changed, because 'to' breaks the run of digits.",
+      "start_line": 143,
+      "end_line": 143,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "Card keyword rule redacts dates and ordinary numbers that follow words like 'visa' or 'credit'. The rule matches any of card|pan|credit|debit|amex|visa|mastercard (case-insensitive), followed within 8 punctuation characters by a run of 13+ digits, spaces and hyphens. Notes such as \"visa 2026-10-01 to 2026-12-31\" or \"credit 2026-09-05 12:30\" match, and the dates are replaced with `<redacted:card>`. For a personal-assistant memory store, notes about visa appointments or credit dates are common, so real data is lost for good at write time. There is no Luhn check or other test to keep these false positives out."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f5",
@@ -38,14 +106,48 @@
       "what": "`mem edit --slug` text is not redacted, so a credential can still land in the filename. `mem_redact` is applied to `text`, but the `--slug` value goes straight to `slugify` and into the new filename (lines 599-606). `slugify` lowercases the text and squeezes characters outside [a-z0-9] into hyphens, but it keeps the alphanumeric body of a token. A token passed as the slug therefore still reaches the memory's filename, which `mem list` and the search prefilter show. The PR promises redaction at the write point, but this write path is missed.",
       "file": "bin/mem",
       "kind": "defect",
-      "note": "A remaining gap in the new protection, not a new leak. Lowercasing and truncation mean a credential does not always survive in the slug."
+      "note": "A remaining gap in the new protection, not a new leak. Lowercasing and truncation mean a credential does not always survive in the slug.",
+      "start_line": 515,
+      "end_line": 515,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "`mem edit --slug` text is not redacted, so a credential can still land in the filename. `mem_redact` is applied to `text`, but the `--slug` value goes straight to `slugify` and into the new filename (lines 599-606). `slugify` lowercases the text and squeezes characters outside [a-z0-9] into hyphens, but it keeps the alphanumeric body of a token. A token passed as the slug therefore still reaches the memory's filename, which `mem list` and the search prefilter show. The PR promises redaction at the write point, but this write path is missed."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f6",
       "label": "must",
       "what": "The change rewrites every memory body on add and edit with about 25 redaction rules but adds no tests of what it keeps and what it removes, while the existing memory suites do not exercise the redactor.",
       "file": "bin/mem",
-      "kind": "test"
+      "kind": "test",
+      "start_line": 123,
+      "end_line": 161,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "No tests for mem_redact. The PR adds about 25 redaction rules and an environment-value pass, but no test file covers them. tests/test_mem_add_flags.sh and tests/test_mem_edit_flags.sh exist and would be the natural place. Tests are needed for each shape rule (positive cases), for env-value redaction in both `mem add` and `mem edit`, for false positives (dates, phone numbers, ordinary text left untouched), and for the private-key range including the case with no END line. Without them, the false-positive and data-loss behaviour above went unnoticed, and a regex change could quietly stop redacting."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f7",
@@ -53,11 +155,24 @@
       "what": "Silent redaction is undocumented in usage and not reported to the caller. `mem add` and `mem edit` now rewrite the body (including card-like numbers) without any notice on stderr. The `usage()` text (lines 618-663) does not mention redaction either. An agent or user who stores a number and later finds `<redacted:card>` in its place has no hint of why. A one-line stderr notice when something was redacted, plus a usage note, would make this behaviour visible.",
       "file": "bin/mem",
       "kind": "documentation",
-      "note": "Documenting the behavior is useful. A new stderr notice is optional."
+      "note": "Documenting the behavior is useful. A new stderr notice is optional.",
+      "start_line": 180,
+      "end_line": 180,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "Silent redaction is undocumented in usage and not reported to the caller. `mem add` and `mem edit` now rewrite the body (including card-like numbers) without any notice on stderr. The `usage()` text (lines 618-663) does not mention redaction either. An agent or user who stores a number and later finds `<redacted:card>` in its place has no hint of why. A one-line stderr notice when something was redacted, plus a usage note, would make this behaviour visible."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/155#issuecomment-6187545588",
+        "date": "2026-10-15"
+      }
     }
-  ],
-  "fit": "fits",
-  "advice": [
-    "fix, then merge"
   ]
 }

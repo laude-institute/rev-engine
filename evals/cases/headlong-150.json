@@ -7,6 +7,23 @@
   "title": "tests: duplicate-send guard regression matrix",
   "body": "Port of fork PR 3 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
   "source": "The maintainer's review evaluation posted on the pull request on 2026-10-15, built on an independent review and reproduction checks of the disputed claims.",
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ],
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+      "commit": "a9c4a3e77296367f308a47c1b672b70b9a332379",
+      "date": "2026-10-15",
+      "fit": "fits_with_concerns"
+    }
+  ],
+  "fixes": [
+    "436bbe9fa1e219da9167ef04c9376854ae4523e4"
+  ],
   "findings": [
     {
       "id": "f1",
@@ -14,14 +31,48 @@
       "what": "A start that times out on the lock runs the full EXIT cleanup and kills the live dispatcher. The EXIT trap `_cleanup_dispatcher` is installed at line 413, before the `flock -w 15 4` wait. When the wait times out, `exit 0` runs that trap. `_cleanup_run_state` then removes `dispatcher.token`, `sub_map`, `traj_files` and `pending/`, kills every PID listed in the shared `tail_pids`, and runs `_kill_traj_tails`, which pkills feeders by traj path. All of that belongs to whichever dispatcher holds the lock. The holder sees no token on its next tick and exits, leaving the mind with no dispatcher. This is reachable in the exact scenario the PR targets: with N racing starts, if the last token writer gets the lock before the other waiters, those waiters time out after 15s and tear the winner down. The same applies to the `exit 1` paths at lines 448 and 450. Clear the trap (as the ownership-lost path does with `trap - EXIT INT TERM`) before exiting from these pre-ownership failures.",
       "file": "bin/thinkers",
       "kind": "defect",
-      "note": "The cleanup has no ownership guard, but the destructive timeout case needs Bash 3.2 with flock: there the unassigned local fifo expands empty and the incumbent's token is deleted, while Bash 5 stops at 'fifo: unbound variable' before the cleanup. A finding that states the Linux sequence without that qualification is only partly right."
+      "note": "The cleanup has no ownership guard, but the destructive timeout case needs Bash 3.2 with flock: there the unassigned local fifo expands empty and the incumbent's token is deleted, while Bash 5 stops at 'fifo: unbound variable' before the cleanup. A finding that states the Linux sequence without that qualification is only partly right.",
+      "start_line": 427,
+      "end_line": 431,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "high",
+          "text": "A start that times out on the lock runs the full EXIT cleanup and kills the live dispatcher. The EXIT trap `_cleanup_dispatcher` is installed at line 413, before the `flock -w 15 4` wait. When the wait times out, `exit 0` runs that trap. `_cleanup_run_state` then removes `dispatcher.token`, `sub_map`, `traj_files` and `pending/`, kills every PID listed in the shared `tail_pids`, and runs `_kill_traj_tails`, which pkills feeders by traj path. All of that belongs to whichever dispatcher holds the lock. The holder sees no token on its next tick and exits, leaving the mind with no dispatcher. This is reachable in the exact scenario the PR targets: with N racing starts, if the last token writer gets the lock before the other waiters, those waiters time out after 15s and tear the winner down. The same applies to the `exit 1` paths at lines 448 and 450. Clear the trap (as the ownership-lost path does with `trap - EXIT INT TERM`) before exiting from these pre-ownership failures."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f2",
       "label": "valid",
       "what": "The new matrix is never run by run-all.sh or CI. `tests/run-all.sh` runs only `tests/test_*.sh`, and per tests/README.md that is what CI calls. `send-window-dedup-matrix.sh` does not match the pattern, so the regression matrix this PR is named for never runs in CI and cannot catch a regression. Rename it to `test_send_window_dedup.sh` or similar.",
       "file": "tests/send-window-dedup-matrix.sh",
-      "kind": "test"
+      "kind": "test",
+      "start_line": 1,
+      "end_line": 11,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "The new matrix is never run by run-all.sh or CI. `tests/run-all.sh` runs only `tests/test_*.sh`, and per tests/README.md that is what CI calls. `send-window-dedup-matrix.sh` does not match the pattern, so the regression matrix this PR is named for never runs in CI and cannot catch a regression. Rename it to `test_send_window_dedup.sh` or similar."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f3",
@@ -29,14 +80,48 @@
       "what": "A dispatcher that loses ownership leaks its /tmp fifo directory. Each dispatcher now creates its own `/tmp/headlong-dispatch.*` fifo, and only `_cleanup_dispatcher` (the EXIT trap, through `$fifo`) removes it. The ownership-lost path in `_tick` runs `trap - EXIT INT TERM` and exits without removing its fifo. Before this change the next start's `_remove_fifo` cleaned the predecessor's fifo through `run/fifo_path`. Now nobody does, so every takeover start leaves a fifo and directory in /tmp forever. Nothing in the repo reaps them.",
       "file": "bin/thinkers",
       "kind": "defect",
-      "note": "Another path through the fifo cleanup problem, not a separate defect."
+      "note": "Another path through the fifo cleanup problem, not a separate defect.",
+      "start_line": 1028,
+      "end_line": 1039,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "A dispatcher that loses ownership leaks its /tmp fifo directory. Each dispatcher now creates its own `/tmp/headlong-dispatch.*` fifo, and only `_cleanup_dispatcher` (the EXIT trap, through `$fifo`) removes it. The ownership-lost path in `_tick` runs `trap - EXIT INT TERM` and exits without removing its fifo. Before this change the next start's `_remove_fifo` cleaned the predecessor's fifo through `run/fifo_path`. Now nobody does, so every takeover start leaves a fifo and directory in /tmp forever. Nothing in the repo reaps them."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f4",
       "label": "valid",
       "what": "`thinkers stop` no longer removes the fifo of a killed or crashed dispatcher. `_stop_dispatcher` calls `_cleanup_run_state \"$run_dir\" \"$traj_files_snapshot\"` with no third argument, so `_remove_own_fifo` does nothing, and line 1308 then deletes `run/fifo_path`, the only record of the fifo's location. Two cases leak it permanently: the dispatcher had to be `kill -KILL`ed after the TERM grace period, or it had already died (stale PID). Previously stop removed it through `_remove_fifo`. The comment at line 295 still says fifo_path is how 'stop and cleanup can find it'.",
       "file": "bin/thinkers",
-      "kind": "defect"
+      "kind": "defect",
+      "start_line": 1307,
+      "end_line": 1308,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "`thinkers stop` no longer removes the fifo of a killed or crashed dispatcher. `_stop_dispatcher` calls `_cleanup_run_state \"$run_dir\" \"$traj_files_snapshot\"` with no third argument, so `_remove_own_fifo` does nothing, and line 1308 then deletes `run/fifo_path`, the only record of the fifo's location. Two cases leak it permanently: the dispatcher had to be `kill -KILL`ed after the TERM grace period, or it had already died (stale PID). Previously stop removed it through `_remove_fifo`. The comment at line 295 still says fifo_path is how 'stop and cleanup can find it'."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f5",
@@ -44,14 +129,48 @@
       "what": "Token-entropy assertion also passes for the old date+pid+RANDOM token. The test checks only `${#a} -ge 16`. The old token format `$(date +%s).$$.$RANDOM` is about 20 characters (10-digit epoch plus pid plus RANDOM), so this 'not date plus pid' check passes on the pre-fix code too and cannot fail for the regression it names. Check the format instead, for example 32 hex characters.",
       "file": "tests/test_dispatcher_single_owner.sh",
       "kind": "test",
-      "note": "A weak assertion, not evidence that the urandom token is broken."
+      "note": "A weak assertion, not evidence that the urandom token is broken.",
+      "start_line": 359,
+      "end_line": 363,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "Token-entropy assertion also passes for the old date+pid+RANDOM token. The test checks only `${#a} -ge 16`. The old token format `$(date +%s).$$.$RANDOM` is about 20 characters (10-digit epoch plus pid plus RANDOM), so this 'not date plus pid' check passes on the pre-fix code too and cannot fail for the regression it names. Check the format instead, for example 32 hex characters."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f6",
       "label": "valid",
       "what": "Racing-starts test finishes before the 15s lock window closes. `test_many_starts_one_dispatch` waits only 6s plus 4s after the concurrent starts. Losing dispatchers can still be blocked in `flock -w 15` when it asserts. The test never checks that a dispatcher is still alive and firing after every loser has timed out, which is when they tear down the winner's state. Add an assertion after more than 15s that a later wake still fires exactly once.",
       "file": "tests/test_dispatcher_single_owner.sh",
-      "kind": "test"
+      "kind": "test",
+      "start_line": 219,
+      "end_line": 242,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "Racing-starts test finishes before the 15s lock window closes. `test_many_starts_one_dispatch` waits only 6s plus 4s after the concurrent starts. Losing dispatchers can still be blocked in `flock -w 15` when it asserts. The test never checks that a dispatcher is still alive and firing after every loser has timed out, which is when they tear down the winner's state. Add an assertion after more than 15s that a later wake still fires exactly once."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f7",
@@ -59,35 +178,120 @@
       "what": "Lock-timeout test has no incumbent, so the harmful side effect cannot show. `test_lock_timeout_exits` holds the lock from the test process with no running dispatcher. It checks only the log line and that nothing fired. It never checks that a live incumbent's token, tails and dispatching survive a newcomer that times out, which is the dangerous case for this path.",
       "file": "tests/test_dispatcher_single_owner.sh",
       "kind": "test",
-      "note": "Overlaps the racing-starts and cleanup findings; do not require all three."
+      "note": "Overlaps the racing-starts and cleanup findings; do not require all three.",
+      "start_line": 282,
+      "end_line": 329,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "Lock-timeout test has no incumbent, so the harmful side effect cannot show. `test_lock_timeout_exits` holds the lock from the test process with no running dispatcher. It checks only the log line and that nothing fired. It never checks that a live incumbent's token, tails and dispatching survive a newcomer that times out, which is the dangerous case for this path."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f8",
       "label": "must",
       "what": "`thinkers stop` removes the pending `*.wake_at` files but leaves the new `claimed/<name>` receipts. After a restart, the stale-claim sweep restores the claimed wake and dispatches work the operator cancelled.",
       "file": "bin/thinkers",
-      "kind": "defect"
+      "kind": "defect",
+      "start_line": 928,
+      "end_line": 960,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "medium",
+          "text": "Leftover claim receipts survive `thinkers stop` and fire a wake the operator cancelled. `stop` drops every `*.wake_at` (lines 1712-1721) so that a stale scheduled wake 'can't fire a thinker the operator just stopped'. It does not clear `run/claimed/`. A claim left by a crash survives the stop. `_sweep_claims` in the next dispatcher turns it back into a due `wake_at` and fires it immediately after the restart. A claim is a pending wake and should be cleared along with the wake_at files on stop."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f9",
       "label": "valid",
       "what": "rm-shim comment wrongly says the case reproduces the crash on the pre-fix code. The comment says rm is 'the one command both the old and the new code run in that window', so the case 'can go red on the pre-fix commit'. The old code ran `rm -f \"$_wf\"` on the `.wake_at` path, which the shim's `*/claimed/napper|*/sent/napper` pattern never matches. On old code the shim never fires, and the test fails only on its 'no crash flag' setup check, not on a double send. `test_shim_crash_mid_send_recovers` (lines 371-378) makes a similar claim about pre-receipt code that never moved files into claimed/.",
       "file": "tests/test_dispatcher_single_owner.sh",
-      "kind": "documentation"
+      "kind": "documentation",
+      "start_line": 71,
+      "end_line": 74,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "rm-shim comment wrongly says the case reproduces the crash on the pre-fix code. The comment says rm is 'the one command both the old and the new code run in that window', so the case 'can go red on the pre-fix commit'. The old code ran `rm -f \"$_wf\"` on the `.wake_at` path, which the shim's `*/claimed/napper|*/sent/napper` pattern never matches. On old code the shim never fires, and the test fails only on its 'no crash flag' setup check, not on a double send. `test_shim_crash_mid_send_recovers` (lines 371-378) makes a similar claim about pre-receipt code that never moved files into claimed/."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f10",
       "label": "valid",
       "what": "Spec not updated for the new run files and the moved fifo creation. The runtime-files section and the dispatcher steps still describe fifo creation in `thinkers start`, with stop finding it through `fifo_path`. They do not mention `dispatcher.lock`, `claimed/`, `sent/`, the 15s lock wait, or `THINKERS_CLAIM_STALE_SECS`. The comment at bin/thinkers lines 290-295 also still sits where the fifo used to be created and describes behavior that no longer holds.",
       "file": "design/THINKERS_spec.md",
-      "kind": "documentation"
+      "kind": "documentation",
+      "start_line": 121,
+      "end_line": 138,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "Spec not updated for the new run files and the moved fifo creation. The runtime-files section and the dispatcher steps still describe fifo creation in `thinkers start`, with stop finding it through `fifo_path`. They do not mention `dispatcher.lock`, `claimed/`, `sent/`, the 15s lock wait, or `THINKERS_CLAIM_STALE_SECS`. The comment at bin/thinkers lines 290-295 also still sits where the fifo used to be created and describes behavior that no longer holds."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f11",
       "label": "valid",
       "what": "The matrix leaves a /tmp directory behind for every case. `fresh_state` calls `mktemp -d /tmp/sddm.XXXXXXXX` about a dozen times per run and nothing removes those directories: there is no cleanup trap, unlike the other tests' `trap cleanup EXIT`. Every run leaves throwaway HOMEs and trajectories in /tmp.",
       "file": "tests/send-window-dedup-matrix.sh",
-      "kind": "maintainability"
+      "kind": "maintainability",
+      "start_line": 26,
+      "end_line": 40,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "The matrix leaves a /tmp directory behind for every case. `fresh_state` calls `mktemp -d /tmp/sddm.XXXXXXXX` about a dozen times per run and nothing removes those directories: there is no cleanup trap, unlike the other tests' `trap cleanup EXIT`. Every run leaves throwaway HOMEs and trajectories in /tmp."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f12",
@@ -95,7 +299,24 @@
       "what": "Repeated-key case passes on the text guard even if the key guard is broken. 'the same key repeated is refused' sends identical text to the same recipient twice. The 24h identical-text guard (`_refuse_repeat` in bin/chat) refuses this regardless of `--key`, and `outcome` cannot tell which guard spoke because both messages match `REFUSE_RE` ('refus'). The case therefore cannot fail when `_refuse_key` regresses. Either vary the text or match the key guard's own 'duty is done' wording.",
       "file": "tests/send-window-dedup-matrix.sh",
       "kind": "test",
-      "note": "Lines 125 to 129 already test the same key with different text, so a claim that the suite lacks isolated key-guard coverage is wrong."
+      "note": "Lines 125 to 129 already test the same key with different text, so a claim that the suite lacks isolated key-guard coverage is wrong.",
+      "start_line": 118,
+      "end_line": 123,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "Repeated-key case passes on the text guard even if the key guard is broken. 'the same key repeated is refused' sends identical text to the same recipient twice. The 24h identical-text guard (`_refuse_repeat` in bin/chat) refuses this regardless of `--key`, and `outcome` cannot tell which guard spoke because both messages match `REFUSE_RE` ('refus'). The case therefore cannot fail when `_refuse_key` regresses. Either vary the text or match the key guard's own 'duty is done' wording."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f13",
@@ -103,14 +324,48 @@
       "what": "PR labeled 'tests' carries undisclosed behavior changes to the dispatcher. The title and description present this as a test matrix port. The diff also changes production dispatcher behavior: a new flock with a 15s blocking wait, fifo creation moved into the subshell, a new token mint, claim/sent receipt directories, a stale-claim sweep that re-fires wakes, and changed stop cleanup. None of this is mentioned, so reviewers and operators are not told that dispatcher startup and wake semantics changed.",
       "file": "bin/thinkers",
       "kind": "maintainability",
-      "note": "Presentation feedback, not an architectural veto."
+      "note": "Presentation feedback, not an architectural veto.",
+      "start_line": 416,
+      "end_line": 451,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "PR labeled 'tests' carries undisclosed behavior changes to the dispatcher. The title and description present this as a test matrix port. The diff also changes production dispatcher behavior: a new flock with a 15s blocking wait, fifo creation moved into the subshell, a new token mint, claim/sent receipt directories, a stale-claim sweep that re-fires wakes, and changed stop cleanup. None of this is mentioned, so reviewers and operators are not told that dispatcher startup and wake semantics changed."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f14",
       "label": "valid",
       "what": "outcome() counts any error whose text contains 'refus' as a guard refusal. `outcome` checks `REFUSE_RE` before the exit code. Unrelated failures that also say 'refusing', such as bin/chat's 'refusing to send a message from X to itself' or 'refusing to reply to yourself', are scored as REFUSE and pass the REFUSE expectations. The script's own comment says an error 'must never count as a pass'. The REFUSE cases should also require that the specific guard message appears.",
       "file": "tests/send-window-dedup-matrix.sh",
-      "kind": "test"
+      "kind": "test",
+      "start_line": 43,
+      "end_line": 52,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "outcome() counts any error whose text contains 'refus' as a guard refusal. `outcome` checks `REFUSE_RE` before the exit code. Unrelated failures that also say 'refusing', such as bin/chat's 'refusing to send a message from X to itself' or 'refusing to reply to yourself', are scored as REFUSE and pass the REFUSE expectations. The script's own comment says an error 'must never count as a pass'. The REFUSE cases should also require that the specific guard message appears."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f15",
@@ -118,7 +373,24 @@
       "what": "Test-only fault injection ships in the production dispatcher loop. `THINKERS_TEST_DIE_AFTER_CLAIM` makes the live dispatcher `kill -KILL` itself and is now listed in the public usage text. It is checked on every due wake. On bash 3.2 (macOS, which the file explicitly supports) `BASHPID` is unset, so it falls back to `$$`, the PID of the exited parent shell. That kill fails and `exit 1` runs the cleanup trap, so the test does not simulate a crash on macOS. The test file already shows that PATH shims can inject this fault without a hook.",
       "file": "bin/thinkers",
       "kind": "maintainability",
-      "note": "The wrong PID on Bash 3.2 is the defect. A test hook in the dispatcher is not itself against the project's rules."
+      "note": "The wrong PID on Bash 3.2 is the defect. A test hook in the dispatcher is not itself against the project's rules.",
+      "start_line": 1004,
+      "end_line": 1008,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "Test-only fault injection ships in the production dispatcher loop. `THINKERS_TEST_DIE_AFTER_CLAIM` makes the live dispatcher `kill -KILL` itself and is now listed in the public usage text. It is checked on every due wake. On bash 3.2 (macOS, which the file explicitly supports) `BASHPID` is unset, so it falls back to `$$`, the PID of the exited parent shell. That kill fails and `exit 1` runs the cleanup trap, so the test does not simulate a crash on macOS. The test file already shows that PATH shims can inject this fault without a hook."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f16",
@@ -126,14 +398,48 @@
       "what": "Fork-specific note placed in a new ad-hoc docs directory. The file is scoped to 'PR 3 on a fork branch', a fork branch, and sits in a new one-off `docs/send-window-dedup/` directory. It is not linked from docs/README.md or the THINKERS spec. The collision behavior it documents belongs in design/THINKERS_spec.md or design/monolith_backoff.md, where readers of the scheduler will find it.",
       "file": "docs/send-window-dedup/known-limit-pr3.md",
       "kind": "documentation",
-      "note": "Linking the limit from the scheduler documentation is useful; nothing in the project bans a new docs subdirectory."
+      "note": "Linking the limit from the scheduler documentation is useful; nothing in the project bans a new docs subdirectory.",
+      "start_line": 1,
+      "end_line": 3,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "Fork-specific note placed in a new ad-hoc docs directory. The file is scoped to 'PR 3 on audel/send-window-dedup', a fork branch, and sits in a new one-off `docs/send-window-dedup/` directory. It is not linked from docs/README.md or the THINKERS spec. The collision behavior it documents belongs in design/THINKERS_spec.md or design/monolith_backoff.md, where readers of the scheduler will find it."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "f17",
       "label": "valid",
       "what": "`_claim` and `_sent` are not declared local in _scheduled_wake_check. The function declares `local _wf _wname _wat _now` but assigns `_claim` and `_sent` without `local`. They leak into the dispatcher subshell's global scope, where any other helper using those names would be silently clobbered. Add them to the existing local list.",
       "file": "bin/thinkers",
-      "kind": "maintainability"
+      "kind": "maintainability",
+      "start_line": 1001,
+      "end_line": 1018,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-15",
+          "severity": "low",
+          "text": "`_claim` and `_sent` are not declared local in _scheduled_wake_check. The function declares `local _wf _wname _wat _now` but assigns `_claim` and `_sent` without `local`. They leak into the dispatcher subshell's global scope, where any other helper using those names would be silently clobbered. Add them to the existing local list."
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     },
     {
       "id": "inherited-lock",
@@ -141,11 +447,21 @@
       "file": "bin/thinkers",
       "kind": "defect",
       "what": "The dispatcher takes its flock on fd 4 (bin/thinkers:419), and the feeders it spawns (_spawn_feeder, lines 480 to 486) and the thinker steps it dispatches inherit that descriptor, because only fd 3 is closed for them. A draining step or a surviving feeder keeps the lock after the dispatcher exits, so its replacement waits on the lock and cannot start.",
-      "note": "Missed by the review. The maintainer's earlier reproduction used a real kernel file lock."
+      "note": "Missed by the review. The maintainer's earlier reproduction used a real kernel file lock.",
+      "start_line": 419,
+      "end_line": 419,
+      "found_by": [
+        {
+          "type": "other-reviewer",
+          "producer": "the maintainer's independent review",
+          "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862"
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "ref": "https://github.com/laude-institute/headlong/pull/150#issuecomment-6187544862",
+        "date": "2026-10-15"
+      }
     }
-  ],
-  "fit": "fits",
-  "advice": [
-    "fix, then merge"
   ]
 }

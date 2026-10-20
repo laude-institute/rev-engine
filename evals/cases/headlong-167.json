@@ -5,8 +5,25 @@
   "base": "8c1a92cef0109bd56f0714a32b179a8a99d32daa",
   "head": "7a747cdc23b2892887ce4eae2acf8df5a511c64f",
   "title": "monolith: suppress the fallback idle marker when the run wrote its own",
-  "body": "## Summary\n\nThe monolith wrapper appends a fallback idle marker when a run produces no durable step. The router prompt already asks the mind to append its own idle step when it honestly idles, so a run that idles on its own got **two** idle rows with the same run_id, ~4s apart: one authored by the mind, one by the fallback. Measured on one deployment on 2026-09-15: 259 of 267 monolith runs wrote two idle rows \u2014 every idle count, close-read, and backoff audit ran 2x heavy (banked as memory 482cb0c3).\n\nFix: the wrapper tracks the last idle step id before/after the run (same cached probe as the visible/thought work checks) and suppresses the fallback when the run wrote its own idle. The fallback survives for runs that crash, refuse, or write nothing at all; the error path still wins.\n\nUnchanged behavior: a self-idle still does not count as work \u2014 idling is a decision, not output \u2014 so the backoff ladder still advances exactly as before.\n\n## Verification\n\n- Rebased onto current main (8c1a92c) with the conflict in `thinkers/monolith/step` resolved: main gained `_last_diagnostic_id` (52dccbb/29aedde) next to where `_last_idle_id` lands; both are kept.\n- `tests/test_monolith_backoff.sh`: **14 passed, 0 failed** at the rebased head, including the new case 5b (self-idle: exactly one idle row, fallback suppressed, ladder advances).\n- Baseline run on clean main confirmed the bug shape: no self-idle awareness at all, fallback fires on every self-idle.\n- `bash -n` on both changed files.\n\nThis has been a local branch since 2026-09-16 (handed to the maintainer then); this PR is that fix, current against main, tests green.\n",
+  "body": "## Summary\n\nThe monolith wrapper appends a fallback idle marker when a run produces no durable step. The router prompt already asks the mind to append its own idle step when it honestly idles, so a run that idles on its own got **two** idle rows with the same run_id, ~4s apart: one authored by the mind, one by the fallback. Measured on one deployment on 2026-09-15: 259 of 267 monolith runs wrote two idle rows — every idle count, close-read, and backoff audit ran 2x heavy (banked as memory 482cb0c3).\n\nFix: the wrapper tracks the last idle step id before/after the run (same cached probe as the visible/thought work checks) and suppresses the fallback when the run wrote its own idle. The fallback survives for runs that crash, refuse, or write nothing at all; the error path still wins.\n\nUnchanged behavior: a self-idle still does not count as work — idling is a decision, not output — so the backoff ladder still advances exactly as before.\n\n## Verification\n\n- Rebased onto current main (8c1a92c) with the conflict in `thinkers/monolith/step` resolved: main gained `_last_diagnostic_id` (52dccbb/29aedde) next to where `_last_idle_id` lands; both are kept.\n- `tests/test_monolith_backoff.sh`: **14 passed, 0 failed** at the rebased head, including the new case 5b (self-idle: exactly one idle row, fallback suppressed, ladder advances).\n- Baseline run on clean main confirmed the bug shape: no self-idle awareness at all, fallback fires on every self-idle.\n- `bash -n` on both changed files.\n\nThis has been a local branch since 2026-09-16 (handed to the maintainer then); this PR is that fix, current against main, tests green.\n",
   "source": "The maintainer's second review tool, which ran the code, on 2026-10-13, and the maintainer's judgment of four smaller findings on 2026-10-13.",
+  "fit": "fits",
+  "advice": [
+    "fix, then merge",
+    "merge and fast-follow"
+  ],
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/167#pullrequestreview-5499702159",
+      "commit": "7a747cdc23b2892887ce4eae2acf8df5a511c64f",
+      "date": "2026-10-13"
+    }
+  ],
+  "fixes": [
+    "a1a7c3e5d91b71a43d4f59a2dd1d2c8059550abc"
+  ],
   "findings": [
     {
       "id": "run-id",
@@ -15,7 +32,24 @@
       "kind": "defect",
       "min_severity": "medium",
       "what": "The new check decides that the run wrote its own idle step by comparing the last idle id before and after the run, without checking which run wrote it. When an older idle leaves the 5,000 line window during the run, or another writer adds an idle to the shared trajectory, the check reports an idle this run never wrote and the fallback marker is suppressed. The check should match on the run's own run id.",
-      "note": "The second tool reproduced both cases against the base and the head and called it a must fix. The reviewer rates it medium because it needs uncommon conditions and costs one missing marker. The maintainer accepts either reading, so both kinds of merge advice are accepted."
+      "note": "The second tool reproduced both cases against the base and the head and called it a must fix. The reviewer rates it medium because it needs uncommon conditions and costs one missing marker. The maintainer accepts either reading, so both kinds of merge advice are accepted.",
+      "start_line": 404,
+      "end_line": 409,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#discussion_r4255488965",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "medium"
+        }
+      ],
+      "judged_by": {
+        "type": "second-review",
+        "producer": "the maintainer's second review tool, which ran the code",
+        "confirmed_by": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "test-earlier-idle",
@@ -23,7 +57,24 @@
       "file": "tests/test_monolith_backoff.sh",
       "kind": "test",
       "what": "The new test case starts from an empty trajectory, so the comparison of idle ids before and after the run is never tested with an earlier idle present.",
-      "note": "The second tool asked for the same coverage as part of its fix."
+      "note": "The second tool asked for the same coverage as part of its fix.",
+      "start_line": 160,
+      "end_line": 170,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#discussion_r4255488970",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "medium"
+        }
+      ],
+      "judged_by": {
+        "type": "second-review",
+        "producer": "the maintainer's second review tool, which ran the code",
+        "confirmed_by": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "test-idle-then-fail",
@@ -31,7 +82,24 @@
       "file": "tests/test_monolith_backoff.sh",
       "kind": "test",
       "what": "No test covers a run that writes its own idle and then fails, so nothing checks that the error step still takes priority over the self-idle.",
-      "note": "The second tool asked for the same coverage as part of its fix."
+      "note": "The second tool asked for the same coverage as part of its fix.",
+      "start_line": 55,
+      "end_line": 56,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#pullrequestreview-5499702159",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "low"
+        }
+      ],
+      "judged_by": {
+        "type": "second-review",
+        "producer": "the maintainer's second review tool, which ran the code",
+        "confirmed_by": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "comment-reason",
@@ -39,33 +107,86 @@
       "file": "thinkers/monolith/step",
       "kind": "documentation",
       "what": "A new comment says the run's own idle usually carries a reason in its content, but the prompt tells the model to write content=idle, the same as the fallback.",
-      "note": "Useful factual cleanup. A review that adds that the two rows differ by run id is wrong on that point: both can carry the same run id and source."
+      "note": "Useful factual cleanup. A review that adds that the two rows differ by run id is wrong on that point: both can carry the same run id and source.",
+      "start_line": 401,
+      "end_line": 403,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#pullrequestreview-5499702159",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "low"
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "test-header",
       "label": "invalid",
       "file": "tests/test_monolith_backoff.sh",
       "what": "The test file's header lists the stub modes and leaves out the new idle mode.",
-      "note": "True but housekeeping. The new mode and its test are clear just below, and the other missing modes predate this change."
+      "note": "True but housekeeping. The new mode and its test are clear just below, and the other missing modes predate this change.",
+      "start_line": 8,
+      "end_line": 11,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#pullrequestreview-5499702159",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "low"
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "diff-comment",
       "label": "invalid",
       "file": "thinkers/monolith/step",
       "what": "A comment that says \"unchanged\" describes the diff and not the code, or a nearby comment about what gates the fallback is said to be stale.",
-      "note": "Wording polish. The nearby comment is still true, and the comment after it explains the added condition."
+      "note": "Wording polish. The nearby comment is still true, and the comment after it explains the added condition.",
+      "start_line": 538,
+      "end_line": 547,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/167#pullrequestreview-5499702159",
+          "producer": "anthropic/claude-opus-5.5",
+          "date": "2026-10-13",
+          "severity": "low"
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "date": "2026-10-13"
+      }
     },
     {
       "id": "ladder-not-checked",
       "label": "invalid",
       "file": "tests/test_monolith_backoff.sh",
       "what": "The self-idle test case claims the backoff ladder advances but checks only the delay and not the saved level, or does not check that the surviving idle row is the model's own.",
-      "note": "With the test's settings the delays are 0, 5, 10, 20 and 40 seconds, so a delay near 5 already shows the first step. The stub always appends its idle, so a count of one already catches a duplicate fallback."
+      "note": "With the test's settings the delays are 0, 5, 10, 20 and 40 seconds, so a delay near 5 already shows the first step. The stub always appends its idle, so a count of one already catches a duplicate fallback.",
+      "start_line": 165,
+      "end_line": 169,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "local eval runs of this case before the case was labeled",
+          "producer": "anthropic/claude-opus-5.5"
+        }
+      ],
+      "judged_by": {
+        "type": "maintainer",
+        "date": "2026-10-13"
+      }
     }
-  ],
-  "fit": "fits",
-  "advice": [
-    "fix, then merge",
-    "merge and fast-follow"
   ]
 }
