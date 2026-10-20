@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { chunk, chunkContext, chunkSymbols, findMentions, splitDiff, units } from "../experiments/prototypes/swarm/chunks.ts";
 import { SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM, submitFastReview, submitSwarmReview } from "../experiments/prototypes/swarm/prompts.ts";
 import { cleanGroups, representative } from "../experiments/prototypes/swarm/merge.ts";
-import { fastPace, hedge, rankBySupport, swarmReview, swarmSettings, tally } from "../experiments/prototypes/swarm/review.ts";
+import { FAST_SECOND_LOOK, fastPace, hedge, rankBySupport, swarmReview, swarmSettings, tally } from "../experiments/prototypes/swarm/review.ts";
 import type { Candidate } from "../src/findings.ts";
 import { loadConfig } from "../src/config.ts";
 import { ModelError, type Chat, type ChatRequest } from "../src/llm.ts";
@@ -316,4 +316,36 @@ test("a fast review asks for few findings, needs no checklist, and shows verifie
   assert.equal(verifiers.length, 3);
   assert.match(String(verifiers[0]!.messages[1]!.content), /<code finding="f1" path="src\/pool.ts" lines="1-17">\n1: export class Pool/);
   assert.equal(verifiers[0]!.forceTool, "submit_verdicts", "a one-turn verifier is told to submit at once");
+});
+
+test("a fast agent's later rounds add to its first findings", () => {
+  const combined = FAST_SECOND_LOOK.combine([{ findings: [1], checked: ["a"] }, { findings: [2] }, { findings: [] }]);
+  assert.deepEqual(combined, { findings: [1, 2], checked: ["a"] });
+  assert.equal(FAST_SECOND_LOOK.message(4), null, "the rounds stop");
+});
+
+test("a fast review that loses most agents runs them again at the normal pace instead of failing", async () => {
+  const { config, trace } = await swarmFixture();
+  const requests: ChatRequest[] = [];
+  const chat: Chat = async (request) => {
+    requests.push(request);
+    if (request.tools.at(-1)!.function.name === "submit_review" && String(request.messages[1]!.content).includes("within 60 seconds")) {
+      throw new ModelError(400, "refused");
+    }
+    return submitting(request);
+  };
+  const saved = process.env.RB_CONFIG_SWARM_TARGET;
+  process.env.RB_CONFIG_SWARM_TARGET = "60";
+  try {
+    const outcome = await swarmReview(config, chat, () => {});
+    assert.equal(outcome.findings.length, 1);
+  } finally {
+    if (saved === undefined) delete process.env.RB_CONFIG_SWARM_TARGET;
+    else process.env.RB_CONFIG_SWARM_TARGET = saved;
+  }
+  const agents = trace().agents as Array<{ caller: string; status: string }>;
+  assert.equal(agents.length, 9 * 2, "each of the 9 agents ran fast, then again at the normal pace");
+  assert.equal(agents.filter((agent) => agent.status === "ok").length, 9);
+  const rerun = requests.find((request) => request.tools.at(-1)!.function.name === "submit_review" && !String(request.messages[1]!.content).includes("within 60 seconds"))!;
+  assert.match(String(rerun.messages[1]!.content), /Your budget is 16 turns|Your budget is 40 turns/);
 });

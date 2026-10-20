@@ -18,7 +18,7 @@
 // finding can be traced to the step that lost it.
 import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { runAgent } from "../../../src/agent.ts";
+import { runAgent, type SecondLook } from "../../../src/agent.ts";
 import type { Config } from "../../../src/config.ts";
 import { applyVerdicts, dedupe, normalizeCandidates, parseDiff, parseVerdicts, toOutput, type Candidate, type Verdict } from "../../../src/findings.ts";
 import type { Chat } from "../../../src/llm.ts";
@@ -74,9 +74,22 @@ export function fastPace(seconds: number): Pace {
   return {
     reviewShare: 0.65, finishShare: 0.92, chunkTurns: 6, globalTurns: 6, verifyTurns: 1, concurrency: 64,
     callTimeoutMs: Math.round(ms / 3), hedgeMs: Math.round(ms / 6), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
-    mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.25),
+    mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.15),
   };
 }
+
+/**
+ * The second look of a fast agent. Its first findings are already in, so it reads only to
+ * settle what the context left open, and every round's findings are kept.
+ */
+export const FAST_SECOND_LOOK: SecondLook = {
+  message: (round) => round > 3 ? null
+    : "Your findings so far are saved. If a step of your task needs code you have not seen, such as a caller, a definition or a test, read it now with several reads in one turn. Then call submit_review again with only new findings, or with an empty list. You may be stopped at any time, so do not repeat findings you already submitted.",
+  combine: (submissions) => ({
+    findings: submissions.flatMap((submission) => Array.isArray(submission.findings) ? submission.findings : []),
+    checked: submissions.flatMap((submission) => Array.isArray(submission.checked) ? submission.checked : []),
+  }),
+};
 
 export interface SwarmSettings {
   split: "task" | "chunk";
@@ -263,7 +276,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   const pace = target ? fastPace(target / 1000) : NORMAL_PACE;
   const available = target || config.budgetMs;
   const reviewDeadline = started + available * pace.reviewShare;
-  const finishDeadline = started + available * pace.finishShare;
+  let finishDeadline = started + available * pace.finishShare;
   const model = config.models[0]!;
   const run = pool(pace.concurrency);
   const hedges = { count: 0 };
@@ -282,7 +295,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
 
   const chunkTasks = CHUNK_TASKS.filter((task) => settings.tasks.includes(task.name));
   const globalTasks = GLOBAL_TASKS.filter((task) => settings.tasks.includes(task.name));
-  const jobs: Array<{ caller: string; tasks: SwarmTask[]; prompt: () => Promise<string>; turns: number }> = [];
+  const jobs: Array<{ caller: string; tasks: SwarmTask[]; prompt: (fast: boolean) => Promise<string>; turns: (fast: boolean) => number }> = [];
   for (const piece of chunks) {
     const where = describeChunk(piece);
     log(`chunk ${piece.id}: ${where}`);
@@ -295,27 +308,29 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const context = chunkContext(piece, headFile, mentions);
     const groups = settings.split === "task" ? chunkTasks.map((task) => [task]) : chunkTasks.length ? [chunkTasks] : [];
     for (const tasks of groups) {
-      const turns = Math.min(config.maxTurns, target ? pace.chunkTurns : pace.chunkTurns * tasks.length);
-      jobs.push({ caller: `${piece.id}/${tasks.length > 1 ? "all" : tasks[0]!.name}`, tasks, turns, prompt: async () => chunkPrompt(shared, tasks, turns, where, await context, fastSeconds) });
+      const turns = (fast: boolean) => Math.min(config.maxTurns, fast ? fastPace(fastSeconds).chunkTurns : NORMAL_PACE.chunkTurns * tasks.length);
+      jobs.push({ caller: `${piece.id}/${tasks.length > 1 ? "all" : tasks[0]!.name}`, tasks, turns, prompt: async (fast) => chunkPrompt(shared, tasks, turns(fast), where, await context, fast ? fastSeconds : 0) });
     }
   }
   for (const task of globalTasks) {
-    const turns = Math.min(config.maxTurns, pace.globalTurns);
-    jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async () => globalPrompt(shared, task, turns, diff, fastSeconds) });
+    const turns = (fast: boolean) => Math.min(config.maxTurns, fast ? fastPace(fastSeconds).globalTurns : NORMAL_PACE.globalTurns);
+    jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async (fast) => globalPrompt(shared, task, turns(fast), diff, fast ? fastSeconds : 0) });
   }
   log(`swarm: ${chunks.length} chunk(s), ${jobs.length} agent(s) with ${model}`);
 
   const context: ReviewContext = { diffInPrompt: diffInPrompt(diff), readers: [] };
-  const outcomes = await Promise.allSettled(jobs.map((job) => run(async () => {
+  type Job = (typeof jobs)[number];
+  /** Runs one agent to `deadline` at `agentPace`, and records it in the trace. */
+  const runJob = (job: Job, deadline: number, agentPace: Pace, fast: boolean) => run(async () => {
     const agentStarted = Date.now();
     const entry: Trace["agents"][number] = { caller: job.caller, tasks: job.tasks.map((task) => task.name), status: "failed", attempts: 0, errors: [], ms: 0, submitted: 0, kept: 0, checked: [] };
     trace.agents.push(entry);
     try {
-      if (reviewDeadline - Date.now() < pace.minStartMs) {
+      if (deadline - Date.now() < agentPace.minStartMs) {
         entry.status = "skipped";
         throw new Error("skipped: too little review time was left when its turn came");
       }
-      const prompt = await job.prompt();
+      const prompt = await job.prompt(fast);
       for (;;) {
         entry.attempts += 1;
         const caller = entry.attempts > 1 ? `${job.caller}#${entry.attempts}` : job.caller;
@@ -323,8 +338,11 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
           const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
           context.readers.push({ caller, reads: seatWorkspace.reads });
           const submission = await runAgent({
-            chat, model, system: SWARM_SYSTEM, prompt, workspace: seatWorkspace, submit: target ? submitFastReview : submitSwarmReview,
-            deadline: reviewDeadline, maxTurns: job.turns, log, caller, attemptTimeoutMs: pace.callTimeoutMs, ...wrapUp,
+            chat, model, system: SWARM_SYSTEM, prompt, workspace: seatWorkspace, submit: fast ? submitFastReview : submitSwarmReview,
+            deadline, maxTurns: job.turns(fast), log, caller, attemptTimeoutMs: agentPace.callTimeoutMs,
+            ...(agentPace.wrapUpMs === null ? {} : { wrapUpMs: agentPace.wrapUpMs }),
+            // A fast agent hands in findings from its context first, so being cut off later loses nothing.
+            ...(fast ? { submitFirst: true, secondLook: FAST_SECOND_LOOK } : {}),
           });
           const candidates = await normalizeCandidates(submission.findings, { seat: job.caller, repoDir: config.repoDir, changed, headFile, log });
           entry.status = "ok";
@@ -336,14 +354,26 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
         } catch (error) {
           entry.errors.push(describe(error));
           // One more try in a new conversation, since most failures are a stalled or refused call, not the task.
-          if (entry.attempts >= 2 || reviewDeadline - Date.now() < pace.minRetryMs) throw error;
+          if (entry.attempts >= 2 || deadline - Date.now() < agentPace.minRetryMs) throw error;
           log(`${job.caller} failed, trying once more: ${describe(error)}`);
         }
       }
     } finally {
       entry.ms = Date.now() - agentStarted;
     }
-  })));
+  });
+
+  const outcomes = await Promise.allSettled(jobs.map((job) => runJob(job, reviewDeadline, pace, target > 0)));
+  // A fast review that lost most of its agents runs them again at the normal pace. It misses
+  // its target on this pull request rather than hand in a review that is mostly blind.
+  const lost = outcomes.flatMap((outcome, index) => outcome.status === "rejected" ? [index] : []);
+  if (target && lost.length * 2 > jobs.length) {
+    const normalDeadline = started + config.budgetMs * NORMAL_PACE.reviewShare;
+    finishDeadline = Math.max(finishDeadline, started + config.budgetMs * NORMAL_PACE.finishShare);
+    log(`swarm: ${lost.length} of ${jobs.length} agent(s) missed the target; running them again at the normal pace`);
+    const again = await Promise.allSettled(lost.map((index) => runJob(jobs[index]!, normalDeadline, NORMAL_PACE, false)));
+    lost.forEach((index, position) => { outcomes[index] = again[position]!; });
+  }
 
   const proposals: Candidate[] = [];
   let succeeded = 0;

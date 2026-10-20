@@ -56,10 +56,11 @@ With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls
 
 Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns one after another, the turn that writes the findings is the slowest, and a few calls stall until they time out. The review ends only when its slowest agent does. With `RB_CONFIG_SWARM_TARGET` set, the swarm changes the following to finish near the target:
 
-- **Every agent starts at once** and has 65% of the target to review. Each keeps a quarter of the target for its submission, and an agent has at most 6 turns.
+- **Every agent starts at once** and has 65% of the target to review, in at most 6 turns.
+- **An agent's first turn is its submission**, written from the code and mentions in its prompt, so an agent that is cut off later still has its findings. While time remains, it gets up to three more rounds to read code and submit new findings, which are added to the first.
 - **Agents are asked for at most 6 findings** with short details, and do not list what they checked, because the submission turn grows with what the model writes.
 - **A call still running after a sixth of the target is sent again**, and the first answer is used. Most slow calls have stalled at the provider. Both calls are paid for, and the trace counts how many were sent again.
-- **Failed agents are not run again**, because there is no time for it.
+- **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail, they all run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
 - **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files.
 - **The merge gets 15% of the target.**
 
