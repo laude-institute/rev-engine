@@ -28,7 +28,7 @@ scripts/local-run.sh smoke --pr 0       # one pull request from the test set
 JOBS=5 scripts/local-run.sh first-run   # all 25, five at a time
 ```
 
-Findings and logs land in `runs/<name>/`, which git ignores. To score them, run `scripts/score.sh <name>`, which passes `runs/<name>/findings` to the benchmark's [judging CLI](https://github.com/review-bench/ReviewBench/blob/main/docs/JUDGING.md). The judge works on every pull request of a run at once, so a run takes about as long as judging its slowest pull request. Within one pull request it classifies findings one after another, which is the slow part. Give several names, as in `scripts/score.sh try-a-1 try-a-2 try-a-3`, to score those runs at the same time.
+Findings and logs land in `runs/<name>/`, which git ignores. To score them, run `scripts/score.sh <name>`, which passes `runs/<name>/findings` to the benchmark's [judging CLI](https://github.com/review-bench/ReviewBench/blob/main/docs/JUDGING.md). The judge works on every pull request of a run at once, so a run takes about as long as judging its slowest pull request. Within one pull request it classifies findings one after another, which is the slow part. Give several names, as in `scripts/score.sh try-a-1 try-a-2 try-a-3`, to score those runs at the same time. For a quick experiment, `JUDGE_MODE=match scripts/score.sh <name>` runs only the judge's matching step. Grounded precision and recall, which the leaderboard ranks by, depend only on that step, so this gives the same grounded scores in about a minute for a run of the 25, but no augmented scores. Two matchings of one run differ by about 1 to 2 points of F1, as two full judgings do.
 
 ## Try a prompt change cheaply
 

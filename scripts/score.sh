@@ -10,6 +10,11 @@
 # Within a run, the judge works on up to JUDGE_JOBS pull requests at once
 # (default 25, so a test set run takes about as long as its slowest pull request).
 #
+# JUDGE_MODE=match runs only the judge's matching step, with scripts/match.ts. It
+# gives the same grounded precision and recall, the scores the leaderboard ranks
+# by, for a fraction of the time and cost, but no augmented scores. Its results
+# land in runs/<run-name>/matching/ unless SCORING_NAME says otherwise.
+#
 # JUDGE_PROVIDER and JUDGE_MODEL choose the judge (default: openrouter,
 # google/gemini-3.5-flash). Scores from different judges are not comparable.
 # JUDGE_ARGS passes extra options to the judging CLI, such as --no-strict to
@@ -22,6 +27,9 @@ set -euo pipefail
 
 [ $# -ge 1 ] || { sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 here="$(cd "$(dirname "$0")/.." && pwd)"
+mode="${JUDGE_MODE:-full}"
+case "$mode" in full) default_name=scoring ;; match) default_name=matching ;; *) echo "JUDGE_MODE must be full or match" >&2; exit 2 ;; esac
+export SCORING_NAME="${SCORING_NAME:-$default_name}"
 
 if [ $# -gt 1 ]; then
   # The judge may clean or rebuild a checkout it is reading from, so each run gets its own set.
@@ -30,18 +38,18 @@ if [ $# -gt 1 ]; then
   for name in "$@"; do
     slot=$((slot + 1))
     mkdir -p "$here/runs/$name"
-    JUDGE_REPOS_SLOT="$slot" "$0" "$name" > "$here/runs/$name/${SCORING_NAME:-scoring}.log" 2>&1 &
+    JUDGE_REPOS_SLOT="$slot" "$0" "$name" > "$here/runs/$name/${SCORING_NAME}.log" 2>&1 &
     pids+=($!)
   done
   failed=0
   for index in "${!pids[@]}"; do
     name="${@:$((index + 1)):1}"
-    results="$here/runs/$name/${SCORING_NAME:-scoring}/results.json"
+    results="$here/runs/$name/${SCORING_NAME}/results.json"
     if wait "${pids[$index]}" && [ -f "$results" ]; then
       jq -r --arg name "$name" '.macro.overall as $o | "\($name): F1 \((200 * $o.grounded_precision * $o.grounded_recall / ($o.grounded_precision + $o.grounded_recall)) * 10 | round / 10) P \($o.grounded_precision * 1000 | round / 10) R \($o.grounded_recall * 1000 | round / 10)"' "$results" 2>/dev/null \
         || echo "$name: scored, see $results"
     else
-      echo "$name: scoring failed, see runs/$name/${SCORING_NAME:-scoring}.log" >&2
+      echo "$name: scoring failed, see runs/$name/${SCORING_NAME}.log" >&2
       failed=1
     fi
   done
@@ -55,7 +63,7 @@ run="$here/runs/$1"
 if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
 provider="${JUDGE_PROVIDER:-openrouter}"
 model="${JUDGE_MODEL:-google/gemini-3.5-flash}"
-out="$run/${SCORING_NAME:-scoring}"
+out="$run/${SCORING_NAME}"
 mkdir -p "$out"
 
 # The judging CLI only accepts models in its bundled registry, which lags behind
@@ -87,6 +95,10 @@ jq -s '{
 
 cd "$bench"
 status=0
+if [ "$mode" = match ]; then
+  npx tsx "$here/scripts/match.ts" "$run" "$out" "$provider" "$model" "${JUDGE_JOBS:-25}" 2>&1 | tee "$out/judge.log" || status=$?
+  exit "$status"
+fi
 npm run judge --silent -- \
   --candidate "$run/findings" \
   --provider "$provider" --model "$model" \
