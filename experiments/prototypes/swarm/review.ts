@@ -11,6 +11,7 @@
 //   RB_CONFIG_SWARM_TARGET seconds the whole review should take, 30 to 780, or 0 (the default) to use the benchmark's budget
 //                          as before. A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
 //   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
+//   RB_CONFIG_SWARM_EFFORT reasoning effort for the swarm's calls, such as low; unset uses RB_CONFIG_EFFORT
 //
 // Every run writes swarm.json beside the findings file: the chunks, each agent's
 // findings and checklist, what the merge folded together, each verifier's vote and
@@ -100,6 +101,7 @@ export interface SwarmSettings {
   /** Seconds the review should take; 0 uses the benchmark's budget. */
   target: number;
   sort: "latency" | "throughput" | null;
+  effort: string | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -125,9 +127,12 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (target && target < 30) throw new Error("RB_CONFIG_SWARM_TARGET must be 0 or from 30 to 780");
   const sort = env.RB_CONFIG_SWARM_SORT?.trim() || null;
   if (sort !== null && sort !== "latency" && sort !== "throughput") throw new Error("RB_CONFIG_SWARM_SORT must be latency or throughput");
+  const effort = env.RB_CONFIG_SWARM_EFFORT?.trim() || null;
+  if (effort !== null && !["none", "minimal", "low", "medium", "high"].includes(effort)) throw new Error("RB_CONFIG_SWARM_EFFORT must be none, minimal, low, medium or high");
   return {
     target,
     sort,
+    effort,
     merge: merge === "on",
     split,
     chunks: integer(env, "RB_CONFIG_SWARM_CHUNKS", 10, 1, 40),
@@ -137,7 +142,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -233,7 +238,7 @@ function batches(candidates: Candidate[]): Candidate[][] {
 interface Trace {
   settings: SwarmSettings & { model: string; verifier: string };
   chunks: Array<{ id: string; where: string; units: Array<{ path: string; hunks: Array<[number, number]> }>; symbols: string[]; mentions: Record<string, number> }>;
-  agents: Array<{ caller: string; tasks: string[]; status: "ok" | "failed" | "skipped"; attempts: number; errors: string[]; ms: number; submitted: number; kept: number; checked: unknown[] }>;
+  agents: Array<{ caller: string; tasks: string[]; status: "ok" | "empty" | "failed" | "skipped"; attempts: number; errors: string[]; ms: number; submitted: number; kept: number; checked: unknown[] }>;
   /** mergedInto is the proposal the word-based merge kept instead; groupedInto is the finding the model merge kept instead. */
   proposals: Array<Candidate & { caller: string; mergedInto: string | null; groupedInto: string | null; findingId: string | null }>;
   merges: MergeResult["batches"];
@@ -243,6 +248,8 @@ interface Trace {
   timing: { reviewMs: number; mergeMs: number; verifyMs: number; totalMs: number };
   /** Model calls sent a second time because the first was slow. */
   hedged: number;
+  /** Every model call: who made it, when it started and how long it took, and how much it reasoned and wrote. */
+  calls: Array<{ caller: string; startMs: number; ms: number; ok: boolean; reasoningChars: number; outputChars: number; forced: boolean }>;
 }
 
 function describe(error: unknown): string {
@@ -254,7 +261,7 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
   log(`swarm settings: ${describeSwarm(settings)}`);
   const trace: Trace = {
     settings: { ...settings, model: config.models[0]!, verifier: config.verifierModel },
-    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { reviewMs: 0, mergeMs: 0, verifyMs: 0, totalMs: 0 }, hedged: 0,
+    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { reviewMs: 0, mergeMs: 0, verifyMs: 0, totalMs: 0 }, hedged: 0, calls: [],
   };
   const started = Date.now();
   // The trace is for analysis only, so failing to write it never fails the review. It is
@@ -280,8 +287,25 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   const model = config.models[0]!;
   const run = pool(pace.concurrency);
   const hedges = { count: 0 };
-  const sorted: Chat = settings.sort ? (request) => baseChat({ ...request, providerSort: settings.sort! }) : baseChat;
-  const chat = pace.hedgeMs ? hedge(sorted, pace.hedgeMs, hedges) : sorted;
+  // Each call is timed for the trace, so a slow review shows which calls were slow and why.
+  const timed: Chat = async (request) => {
+    const callStarted = Date.now();
+    const record = { caller: request.caller ?? "", startMs: callStarted - started, ms: 0, ok: false, reasoningChars: 0, outputChars: 0, forced: Boolean(request.forceTool) };
+    trace.calls.push(record);
+    try {
+      const reply = await baseChat({
+        ...request, ...(settings.sort ? { providerSort: settings.sort } : {}), ...(settings.effort ? { effort: settings.effort } : {}),
+      });
+      record.ok = true;
+      record.reasoningChars = Array.isArray(reply.reasoning_details)
+        ? reply.reasoning_details.reduce((sum: number, item: { text?: unknown }) => sum + (typeof item?.text === "string" ? item.text.length : 0), 0) : 0;
+      record.outputChars = (reply.content?.length ?? 0) + (reply.tool_calls ?? []).reduce((sum, call) => sum + call.function.arguments.length, 0);
+      return reply;
+    } finally {
+      record.ms = Date.now() - callStarted;
+    }
+  };
+  const chat = pace.hedgeMs ? hedge(timed, pace.hedgeMs, hedges) : timed;
   const fastSeconds = target ? Math.round(target / 1000) : 0;
   const wrapUp = pace.wrapUpMs === null ? {} : { wrapUpMs: pace.wrapUpMs };
 
@@ -341,8 +365,8 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
             chat, model, system: SWARM_SYSTEM, prompt, workspace: seatWorkspace, submit: fast ? submitFastReview : submitSwarmReview,
             deadline, maxTurns: job.turns(fast), log, caller, attemptTimeoutMs: agentPace.callTimeoutMs,
             ...(agentPace.wrapUpMs === null ? {} : { wrapUpMs: agentPace.wrapUpMs }),
-            // A fast agent hands in findings from its context first, so being cut off later loses nothing.
-            ...(fast ? { submitFirst: true, secondLook: FAST_SECOND_LOOK } : {}),
+            // A fast agent is asked to hand in findings from its context first, so being cut off later loses little.
+            ...(fast ? { secondLook: FAST_SECOND_LOOK } : {}),
           });
           const candidates = await normalizeCandidates(submission.findings, { seat: job.caller, repoDir: config.repoDir, changed, headFile, log });
           entry.status = "ok";
@@ -350,6 +374,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
           entry.kept = candidates.length;
           entry.checked = Array.isArray(submission.checked) ? submission.checked : [];
           log(`${job.caller}: ${candidates.length} finding(s), ${entry.checked.length} item(s) checked`);
+          if (!candidates.length) entry.status = "empty";
           return candidates;
         } catch (error) {
           entry.errors.push(describe(error));
@@ -365,8 +390,9 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
 
   const outcomes = await Promise.allSettled(jobs.map((job) => runJob(job, reviewDeadline, pace, target > 0)));
   // A fast review that lost most of its agents runs them again at the normal pace. It misses
-  // its target on this pull request rather than hand in a review that is mostly blind.
-  const lost = outcomes.flatMap((outcome, index) => outcome.status === "rejected" ? [index] : []);
+  // its target on this pull request rather than hand in a review that is mostly blind. An agent
+  // that found nothing counts as lost here, because a fast agent cut off early also hands in nothing.
+  const lost = outcomes.flatMap((outcome, index) => outcome.status === "rejected" || !outcome.value.length ? [index] : []);
   if (target && lost.length * 2 > jobs.length) {
     const normalDeadline = started + config.budgetMs * NORMAL_PACE.reviewShare;
     finishDeadline = Math.max(finishDeadline, started + config.budgetMs * NORMAL_PACE.finishShare);

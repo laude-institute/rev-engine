@@ -106,6 +106,8 @@ test("reads and checks the swarm settings", () => {
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "10" }), /RB_CONFIG_SWARM_TARGET/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_SORT: "latency" }).sort, "latency");
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_SORT: "cheapest" }), /RB_CONFIG_SWARM_SORT/);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_EFFORT: "low" }).effort, "low");
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EFFORT: "max" }), /RB_CONFIG_SWARM_EFFORT/);
 });
 
 test("the fast pace fits every phase inside the target", () => {
@@ -348,4 +350,37 @@ test("a fast review that loses most agents runs them again at the normal pace in
   assert.equal(agents.filter((agent) => agent.status === "ok").length, 9);
   const rerun = requests.find((request) => request.tools.at(-1)!.function.name === "submit_review" && !String(request.messages[1]!.content).includes("within 60 seconds"))!;
   assert.match(String(rerun.messages[1]!.content), /Your budget is 16 turns|Your budget is 40 turns/);
+});
+
+test("fast agents that hand in nothing count as lost, and the calls are timed in the trace", async () => {
+  const { config, trace } = await swarmFixture();
+  const requests: ChatRequest[] = [];
+  const chat: Chat = async (request) => {
+    requests.push(request);
+    const fast = String(request.messages[1]?.content).includes("within 60 seconds");
+    if (request.tools.at(-1)!.function.name === "submit_review" && fast) {
+      const empty = { findings: [] };
+      return { role: "assistant", reasoning_details: [{ type: "reasoning.text", text: "nothing here" }], tool_calls: [{ id: "1", type: "function", function: { name: "submit_review", arguments: JSON.stringify(empty) } }] };
+    }
+    return submitting(request);
+  };
+  const saved = { target: process.env.RB_CONFIG_SWARM_TARGET, effort: process.env.RB_CONFIG_SWARM_EFFORT };
+  process.env.RB_CONFIG_SWARM_TARGET = "60";
+  process.env.RB_CONFIG_SWARM_EFFORT = "low";
+  try {
+    const outcome = await swarmReview(config, chat, () => {});
+    assert.equal(outcome.findings.length, 1, "the normal pace rerun found it");
+  } finally {
+    for (const [name, value] of [["RB_CONFIG_SWARM_TARGET", saved.target], ["RB_CONFIG_SWARM_EFFORT", saved.effort]] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  const first = requests.find((request) => request.tools.at(-1)!.function.name === "submit_review")!;
+  assert.equal(first.forceTool, undefined, "a fast agent's first turn is asked for, not forced");
+  assert.equal(first.effort, "low");
+  const recorded = trace();
+  assert.equal(recorded.agents.filter((agent: { status: string }) => agent.status === "empty").length, 9);
+  assert.ok(recorded.calls.length >= requests.length);
+  assert.ok(recorded.calls.some((call: { reasoningChars: number }) => call.reasoningChars === "nothing here".length));
 });

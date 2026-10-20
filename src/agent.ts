@@ -41,11 +41,6 @@ export interface AgentOptions {
   attemptTimeoutMs?: number;
   /** Time kept back for the submission, when a short deadline needs less than WRAP_UP_MS. */
   wrapUpMs?: number;
-  /**
-   * Makes the first turn a submission, from the prompt alone, so a run that is cut off
-   * later still has its work. Use with secondLook to let the model read and add more.
-   */
-  submitFirst?: boolean;
   log: (message: string) => void;
 }
 
@@ -172,11 +167,10 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
     };
     let reply: ChatMessage;
     try {
-      const forced = (wrappingUp || (options.submitFirst === true && turn === 1)) && forcedChoiceWorks;
-      reply = await chat(forced ? { ...request, forceTool: submitName } : request);
+      reply = await chat(wrappingUp && forcedChoiceWorks ? { ...request, forceTool: submitName } : request);
     } catch (error) {
       const rejected = error instanceof ModelError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429;
-      if ((wrappingUp || (options.submitFirst === true && turn === 1)) && forcedChoiceWorks && rejected) {
+      if (wrappingUp && forcedChoiceWorks && rejected) {
         // Not every provider accepts a forced tool choice. Ask again and let the model choose.
         forcedChoiceWorks = false;
         reply = await chat(request);

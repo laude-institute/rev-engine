@@ -39,6 +39,7 @@ The tasks are:
 | `RB_CONFIG_SWARM_MERGE` | `on` | `on` has the model group repeats before verification. `off` uses only the word-based merge. |
 | `RB_CONFIG_SWARM_TARGET` | `0` | Seconds the whole review should take, from 30 to 780. `0` fills the benchmark's time budget. Any other value turns on the fast pace described below. |
 | `RB_CONFIG_SWARM_SORT` | unset | `latency` or `throughput` asks OpenRouter to route every call to the provider that is best by that measure. |
+| `RB_CONFIG_SWARM_EFFORT` | unset | The reasoning effort for the swarm's calls: `none`, `minimal`, `low`, `medium` or `high`. Unset uses `RB_CONFIG_EFFORT`. A call that reasons at length is slow, so a lower effort may speed up a fast review. |
 
 With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls are in flight at once.
 
@@ -57,10 +58,10 @@ With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls
 Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns one after another, the turn that writes the findings is the slowest, and a few calls stall until they time out. The review ends only when its slowest agent does. With `RB_CONFIG_SWARM_TARGET` set, the swarm changes the following to finish near the target:
 
 - **Every agent starts at once** and has 65% of the target to review, in at most 6 turns.
-- **An agent's first turn is its submission**, written from the code and mentions in its prompt, so an agent that is cut off later still has its findings. While time remains, it gets up to three more rounds to read code and submit new findings, which are added to the first.
+- **An agent is asked to submit first**, from the code and mentions in its prompt, before it reads any file, so an agent that is cut off later still has its findings. The first turn is not forced to be a submission, because a forced submission comes back as an empty placeholder. While time remains, it gets up to three more rounds to read code and submit new findings, which are added to the first.
 - **Agents are asked for at most 6 findings** with short details, and do not list what they checked, because the submission turn grows with what the model writes.
 - **A call still running after a sixth of the target is sent again**, and the first answer is used. Most slow calls have stalled at the provider. Both calls are paid for, and the trace counts how many were sent again.
-- **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail, they all run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
+- **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail or hand in no findings, those agents run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
 - **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files.
 - **The merge gets 15% of the target.**
 
@@ -74,6 +75,7 @@ Every run writes `swarm.json` beside the findings file. It holds:
 - each model merge batch and the groups it made
 - each verifier's vote and reason for every finding, the tallied result, and whether the finding survived
 - the final list with the proposals behind each finding and how many agents reported it, and the findings the cap cut
+- every model call, with its caller, when it started, how long it took, whether it succeeded, and how much it reasoned and wrote, and the time each phase took
 
 Run with `RB_TRANSCRIPT_OUT=/work/out/transcript.json` and `RB_DETAILS_OUT=/work/out/details.json` as well, so every agent's conversation is kept. `context.json` records what each agent read, and `scripts/coverage.ts` counts the verifiers apart from the reviewers because their callers start with `verifier`.
 

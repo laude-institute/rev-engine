@@ -55,7 +55,7 @@ export const submitFastReview: ToolDefinition = (() => {
 
 /** Added to each agent's task when the review must finish in about a minute. */
 export function fastSection(seconds: number): string {
-  return `This review must finish within ${seconds} seconds, so work quickly. Most of what you need is in this message; read files only to settle a specific doubt, with several reads in one turn. Report at most ${FAST_FINDINGS} findings, the ones you are surest of, and keep each detail to two or three sentences.`;
+  return `This review must finish within ${seconds} seconds, and you may be stopped at any time. Most of what you need is in this message. Answer first: go through your steps against the code shown here, then make your first reply a call to submit_review with the problems you found. Do not read files before that first submission. Afterwards, while time remains, you may read files to check what the code shown left open and submit again. Report at most ${FAST_FINDINGS} findings in each submission, the ones you are surest of, and keep each detail to two or three sentences.`;
 }
 
 /** The most findings one agent of a fast review is asked for. */

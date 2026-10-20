@@ -147,19 +147,6 @@ test("skips the second look when little time is left", async () => {
   assert.equal(requests.length, 1);
 });
 
-test("submits on the first turn when asked, then reads and adds more in a second look", async () => {
-  const { chat, requests } = scripted([
-    toolCall("submit_review", '{"findings":["from the prompt"]}'),
-    toolCall("read_file", '{"path":"a.ts"}'),
-    new Error("timed out"),
-    new Error("timed out again"),
-  ]);
-  const secondLook = { message: () => "look again", combine: (submissions: Array<Record<string, unknown>>) => ({ findings: submissions.flatMap((item) => item.findings as string[]) }) };
-  assert.deepEqual(await runAgent({ ...options(chat), secondLook, submitFirst: true }), { findings: ["from the prompt"] });
-  assert.equal(requests[0]!.forceTool, "submit_review", "the first turn must be the submission");
-  assert.equal(requests[1]!.forceTool, undefined, "the second look may read");
-});
-
 const CUT_OFF = '{"findings":[{"file":"a.ts","detail":"has } and \\" inside"},{"file":"b.ts","nested":{"n":1}},{"file":"c.t';
 
 test("completeEntries recovers the finished entries of a cut-off submission", () => {

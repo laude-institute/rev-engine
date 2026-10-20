@@ -27,6 +27,8 @@ export interface ChatRequest {
   caller?: string;
   /** The longest one attempt may take, when shorter than ATTEMPT_TIMEOUT_MS. */
   attemptTimeoutMs?: number;
+  /** Reasoning effort for this call, in place of the client's. */
+  effort?: string;
   /** Asks OpenRouter to route to the provider with the lowest latency or highest throughput. */
   providerSort?: "latency" | "throughput";
 }
@@ -90,9 +92,10 @@ export function createChat(options: ClientOptions): Chat {
     // Anthropic models cache a prompt prefix only when asked to. A review resends a
     // growing conversation every turn, so caching decides most of its cost.
     if (openRouter && request.model.startsWith("anthropic/")) body.cache_control = { type: "ephemeral" };
-    if (options.effort) {
-      if (openRouter) body.reasoning = { effort: options.effort };
-      else body.reasoning_effort = options.effort;
+    const effort = request.effort ?? options.effort;
+    if (effort) {
+      if (openRouter) body.reasoning = { effort };
+      else body.reasoning_effort = effort;
     }
     const response = await fetchImpl(`${options.baseUrl}/chat/completions`, {
       method: "POST",
