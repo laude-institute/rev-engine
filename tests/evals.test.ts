@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Finding } from "../action/comments.ts";
 import { adviceLabel, parseCase, renderReport, scoreCase, totals, type EvalCase, type RunResult } from "../evals/lib.ts";
+import { prKey, toReviewBench } from "../evals/reviewbench.ts";
 
 const CASE: EvalCase = {
   id: "demo-1", repo: "owner/repo", pr: 1, base: "a".repeat(40), head: "b".repeat(40), title: "T", body: "", source: "a person",
@@ -29,6 +30,67 @@ test("rejects a malformed case", () => {
   assert.throws(() => parseCase({ ...CASE, head: "abc" }, "x"), /full commit ids/);
   assert.throws(() => parseCase({ ...CASE, findings: [{ id: "a", label: "maybe", what: "w" }] }, "x"), /label/);
   assert.throws(() => parseCase({ ...CASE, findings: [CASE.findings[0], CASE.findings[0]] }, "x"), /share the id/);
+});
+
+test("accepts where a finding came from and who judged it", () => {
+  const sha = "c".repeat(40);
+  const traced = parseCase({
+    ...CASE,
+    reviews: [{ producer: "rev-engine-prime", model: "m", ref: "https://example.com/r/1", commit: CASE.head, fit: "fits" }],
+    fixes: [sha],
+    findings: [{
+      id: "bug", label: "must", what: "w", file: "a.ts", start_line: 3, end_line: 5, severity: "high", category: "correctness",
+      found_by: [{ type: "rev-engine-prime", severity: "medium", text: "t" }, { type: "author-fix", ref: sha }],
+      judged_by: { type: "maintainer", quote: "fix it", date: "2026-10-20" },
+      fixed_in: sha,
+    }],
+  }, "x");
+  assert.equal(traced.findings[0]!.found_by?.length, 2);
+});
+
+test("rejects malformed sources, lines and severities", () => {
+  const withFinding = (extra: Record<string, unknown>) => ({ ...CASE, findings: [{ id: "a", label: "must", what: "w", ...extra }] });
+  assert.throws(() => parseCase(withFinding({ found_by: [{ type: "a guess" }] }), "x"), /found_by type/);
+  assert.throws(() => parseCase(withFinding({ judged_by: { type: "me" } }), "x"), /judged_by type/);
+  assert.throws(() => parseCase(withFinding({ start_line: 4 }), "x"), /both start_line and end_line/);
+  assert.throws(() => parseCase(withFinding({ start_line: 4, end_line: 2 }), "x"), /ends before it starts/);
+  assert.throws(() => parseCase(withFinding({ severity: "huge" }), "x"), /unknown severity/);
+  assert.throws(() => parseCase(withFinding({ category: "vibes" }), "x"), /category/);
+  assert.throws(() => parseCase(withFinding({ fixed_in: "abc" }), "x"), /fixed_in/);
+  assert.throws(() => parseCase({ ...CASE, reviews: [{ producer: "r", commit: "abc" }] }, "x"), /review's commit/);
+  assert.throws(() => parseCase({ ...CASE, fixes: ["abc"] }, "x"), /fixes/);
+});
+
+test("uses the judged severity as the expected minimum when no minimum is set", () => {
+  const judged: EvalCase = { ...CASE, findings: [{ id: "bug", label: "must", what: "w", severity: "medium" }] };
+  const score = scoreCase(judged, [run([finding("high", "defect", "A")], { bug: [0] }), run([finding("low", "defect", "A")], { bug: [0] })]);
+  assert.equal(score.expectations[0]!.severityRight, 1);
+});
+
+test("exports a case as a ReviewBench golden set", () => {
+  const located: EvalCase = {
+    ...CASE,
+    findings: [
+      { id: "bug", label: "must", what: "The sign is wrong.", file: "a.ts", start_line: 2, end_line: 4, kind: "defect", severity: "high", note: "the maintainer", found_by: [{ type: "rev-engine-prime", producer: "m" }], judged_by: { type: "maintainer" } },
+      { id: "nit", label: "valid", what: "A name is unclear.", file: "b.ts", start_line: 1, end_line: 1, min_severity: "low", category: "maintainability" },
+      { id: "wrong", label: "invalid", what: "Claims a link is stale.", file: "c.md", start_line: 7, end_line: 7 },
+      { id: "nowhere", label: "must", what: "No location.", file: "d.ts", severity: "medium" },
+      { id: "unrated", label: "valid", what: "No severity.", file: "e.ts", start_line: 1, end_line: 1 },
+      { id: "later", label: "unlabeled", what: "Not judged yet." },
+    ],
+  };
+  const { golden, manifest, skipped } = toReviewBench(located);
+  assert.equal(golden.pr_key, prKey("owner/repo", 1, "b".repeat(40)));
+  assert.equal(golden.pr_key, "owner_repo_1-bbbbbbbb");
+  assert.deepEqual(golden.findings.map((entry) => [entry.file, entry.tp_fp, entry.severity, entry.category, entry.producer]), [
+    ["a.ts", "tp", "high", "correctness", "m"],
+    ["b.ts", "tp", "low", "maintainability", "eval-case"],
+    ["c.md", "fp", "low", "other", "eval-case"],
+  ]);
+  assert.deepEqual(golden.findings[0]!.source, { type: "eval_case", label: "must", found_by: ["rev-engine-prime"], judged_by: "maintainer" });
+  assert.deepEqual(skipped.map((entry) => entry.id), ["nowhere", "unrated", "later"]);
+  assert.equal(manifest.nwo, "owner/repo");
+  assert.equal(manifest.pr_url, "https://github.com/owner/repo/pull/1");
 });
 
 test("derives the merge advice the action would show", () => {
