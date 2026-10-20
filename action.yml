@@ -111,6 +111,26 @@ runs:
       shell: bash
       run: docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
 
+    # The maintainer's decisions on earlier reviews of this pull request, so the review does not
+    # report decided findings again. It holds the GitHub token and no model key. A failure is
+    # logged as a warning and leaves no file, and the review then runs without earlier decisions.
+    - name: Collect earlier decisions
+      if: steps.ask.outputs.run == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_GRAPHQL_URL: ${{ github.graphql_url }}
+        RB_NWO: ${{ github.repository }}
+        RB_PR_NUMBER: ${{ steps.ask.outputs.number }}
+      run: |
+        docker run --rm --entrypoint node \
+          -v "$GITHUB_ACTION_PATH/action:/agent/action:ro" \
+          -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr" \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_GRAPHQL_URL -e RB_NWO -e RB_PR_NUMBER -e PRIOR_PATH=/work/pr/prior.json \
+          rev-engine-prime:action /agent/action/collect.ts \
+          || echo "::warning::Earlier decisions not collected: the collector exited with an error"
+
     - name: Review
       if: steps.ask.outputs.run == 'true'
       shell: bash
@@ -131,7 +151,7 @@ runs:
           -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
           -e OPENROUTER_API_KEY -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
           -e RB_CONFIG_MODEL -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT -e RB_DETAILS_OUT=/work/out/details.json \
-          -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json \
+          -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json -e RB_PRIOR_JSON=/work/pr/prior.json \
           -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \
           rev-engine-prime:action
 

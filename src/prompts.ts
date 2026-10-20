@@ -1,5 +1,6 @@
 // Prompts and submit tools for the two roles: reviewer and verifier.
 import type { Candidate, ChangedLines } from "./findings.ts";
+import { priorDecisionsSection, priorDecisionsVerifierSection, type PriorDecisions } from "./prior.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 /** Diffs up to this size go into the prompt whole; larger ones are read through the read_diff tool. */
@@ -286,6 +287,17 @@ export const submitVerdicts: ToolDefinition = {
   },
 };
 
+/** submit_verdicts with the two fields a verifier fills when it was given earlier decisions. */
+export const submitVerdictsWithPrior: ToolDefinition = (() => {
+  const tool = structuredClone(submitVerdicts);
+  const items = ((tool.function.parameters as { properties: { verdicts: { items: { required: string[]; properties: Record<string, unknown> } } } })
+    .properties.verdicts.items);
+  items.required.push("repeat_of", "exception_holds");
+  items.properties.repeat_of = { type: ["string", "null"], description: "The id of the earlier finding (P1, P2 and so on) this one describes again, or null." };
+  items.properties.exception_holds = { type: "boolean", description: "When repeat_of is set: whether the code at head shows the exception holds. False when repeat_of is null." };
+  return tool;
+})();
+
 export interface PullRequestInfo {
   nwo: string;
   number: number;
@@ -350,8 +362,11 @@ function budgetSection(budget: ReviewBudget): string {
   return `Your budget for this review is ${budget.turns} turns and about ${budget.minutes} minutes. A turn can hold many tool calls. You will be told when it is time to submit, so there is no need to stop early to be safe.`;
 }
 
-export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], budget: ReviewBudget, followUp?: string): string {
-  return [pullRequestSection(pr), budgetSection(budget), ...(followUp ? [followUp] : []), rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff)].join("\n\n");
+export function reviewerPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], budget: ReviewBudget, followUp?: string, prior?: PriorDecisions | null): string {
+  return [
+    pullRequestSection(pr), ...(prior ? [priorDecisionsSection(prior)] : []), budgetSection(budget), ...(followUp ? [followUp] : []),
+    rulesSection(rules), documentsSection(documents), changedFilesSection(changed), diffSection(diff),
+  ].join("\n\n");
 }
 
 /**
@@ -372,7 +387,7 @@ Findings already reported:
 ${listed || "(none)"}${quiet}`;
 }
 
-export function verifierPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, candidates: Candidate[]): string {
+export function verifierPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, candidates: Candidate[], prior?: PriorDecisions | null): string {
   const findings = candidates.map((candidate) => ({
     id: candidate.id,
     file: candidate.file,
@@ -384,6 +399,7 @@ export function verifierPrompt(pr: PullRequestInfo, changed: ChangedLines, diff:
   }));
   return [
     pullRequestSection(pr),
+    ...(prior ? [priorDecisionsVerifierSection(prior)] : []),
     changedFilesSection(changed),
     diffSection(diff),
     `The findings to check:\n\n<findings>\n${JSON.stringify(findings, null, 2)}\n</findings>`,

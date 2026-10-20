@@ -15,6 +15,8 @@ export interface Config {
   repoDir: string;
   diffPath: string;
   prJsonPath: string;
+  /** The maintainer's decisions on earlier reviews of this pull request. A missing file is fine. */
+  priorJsonPath: string;
   outPath: string;
   /** Which attempt at this pull request this is, starting at 1. */
   attempt: number;
@@ -130,6 +132,7 @@ export function loadConfig(env: Env): Config {
     repoDir: env.RB_REPO?.trim() || "/work/repo",
     diffPath: env.RB_DIFF?.trim() || "/work/pr/diff.patch",
     prJsonPath: env.RB_PR_JSON?.trim() || "/work/pr/pr.json",
+    priorJsonPath: env.RB_PRIOR_JSON?.trim() || "/work/pr/prior.json",
     outPath,
     attempt: integer(env, "RB_ATTEMPT", 1, 1, 1000),
     apiKey: required(env, "OPENROUTER_API_KEY"),

@@ -145,6 +145,8 @@ export interface ReviewInput {
   minSeverity: Severity;
   /** Cap on comments. Findings past it join the collapsed list. */
   maxComments: number;
+  /** Ids of earlier decided findings that this review's verifier found repeated, one per finding left out. */
+  decided?: string[];
 }
 
 function location(finding: Finding): string {
@@ -229,6 +231,8 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
     lines.push(`${count(placed.length, "finding")} of ${level}, see the inline ${placed.length === 1 ? "comment" : "comments"}:\n\n${items.join("\n")}`);
   }
   if (repeated) lines.push(`${count(repeated, "finding")} ${repeated === 1 ? "was" : "were"} left out because an earlier review already commented on the same lines.`);
+  const decided = input.decided ?? [];
+  if (decided.length) lines.push(`${count(decided.length, "finding")} ${decided.length === 1 ? "was" : "were"} left out as already decided by the maintainer in an earlier round (${[...new Set(decided)].join(", ")}).`);
   if (unplaced.length) {
     lines.push(`${count(unplaced.length, "finding")} about lines the diff does not show:\n\n${unplaced.map(listed).join("\n")}`);
   }

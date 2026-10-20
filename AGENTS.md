@@ -46,9 +46,10 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `src/findings.ts` | Path and line checks, duplicate merging, verdicts, ranking. |
 | `src/prompts.ts` | Reviewer and verifier prompts and their submit tools. |
 | `src/llm.ts` | The model API client. |
+| `src/prior.ts` | Reads those earlier decisions and writes the prompt sections that carry them. |
 | `src/fit.ts` | The optional assessment of whether a change belongs in the project. |
 | `action.yml` | The GitHub Action that reviews a pull request when a maintainer asks. |
-| `action/` | Turns the findings file into one GitHub review and posts it. |
+| `action/` | Turns the findings file into one GitHub review and posts it, and collects the maintainer's decisions on earlier reviews (`collect.ts`, `decisions.ts`). |
 | `scripts/local-run.sh` | Builds the image and runs benchmark pull requests locally. |
 | `scripts/score.sh` | Scores a run with the benchmark's judging CLI. |
 | `scripts/coverage.ts` | Shows whether a run's reviewers read the code behind each expected finding. |

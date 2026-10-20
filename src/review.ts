@@ -14,6 +14,7 @@ import {
   parseDiff,
   parseVerdicts,
   rank,
+  repeatsDecided,
   toOutput,
   type Candidate,
   type OutputFinding,
@@ -30,10 +31,12 @@ import {
   reviewerPrompt,
   submitReview,
   submitVerdicts,
+  submitVerdictsWithPrior,
   verifierPrompt,
   type ProjectRule,
   type PullRequestInfo,
 } from "./prompts.ts";
+import { loadPrior } from "./prior.ts";
 import { Workspace, type ReadRecord } from "./tools.ts";
 
 /** Instruction files read from the base revision, so the change cannot rewrite the rules it is judged by. */
@@ -155,6 +158,15 @@ export interface ReviewOutcome {
   fit: FitAssessment | null;
   /** What each model read, so a run can show whether the review had enough context. */
   context: ReviewContext;
+  /** Findings the verifier left out because they repeat an earlier finding the maintainer decided. */
+  decided?: DecidedRepeat[];
+}
+
+export interface DecidedRepeat {
+  file: string;
+  title: string;
+  /** The earlier finding's id in prior.json. */
+  repeatOf: string;
 }
 
 export interface ReviewContext {
@@ -195,13 +207,13 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const finishDeadline = started + config.budgetMs * FINISH_SHARE;
 
   const workspace = new Workspace(config.repoDir, config.diffPath, config.base);
-  const [pr, diff, rules] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace)]);
+  const [pr, diff, rules, prior] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace), loadPrior(config.priorJsonPath, log)]);
   const changed = parseDiff(diff);
   const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
   log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
 
   const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
-  const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget);
+  const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget, undefined, prior);
   const context: ReviewContext = { diffInPrompt: diffInPrompt(diff), readers: [] };
   const track = (caller: string, tracked: Workspace): Workspace => {
     context.readers.push({ caller, reads: tracked.reads });
@@ -246,7 +258,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
       const seatWorkspace = track(caller, new Workspace(config.repoDir, config.diffPath, config.base));
       const submission = await runAgent({
         chat, model, system: reviewerSystem(null),
-        prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section),
+        prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section, prior),
         workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
         ...afterFirstSubmission(config, seatWorkspace, changed),
       });
@@ -288,22 +300,28 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     log(`kept ${survivors.length} of ${before} finding(s) at ${config.minSeverity} severity or above`);
   }
   let verified = false;
+  const decided: DecidedRepeat[] = [];
   if (verifying && survivors.length && finishDeadline - Date.now() >= MIN_VERIFY_MS) {
     track(`verifier (${config.verifierModel})`, workspace);
     try {
       const submission = await runAgent({
         chat, model: config.verifierModel, system: VERIFIER_SYSTEM,
-        prompt: verifierPrompt(pr, changed, diff, survivors), workspace, submit: submitVerdicts,
+        prompt: verifierPrompt(pr, changed, diff, survivors, prior), workspace, submit: prior ? submitVerdictsWithPrior : submitVerdicts,
         deadline: finishDeadline, maxTurns: config.maxTurns, log, caller: `verifier (${config.verifierModel})`,
       });
       const before = survivors;
       const verdicts = new Map(parseVerdicts(submission.verdicts).map((verdict) => [verdict.id, verdict]));
       survivors = applyVerdicts(survivors, [...verdicts.values()], config.verify === "strict");
       verified = true;
+      for (const candidate of before) {
+        const verdict = verdicts.get(candidate.id);
+        if (verdict?.verdict !== "rejected" && repeatsDecided(verdict)) decided.push({ file: candidate.file, title: candidate.title, repeatOf: verdict!.repeatOf! });
+      }
       log(`verification kept ${survivors.length} of ${before.length} finding(s)`);
       logDropped("verification", before, survivors, log, (candidate) => {
         const verdict = verdicts.get(candidate.id);
         if (!verdict) return "no verdict";
+        if (verdict.verdict !== "rejected" && repeatsDecided(verdict)) return `repeats earlier decided ${verdict.repeatOf}`;
         return verdict.duplicateOf && verdict.verdict !== "rejected" ? `repeats ${verdict.duplicateOf}` : verdict.verdict;
       });
     } catch (error) {
@@ -328,5 +346,5 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   } else if (config.fitModel) {
     log("fit skipped: too little time is left");
   }
-  return { findings, ranked, proposed: proposals.length, verified, fit, context };
+  return { findings, ranked, proposed: proposals.length, verified, fit, context, decided };
 }

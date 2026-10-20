@@ -77,12 +77,13 @@ try {
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("min-severity must be high, medium or low");
   const maxComments = Number(process.env.MAX_COMMENTS?.trim() || "10");
   if (!Number.isInteger(maxComments) || maxComments < 0) throw new Error("max-findings must be a whole number");
-  const output = JSON.parse(await readFile(required("FINDINGS_PATH"), "utf8")) as { findings: Finding[] };
+  const output = JSON.parse(await readFile(required("FINDINGS_PATH"), "utf8")) as { findings: Finding[]; decided?: Array<{ repeat_of?: unknown }> };
   const fit = await optionalJson<Fit>(process.env.FIT_PATH);
   const diff = await readFile(required("DIFF_PATH"), "utf8");
   const input = {
     findings: output.findings, fit, hunks: parseHunks(diff), existing: await existingComments(), head,
     model: process.env.REVIEW_MODEL?.trim() || "a model", minSeverity, maxComments,
+    decided: (output.decided ?? []).flatMap((repeat) => typeof repeat.repeat_of === "string" ? [repeat.repeat_of] : []),
   };
   const parts = buildReview(input);
 

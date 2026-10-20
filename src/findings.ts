@@ -32,6 +32,10 @@ export interface Verdict {
   id: string;
   verdict: "confirmed" | "rejected" | "uncertain";
   duplicateOf: string | null;
+  /** The earlier finding (P1, P2 and so on) the maintainer already decided that this one repeats. */
+  repeatOf?: string | null;
+  /** The verifier's judgment, from the code, that a repeat may stay: a fix is missing, or the code changed. */
+  exceptionHolds?: boolean;
 }
 
 /** Line ranges the change added or modified, per file, numbered as at head. */
@@ -224,21 +228,31 @@ export function parseVerdicts(raw: unknown): Verdict[] {
     const item = entry as Record<string, unknown>;
     const verdict = (["confirmed", "rejected", "uncertain"] as const).find((value) => value === item.verdict);
     if (typeof item.id !== "string" || !verdict) continue;
-    verdicts.push({ id: item.id, verdict, duplicateOf: typeof item.duplicate_of === "string" && item.duplicate_of ? item.duplicate_of : null });
+    verdicts.push({
+      id: item.id, verdict, duplicateOf: typeof item.duplicate_of === "string" && item.duplicate_of ? item.duplicate_of : null,
+      ...(typeof item.repeat_of === "string" && item.repeat_of ? { repeatOf: item.repeat_of, exceptionHolds: item.exception_holds === true } : {}),
+    });
   }
   return verdicts;
 }
 
+/** Whether the verifier found a finding repeats an earlier decided one, with no exception holding. */
+export function repeatsDecided(verdict: Verdict | undefined): boolean {
+  return Boolean(verdict?.repeatOf) && verdict?.exceptionHolds !== true;
+}
+
 /**
- * Removes rejected findings and findings marked as duplicates of a surviving one.
- * A finding the verifier skipped counts as uncertain. Strict mode keeps only confirmed findings.
+ * Removes rejected findings, findings marked as duplicates of a surviving one, and
+ * findings that repeat an earlier decided one unless the verifier judged that an
+ * exception holds. A finding the verifier skipped counts as uncertain. Strict mode
+ * keeps only confirmed findings.
  */
 export function applyVerdicts(candidates: Candidate[], verdicts: Verdict[], strict: boolean): Candidate[] {
   const byId = new Map(verdicts.map((verdict) => [verdict.id, verdict]));
   const index = new Map(candidates.map((candidate, position) => [candidate.id, position]));
   const passes = (id: string): boolean => {
     const verdict = byId.get(id)?.verdict ?? "uncertain";
-    return verdict === "confirmed" || (verdict === "uncertain" && !strict);
+    return (verdict === "confirmed" || (verdict === "uncertain" && !strict)) && !repeatsDecided(byId.get(id));
   };
   return candidates.filter((candidate, position) => {
     if (!passes(candidate.id)) return false;

@@ -77,7 +77,8 @@ try {
       file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
       severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
     }));
-    await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details }, null, 2)}\n`);
+    const decided = (outcome.decided ?? []).map((repeat) => ({ file: repeat.file, title: repeat.title, repeat_of: repeat.repeatOf }));
+    await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details, ...(decided.length ? { decided } : {}) }, null, 2)}\n`);
   }
   if (outcome.fit) await writeFile(config.fitOutPath, `${JSON.stringify(outcome.fit, null, 2)}\n`);
   if (config.contextOutPath) {
