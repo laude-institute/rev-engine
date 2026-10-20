@@ -41,6 +41,7 @@ The tasks are:
 | `RB_CONFIG_SWARM_SORT` | unset | `latency` or `throughput` asks OpenRouter to route every call to the provider that is best by that measure. |
 | `RB_CONFIG_SWARM_EFFORT` | unset | The reasoning effort for the swarm's calls: `none`, `minimal`, `low`, `medium` or `high`. Unset uses `RB_CONFIG_EFFORT`. A call that reasons at length is slow, so a lower effort may speed up a fast review. |
 | `RB_CONFIG_SWARM_REASONING_TOKENS` | unset | The most tokens one swarm call may reason for, from 100 to 32000. It takes the place of the effort. DeepSeek V4.1 Flash reasons at about 100 tokens a second and treats `low` effort as a suggestion, so a cap is the dependable way to bound a call's time. |
+| `RB_CONFIG_SWARM_CONTEXT` | `basic` | `rich` also gives each chunk's agents the code around every use of a name the chunk changes, the first lines of the functions it calls, the tests whose file names match the changed files, and the code at the base revision. Each part has a line limit. Built in [`context.ts`](context.ts). |
 
 With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls are in flight at once.
 

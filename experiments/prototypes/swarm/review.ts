@@ -13,6 +13,8 @@
 //   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
 //   RB_CONFIG_SWARM_EFFORT reasoning effort for the swarm's calls, such as low; unset uses RB_CONFIG_EFFORT
 //   RB_CONFIG_SWARM_REASONING_TOKENS the most tokens a swarm call may reason for, 100 to 32000; replaces the effort
+//   RB_CONFIG_SWARM_CONTEXT basic (the default) or rich: chunk agents also get the code around each use of a changed
+//                          name, the definitions of what the chunk calls, matching tests, and the code before the change
 //
 // Every run writes swarm.json beside the findings file: the chunks, each agent's
 // findings and checklist, what the merge folded together, each verifier's vote and
@@ -30,9 +32,12 @@ import { Workspace } from "../../../src/tools.ts";
 import { mergeRepeats, type MergeResult } from "./merge.ts";
 import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, numbered, splitDiff, units } from "./chunks.ts";
 import { chunkPrompt, globalPrompt, sharedSection, snippetsSection, submitFastReview, submitSwarmReview, SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM } from "./prompts.ts";
+import { calledNames, findDefinitions, richContext } from "./context.ts";
 import { CHUNK_TASKS, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
 
 const VERIFY_BATCH = 12;
+/** The most checkout files listed when looking for tests that match the changed files. */
+const MAX_INDEXED_FILES = 20_000;
 /** Lines of code shown above and below a finding to a verifier that has no time to read files. */
 const SNIPPET_LINES = 15;
 
@@ -106,6 +111,7 @@ export interface SwarmSettings {
   sort: "latency" | "throughput" | null;
   effort: string | null;
   reasoningTokens: number | null;
+  context: "basic" | "rich";
 }
 
 type Env = Record<string, string | undefined>;
@@ -135,11 +141,14 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (effort !== null && !["none", "minimal", "low", "medium", "high"].includes(effort)) throw new Error("RB_CONFIG_SWARM_EFFORT must be none, minimal, low, medium or high");
   const reasoningTokens = integer(env, "RB_CONFIG_SWARM_REASONING_TOKENS", 0, 0, 32_000) || null;
   if (reasoningTokens !== null && reasoningTokens < 100) throw new Error("RB_CONFIG_SWARM_REASONING_TOKENS must be from 100 to 32000");
+  const context = env.RB_CONFIG_SWARM_CONTEXT?.trim() || "basic";
+  if (context !== "basic" && context !== "rich") throw new Error("RB_CONFIG_SWARM_CONTEXT must be basic or rich");
   return {
     target,
     sort,
     effort,
     reasoningTokens,
+    context,
     merge: merge === "on",
     split,
     chunks: integer(env, "RB_CONFIG_SWARM_CHUNKS", 10, 1, 40),
@@ -149,7 +158,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -324,6 +333,11 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   const mentions = await findMentions(config.repoDir, [...new Set(chunks.flatMap(chunkSymbols))]);
   const shared = sharedSection(pr, changed, rules);
   const headFile = (path: string): Promise<string | null> => workspace.headFile(path);
+  const rich = settings.context === "rich" ? {
+    headFile, baseFile: (path: string) => workspace.baseFile(path), mentions,
+    definitions: await findDefinitions(config.repoDir, [...new Set(chunks.flatMap(calledNames))]),
+    allFiles: await workspace.allFiles(MAX_INDEXED_FILES),
+  } : null;
 
   const chunkTasks = CHUNK_TASKS.filter((task) => settings.tasks.includes(task.name));
   const globalTasks = GLOBAL_TASKS.filter((task) => settings.tasks.includes(task.name));
@@ -337,7 +351,9 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
       units: piece.units.map((unit) => ({ path: unit.path, hunks: unit.hunks.map((hunk): [number, number] => [hunk.start, hunk.end]) })),
       mentions: Object.fromEntries(symbols.map((name) => [name, mentions.get(name)?.length ?? 0])),
     });
-    const context = chunkContext(piece, headFile, mentions);
+    const context = rich
+      ? Promise.all([chunkContext(piece, headFile, mentions), richContext(piece, rich)]).then((parts) => parts.filter(Boolean).join("\n\n"))
+      : chunkContext(piece, headFile, mentions);
     const groups = settings.split === "task" ? chunkTasks.map((task) => [task]) : chunkTasks.length ? [chunkTasks] : [];
     for (const tasks of groups) {
       const turns = (fast: boolean) => Math.min(config.maxTurns, fast ? fastPace(fastSeconds).chunkTurns : NORMAL_PACE.chunkTurns * tasks.length);

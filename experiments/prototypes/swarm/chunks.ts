@@ -135,14 +135,14 @@ export function chunk(all: Unit[], max: number): Chunk[] {
   return chunks;
 }
 
-const DEFINITION = [
+export const DEFINITION = [
   /\b(?:function|def|func|fn|class|interface|struct|enum|trait|module|record|type)\s+(?:\([^)]*\)\s*)?([A-Za-z_][\w]*)/g,
   /\b(?:const|let|var|val)\s+([A-Za-z_][\w]*)\s*(?::[^=]+)?=/g,
   /^[+-]\s*(?:(?:export|public|private|protected|internal|static|async|override|abstract|final|virtual|readonly)\s+)*(?:[\w<>[\],.?]+\s+)?([A-Za-z_][\w]*)\s*\([^)]*\)\s*(?::\s*[^{=]+)?\s*(?:\{|=>|throws\b)/gm,
   /^[+-]\s*([A-Z][A-Z0-9_]{3,})\s*[:=]/gm,
 ];
 
-const NOT_NAMES = new Set([
+export const NOT_NAMES = new Set([
   "if", "for", "while", "switch", "catch", "return", "function", "new", "else", "await", "async", "typeof", "sizeof",
   "print", "self", "this", "super", "true", "false", "null", "None", "True", "False", "main", "init", "constructor",
   "get", "set", "test", "describe", "expect", "assert", "with", "from", "import", "export", "default", "public",

@@ -387,3 +387,44 @@ test("fast agents that hand in nothing count as lost, and the calls are timed in
   assert.ok(recorded.calls.length >= requests.length);
   assert.ok(recorded.calls.some((call: { reasoningChars: number }) => call.reasoningChars === "nothing here".length));
 });
+
+test("rich context shows the code around uses, the definitions called, matching tests and the code before", async () => {
+  const { calledNames, findDefinitions, richContext, testFilesFor } = await import("../experiments/prototypes/swarm/context.ts");
+  const repo = mkdtempSync(join(tmpdir(), "swarm-rich-"));
+  execFileSync("git", ["-C", repo, "init", "-q"]);
+  mkdirSync(join(repo, "src"));
+  mkdirSync(join(repo, "test"));
+  writeFileSync(join(repo, "src/helpers.ts"), "export function retryDelay(attempt) {\n  return attempt * 100;\n}\n");
+  writeFileSync(join(repo, "test/pool.test.ts"), `import { Pool } from "../src/pool";\n${"// filler\n".repeat(20)}test("acquire waits", () => {\n  new Pool().acquire(5, 2);\n});\n`);
+  execFileSync("git", ["-C", repo, "add", "."]);
+  const diff = `diff --git a/src/pool.ts b/src/pool.ts
+--- a/src/pool.ts
++++ b/src/pool.ts
+@@ -1,3 +1,4 @@
+ export class Pool {
+-  function acquire(timeout) {
++  function acquire(timeout, retries) {
++    wait(retryDelay(retries));
+ }
+`;
+  const piece = chunk(units(splitDiff(diff)), 10)[0]!;
+  assert.deepEqual(calledNames(piece), ["wait", "retryDelay"], "names the chunk calls, not the ones it defines");
+  const definitions = await findDefinitions(repo, calledNames(piece));
+  assert.deepEqual(definitions.get("retryDelay")?.map((found) => [found.path, found.line]), [["src/helpers.ts", 1]]);
+  assert.deepEqual(testFilesFor(["src/pool.ts"], ["src/pool.ts", "test/pool.test.ts", "test/other.test.ts", "docs/pool.md"]), ["test/pool.test.ts"]);
+  const files: Record<string, string> = {
+    "src/helpers.ts": "export function retryDelay(attempt) {\n  return attempt * 100;\n}\n",
+    "test/pool.test.ts": readFileSync(join(repo, "test/pool.test.ts"), "utf8"),
+    "src/other.ts": `${"x\n".repeat(30)}const p = pool.acquire(1);\n${"y\n".repeat(30)}`,
+  };
+  const text = await richContext(piece, {
+    headFile: async (path) => files[path] ?? null,
+    baseFile: async (path) => path === "src/pool.ts" ? "export class Pool {\n  function acquire(timeout) {\n}\n" : null,
+    mentions: new Map([["acquire", [{ path: "src/other.ts", line: 31, text: "const p = pool.acquire(1);" }]]]),
+    definitions, allFiles: ["src/pool.ts", "test/pool.test.ts"],
+  });
+  assert.match(text, /<code path="src\/other\.ts">\n25: x[\s\S]*31: const p = pool\.acquire\(1\);[\s\S]*37: y\n<\/code>/);
+  assert.match(text, /<definition name="retryDelay" path="src\/helpers\.ts">\n1: export function retryDelay\(attempt\) \{/);
+  assert.match(text, /<test path="test\/pool\.test\.ts">[\s\S]*new Pool\(\)\.acquire\(5, 2\);/);
+  assert.match(text, /<before path="src\/pool\.ts">\n1: export class Pool \{\n2:   function acquire\(timeout\) \{/);
+});
