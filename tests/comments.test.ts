@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { alreadyReported, buildReview, recommendation, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
+import { textSimilarity } from "../src/findings.ts";
+import { buildReview, earlierComment, textSimilarity as actionSimilarity, recommendation, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 1111111..2222222 100644
@@ -55,14 +56,43 @@ test("names the kind of a finding that is not a defect in the code", () => {
   assert.match(parts.body, /- Low severity, documentation, `src\/a\.ts:42`\./);
 });
 
-test("recognises lines an earlier run commented on", () => {
-  const earlier = [{ path: "src/a.ts", line: 12, start_line: 11, body: `x\n${MARKER}` }];
-  assert.equal(alreadyReported(finding("src/a.ts", 12, 14), earlier), true);
-  assert.equal(alreadyReported(finding("src/a.ts", 13, 14), earlier), false);
-  assert.equal(alreadyReported(finding("src/b.ts", 12, 12), earlier), false);
+test("an earlier comment counts only on overlapping lines, in nearly the same words, in an open thread", () => {
+  const raised = finding("src/a.ts", 11, 12, "medium", "The cache is never cleared", "Entries stay after the user logs out.");
+  const earlier = [{ id: 7, path: "src/a.ts", line: 12, start_line: 11, body: commentBody(raised), html_url: "https://example.com/c7" }];
+  assert.equal(earlierComment(raised, earlier)?.id, 7);
+  assert.equal(earlierComment({ ...raised, start_line: 13, end_line: 14 }, earlier), null, "lines that do not overlap");
+  assert.equal(earlierComment({ ...raised, file: "src/b.ts" }, earlier), null, "another file");
+  assert.equal(earlierComment(finding("src/a.ts", 11, 12, "medium", "A retry loop never ends", "It retries forever on a 404."), earlier), null, "another problem on the same lines");
+  assert.equal(earlierComment(raised, earlier, new Set([7])), null, "a resolved or decided thread is left to the verifier");
   // Comments by people, and comments whose code has since changed, do not count.
-  assert.equal(alreadyReported(finding("src/a.ts", 12, 12), [{ path: "src/a.ts", line: 12, start_line: null, body: "a person" }]), false);
-  assert.equal(alreadyReported(finding("src/a.ts", 12, 12), [{ path: "src/a.ts", line: null, start_line: null, body: MARKER }]), false);
+  assert.equal(earlierComment(raised, [{ path: "src/a.ts", line: 12, start_line: 11, body: "The cache is never cleared. Entries stay after the user logs out." }]), null);
+  assert.equal(earlierComment(raised, [{ ...earlier[0]!, line: null }]), null);
+});
+
+test("a new problem on lines an earlier comment covered is posted, and a repeat is listed with a link", () => {
+  const old = finding("src/a.ts", 11, 12, "medium", "A failure to load thread comments drops mention emails too", "When the thread comments fail to load, the mention emails for the reply are skipped as well.");
+  const fresh = finding("src/a.ts", 11, 12, "medium", "One malformed mention anywhere in a thread drops every later email in that thread", "A single mention that does not parse throws, and every later reply in the thread sends no email.");
+  const resolved = { id: 1, path: "src/a.ts", line: 12, start_line: 11, body: commentBody(old), html_url: "https://example.com/c1" };
+  let parts = buildReview({ ...base, findings: [fresh], existing: [resolved], settled: new Set([1]) });
+  assert.equal(parts.comments.length, 1, "a different problem in a resolved thread is posted");
+  parts = buildReview({ ...base, findings: [fresh], existing: [resolved] });
+  assert.equal(parts.comments.length, 1, "a different problem is posted even when the thread is open");
+
+  const repeat = { ...old, detail: "If loading the thread comments fails, the reply's mention emails are skipped as well." };
+  parts = buildReview({ ...base, findings: [repeat], existing: [resolved] });
+  assert.equal(parts.comments.length, 0);
+  assert.match(parts.body, /<summary>1 finding was not commented again because an earlier review's open comment on the same lines already raises it<\/summary>/);
+  assert.match(parts.body, /A failure to load thread comments drops mention emails too\.\*\*.* Already raised in \[this comment\]\(https:\/\/example\.com\/c1\)\./);
+});
+
+test("the two copies of the word similarity agree", () => {
+  const pairs = [
+    ["The cache is never cleared", "Cache never cleared after logout"],
+    ["A failure to load thread comments drops mention emails too", "One malformed mention anywhere in a thread drops every later email in that thread"],
+    ["", "anything"],
+    ["same_words here", "same_words here"],
+  ] as const;
+  for (const [a, b] of pairs) assert.equal(actionSimilarity(a, b), textSimilarity(a, b));
 });
 
 test("builds one review with line comments, a summary and the fit assessment", () => {
@@ -70,17 +100,17 @@ test("builds one review with line comments, a summary and the fit assessment", (
     ...base,
     findings: [finding("src/a.ts", 11, 12), finding("src/a.ts", 42, 42), finding("src/a.ts", 100, 101, "medium", "Far away", "Not in the diff.")],
     fit: { verdict: "fits_with_concerns", summary: "It mostly belongs.", reasons: [{ point: "Adds a second cache.", source: "docs/design.md" }] },
-    existing: [{ path: "src/a.ts", line: 42, start_line: null, body: MARKER }],
+    existing: [{ path: "src/a.ts", line: 42, start_line: null, body: commentBody(finding("src/a.ts", 42, 42)) }],
   });
   assert.deepEqual(parts.comments.map((comment) => [comment.path, comment.start_line, comment.line]), [["src/a.ts", 11, 12]]);
   assert.match(parts.body, /Reviewed commit abcdef0 with vendor\/model\./);
   assert.match(parts.body, /\*\*It fits, with concerns\.\*\* It mostly belongs\./);
   assert.match(parts.body, /- Adds a second cache\. \(docs\/design\.md\)/);
   assert.match(parts.body, /1 finding of medium or high severity, see the inline comment:\n\n- High severity\. Title\./);
-  assert.match(parts.body, /1 finding was left out because an earlier review/);
+  assert.match(parts.body, /1 finding was not commented again because an earlier review's open comment/);
   assert.match(parts.body, /1 finding about lines the diff does not show:/);
   assert.match(parts.body, /- Medium severity, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
-  assert.doesNotMatch(parts.body, /<details>/);
+  assert.doesNotMatch(parts.body, /more finding/);
 });
 
 test("gives merge advice from the findings and the fit assessment", () => {

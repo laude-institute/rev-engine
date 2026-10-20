@@ -182,6 +182,11 @@ function words(candidate: Candidate): Set<string> {
   return new Set(`${candidate.title} ${candidate.detail}`.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []);
 }
 
+/** How alike two texts are in their words, from 0 to 1. action/comments.ts keeps a copy, and a test keeps the two equal. */
+export function textSimilarity(a: string, b: string): number {
+  return similarity(new Set(a.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []), new Set(b.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []));
+}
+
 function similarity(a: Set<string>, b: Set<string>): number {
   if (!a.size || !b.size) return 0;
   let shared = 0;

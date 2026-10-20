@@ -31,10 +31,12 @@ export interface LineComment {
 
 /** A comment already on the pull request. `line` is null once the code under it has changed. */
 export interface ExistingComment {
+  id?: number;
   path: string;
   line: number | null;
   start_line: number | null;
   body: string;
+  html_url?: string;
 }
 
 /** For each file, the line ranges at head that each hunk of the diff shows. */
@@ -119,14 +121,42 @@ export function commentBody(finding: Finding): string {
   return `**${rating(finding)}. ${title}.**${detail}\n\n${MARKER}`;
 }
 
-/** True when an earlier run of this action already commented on these lines of this file. */
-export function alreadyReported(finding: Finding, existing: ExistingComment[]): boolean {
+/**
+ * How alike two texts are in their words, from 0 to 1. A copy of textSimilarity in
+ * src/findings.ts, because this folder is mounted on its own; a test keeps the two equal.
+ */
+export function textSimilarity(a: string, b: string): number {
+  const first = new Set(a.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []);
+  const second = new Set(b.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? []);
+  if (!first.size || !second.size) return 0;
+  let shared = 0;
+  for (const word of first) if (second.has(word)) shared += 1;
+  return shared / (first.size + second.size - shared);
+}
+
+/** The same threshold dedupe in src/findings.ts uses for two findings in nearly the same words. */
+const REPEAT_SIMILARITY = 0.45;
+
+/** An earlier comment's title and detail, without its severity label and marker. */
+function commentText(body: string): string {
+  return body.replace(MARKER, "").replace(/^\s*\*\*(high|medium|low) severity(, [\w -]+)?\.\s*/i, "");
+}
+
+/**
+ * The earlier comment of this action that already raised this finding: on overlapping
+ * lines of the same file and in nearly the same words. A comment whose thread is
+ * settled, resolved or answered with a decision, does not count, because the verifier
+ * judges repeats of decided findings and a new problem on those lines must be shown.
+ */
+export function earlierComment(finding: Finding, existing: ExistingComment[], settled: Set<number> = new Set()): ExistingComment | null {
   const start = Math.min(finding.start_line, finding.end_line);
   const end = Math.max(finding.start_line, finding.end_line);
-  return existing.some((comment) => {
+  return existing.find((comment) => {
     if (comment.path !== finding.file || comment.line === null || !comment.body.includes(MARKER)) return false;
-    return (comment.start_line ?? comment.line) <= end && comment.line >= start;
-  });
+    if (comment.id !== undefined && settled.has(comment.id)) return false;
+    if ((comment.start_line ?? comment.line) > end || comment.line < start) return false;
+    return textSimilarity(`${finding.title} ${finding.detail}`, commentText(comment.body)) >= REPEAT_SIMILARITY;
+  }) ?? null;
 }
 
 export interface ReviewParts {
@@ -139,6 +169,8 @@ export interface ReviewInput {
   fit: Fit | null;
   hunks: Hunks;
   existing: ExistingComment[];
+  /** Ids of earlier comments whose threads are resolved or answered with a decision. */
+  settled?: Set<number>;
   head: string;
   model: string;
   /** Findings at least this severe get a comment. The rest are listed collapsed in the summary. */
@@ -198,8 +230,12 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
   const serious = input.findings.filter((finding) => SEVERITY_RANK[finding.severity] <= SEVERITY_RANK[input.minSeverity]);
   const shown = serious.slice(0, input.maxComments);
   const collapsed = input.findings.filter((finding) => !shown.includes(finding));
-  const fresh = shown.filter((finding) => !alreadyReported(finding, input.existing));
-  const repeated = shown.length - fresh.length;
+  // A finding an open earlier comment already raised is listed with a link to it, never dropped.
+  const repeats = shown.flatMap((finding) => {
+    const earlier = earlierComment(finding, input.existing, input.settled);
+    return earlier ? [{ finding, earlier }] : [];
+  });
+  const fresh = shown.filter((finding) => !repeats.some((repeat) => repeat.finding === finding));
   const comments: LineComment[] = [];
   const placed: Finding[] = [];
   const unplaced: Finding[] = [];
@@ -230,7 +266,11 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
     });
     lines.push(`${count(placed.length, "finding")} of ${level}, see the inline ${placed.length === 1 ? "comment" : "comments"}:\n\n${items.join("\n")}`);
   }
-  if (repeated) lines.push(`${count(repeated, "finding")} ${repeated === 1 ? "was" : "were"} left out because an earlier review already commented on the same lines.`);
+  if (repeats.length) {
+    const items = repeats.map(({ finding, earlier }) => `${listed(finding)} Already raised in ${earlier.html_url ? `[this comment](${earlier.html_url})` : "an earlier comment"}.`);
+    const one = repeats.length === 1;
+    lines.push(`<details>\n<summary>${count(repeats.length, "finding")} ${one ? "was" : "were"} not commented again because an earlier review's open comment on the same lines already ${one ? "raises it" : "raises them"}</summary>\n\n${items.join("\n")}\n\n</details>`);
+  }
   const decided = input.decided ?? [];
   if (decided.length) lines.push(`${count(decided.length, "finding")} ${decided.length === 1 ? "was" : "were"} left out as already decided by the maintainer in an earlier round (${[...new Set(decided)].join(", ")}).`);
   if (unplaced.length) {

@@ -1,6 +1,7 @@
 // Posts the findings of one run to the pull request as a single review.
 import { readFile } from "node:fs/promises";
-import { buildReview, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewInput, type ReviewParts, type Severity } from "./comments.ts";
+import { buildReview, MARKER, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewInput, type ReviewParts, type Severity } from "./comments.ts";
+import { isDecisionReply } from "./decisions.ts";
 
 const log = (message: string): void => console.error(`post: ${message}`);
 
@@ -42,6 +43,55 @@ async function existingComments(): Promise<ExistingComment[]> {
   return comments;
 }
 
+const SETTLED = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 50, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved comments(first: 50) { nodes { databaseId body } } }
+      }
+    }
+  }
+}`;
+
+/**
+ * Ids of the action's earlier comments whose threads are resolved or have a reply that
+ * states a decision. A new finding on their lines is posted, because the verifier already
+ * judged repeats of decided findings. Who replied does not matter here: a settled thread
+ * only lets more be posted, never less. On failure every thread counts as open, as before.
+ */
+async function settledComments(): Promise<Set<number>> {
+  const settled = new Set<number>();
+  const [owner, name] = nwo.split("/") as [string, string];
+  const url = process.env.GITHUB_GRAPHQL_URL?.trim() || `${api}/graphql`;
+  try {
+    let after: string | null = null;
+    for (let page = 0; page < 20; page += 1) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": "rev-engine-prime" },
+        body: JSON.stringify({ query: SETTLED, variables: { owner, name, number: Number(number), after } }),
+      });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      type Threads = { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: Array<{ isResolved: boolean; comments: { nodes: Array<{ databaseId: number; body: string }> } }> };
+      const result = await response.json() as { data?: { repository?: { pullRequest?: { reviewThreads: Threads } } }; errors?: Array<{ message: string }> };
+      if (result.errors?.length) throw new Error(result.errors[0]!.message);
+      const threads = result.data?.repository?.pullRequest?.reviewThreads;
+      if (!threads) throw new Error("no pull request in the answer");
+      for (const thread of threads.nodes) {
+        const [first, ...replies] = thread.comments.nodes;
+        if (!first || !first.body.includes(MARKER)) continue;
+        if (thread.isResolved || replies.some((reply) => isDecisionReply(reply.body))) settled.add(first.databaseId);
+      }
+      if (!threads.pageInfo.hasNextPage) break;
+      after = threads.pageInfo.endCursor;
+    }
+  } catch (error) {
+    log(`could not tell which earlier threads are settled, so all count as open: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return settled;
+}
+
 async function submit(parts: ReviewParts): Promise<Response> {
   return github("POST", `/pulls/${number}/reviews`, { commit_id: head, event: "COMMENT", body: parts.body, comments: parts.comments });
 }
@@ -81,7 +131,7 @@ try {
   const fit = await optionalJson<Fit>(process.env.FIT_PATH);
   const diff = await readFile(required("DIFF_PATH"), "utf8");
   const input = {
-    findings: output.findings, fit, hunks: parseHunks(diff), existing: await existingComments(), head,
+    findings: output.findings, fit, hunks: parseHunks(diff), existing: await existingComments(), settled: await settledComments(), head,
     model: process.env.REVIEW_MODEL?.trim() || "a model", minSeverity, maxComments,
     decided: (output.decided ?? []).flatMap((repeat) => typeof repeat.repeat_of === "string" ? [repeat.repeat_of] : []),
   };

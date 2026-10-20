@@ -93,6 +93,11 @@ interface Finding {
 // The decision word must end the reply or be followed by punctuation or a space, so "Fixed? Not sure" does not count.
 const REPLY = /^\s*\**\s*(fixed|partly fixed|won['’]?t fix|deferred|wrong|invalid)(?=$|[\s.:,;!*)\-\u2013\u2014])[\s.:,*]*/i;
 
+/** Whether a reply states a decision, such as "Fixed in abc1234" or "Won't fix: out of scope". */
+export function isDecisionReply(body: string): boolean {
+  return REPLY.test(body);
+}
+
 function replyDecision(word: string): Decision {
   const lower = word.toLowerCase().replace("’", "'");
   if (lower === "fixed") return "fixed";
