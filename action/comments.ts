@@ -16,7 +16,7 @@ export interface Finding {
 export interface Fit {
   verdict: string;
   summary: string;
-  reasons: Array<{ point: string; source: string }>;
+  reasons: Array<{ point: string; source: string; detail?: string }>;
 }
 
 /** A review comment in the form the GitHub API takes. */
@@ -185,9 +185,22 @@ function location(finding: Finding): string {
   return finding.start_line === finding.end_line ? `${finding.file}:${finding.start_line}` : `${finding.file}:${finding.start_line}-${finding.end_line}`;
 }
 
+/** The first `count` sentences of a text, and the rest. */
+function sentences(text: string, count: number): { lead: string; rest: string } {
+  const parts = text.trim().match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)\s*/g) ?? [text];
+  return { lead: parts.slice(0, count).join("").trim(), rest: parts.slice(count).join("").trim() };
+}
+
+/**
+ * The verdict and a short summary in view, and the reasons with their sources and
+ * evidence collapsed, so a person can skim it and an agent can still read all of it.
+ */
 function fitSection(fit: Fit): string {
-  const reasons = fit.reasons.map((reason) => `- ${reason.point}${reason.source ? ` (${reason.source})` : ""}`).join("\n");
-  return `#### Does this change belong in the project?\n\n**${VERDICTS[fit.verdict] ?? fit.verdict}.** ${fit.summary}${reasons ? `\n\n${reasons}` : ""}`;
+  const { lead, rest } = sentences(fit.summary, 2);
+  const reasons = fit.reasons.map((reason) => `- ${reason.point}${reason.detail ? ` ${reason.detail}` : ""}${reason.source ? ` (${reason.source})` : ""}`);
+  const more = [...(rest ? [rest] : []), ...(reasons.length ? [reasons.join("\n")] : [])];
+  const why = reasons.length ? count(reasons.length, "reason") + " with sources" : "More";
+  return `#### Does this change belong in the project?\n\n**${VERDICTS[fit.verdict] ?? fit.verdict}.** ${lead}${more.length ? `\n\n<details>\n<summary>${why}</summary>\n\n${more.join("\n\n")}\n\n</details>` : ""}`;
 }
 
 function count(n: number, noun: string): string {
@@ -200,6 +213,13 @@ function listed(finding: Finding): string {
   return `- ${rating(finding)}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
 }
 
+/** Why a fit verdict other than "fits" needs a maintainer, in a few words. */
+const FIT_QUESTION: Record<string, string> = {
+  fits_with_concerns: "The change belongs, but part of it needs a maintainer's call",
+  does_not_fit: "The change may not belong in the project",
+  unclear: "The project states too little to tell whether the change belongs",
+};
+
 /**
  * One line of merge advice, decided by plain rules from the findings and the fit
  * assessment. A question about whether the change belongs comes before any defect.
@@ -209,7 +229,8 @@ export function recommendation(findings: Finding[], fit: Fit | null): string {
   const medium = findings.filter((finding) => finding.severity === "medium").length;
   let advice: string;
   if (fit && fit.verdict !== "fits") {
-    advice = `**Recommendation: needs a maintainer's decision.** The assessment below raises a question about whether the change belongs in the project${high ? `, and ${count(high, "high severity finding")} should be fixed in any case` : ""}.`;
+    const why = FIT_QUESTION[fit.verdict] ?? "The assessment below questions whether the change belongs in the project";
+    advice = `**Recommendation: needs a maintainer's decision.** ${why}${high ? `, and ${count(high, "high severity finding")} should be fixed in any case` : ""}.`;
   } else if (high) {
     advice = `**Recommendation: fix, then merge.** ${count(high, "high severity finding")} should be fixed first.`;
   } else if (medium) {
@@ -217,7 +238,7 @@ export function recommendation(findings: Finding[], fit: Fit | null): string {
   } else {
     advice = "**Recommendation: merge.** The review found nothing of medium or high severity.";
   }
-  return `${advice} The reviewer read the code without running it and did not look at the pull request's checks.`;
+  return advice;
 }
 
 /**
@@ -254,7 +275,7 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
   }
 
   const level = input.minSeverity === "high" ? "high severity" : input.minSeverity === "medium" ? "medium or high severity" : "any severity";
-  const sections = [`### Automated review\n\n${recommendation(input.findings, input.fit)}\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}.`];
+  const sections = [`### Automated review\n\n${recommendation(input.findings, input.fit)}\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}, by reading the code. It did not run the code or look at the checks.`];
   if (input.fit) sections.push(fitSection(input.fit));
 
   const lines: string[] = [];
@@ -274,7 +295,9 @@ export function buildReview(input: ReviewInput, links: Array<string | undefined>
   const decided = input.decided ?? [];
   if (decided.length) lines.push(`${count(decided.length, "finding")} ${decided.length === 1 ? "was" : "were"} left out as already decided by the maintainer in an earlier round (${[...new Set(decided)].join(", ")}).`);
   if (unplaced.length) {
-    lines.push(`${count(unplaced.length, "finding")} about lines the diff does not show:\n\n${unplaced.map(listed).join("\n")}`);
+    // These have no comment to click through to, so the titles are in view and the details one click away.
+    const titles = unplaced.map((finding) => `- ${rating(finding)}. ${finding.title.replace(/[.:]+$/, "")}. \`${location(finding)}\``);
+    lines.push(`${count(unplaced.length, "finding")} about lines the diff does not show:\n\n${titles.join("\n")}\n\n<details>\n<summary>Details of ${unplaced.length === 1 ? "this finding" : `these ${unplaced.length} findings`}</summary>\n\n${unplaced.map(listed).join("\n")}\n\n</details>`);
   }
   if (collapsed.length) {
     const why = serious.length > shown.length ? "less severe or past the limit on comments" : "less severe";

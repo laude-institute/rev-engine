@@ -22,6 +22,8 @@ export type FitVerdict = (typeof FIT_VERDICTS)[number];
 export interface FitReason {
   point: string;
   source: string;
+  /** The evidence behind the point, shown collapsed. */
+  detail?: string;
 }
 
 export interface FitAssessment {
@@ -59,7 +61,7 @@ Verdicts
 
 Rules for your answer
 
-Rest every reason on something the project states or on how its existing code is organized, and name the file that shows it. Do not present your own taste as the project's goals. When the project says little about its goals, say so, judge by the structure of the existing code alone, and prefer "unclear" over a guess. A bug fix, a test or documentation for behavior the project already has nearly always fits; say so in a sentence and give no concerns you cannot support. Give at most ${MAX_REASONS} reasons, the most important first.
+Rest every reason on something the project states or on how its existing code is organized, and name the file that shows it. Do not present your own taste as the project's goals. When the project says little about its goals, say so, judge by the structure of the existing code alone, and prefer "unclear" over a guess. A bug fix, a test or documentation for behavior the project already has nearly always fits; say so in a sentence and give no concerns you cannot support. Give at most ${MAX_REASONS} reasons, the most important first. People skim the review, so keep the summary to one or two short sentences and each point to one; put the evidence in the point's detail.
 
 When you have decided, call submit_fit.`;
 
@@ -74,7 +76,7 @@ export const submitFit: ToolDefinition = {
       required: ["verdict", "summary", "reasons"],
       properties: {
         verdict: { type: "string", enum: [...FIT_VERDICTS] },
-        summary: { type: "string", description: "The decision and the main reason for it, in two to four sentences." },
+        summary: { type: "string", description: "The decision and the main reason for it, in one or two short sentences that a maintainer skimming the review can take in at once." },
         reasons: {
           type: "array",
           items: {
@@ -82,7 +84,8 @@ export const submitFit: ToolDefinition = {
             additionalProperties: false,
             required: ["point", "source"],
             properties: {
-              point: { type: "string", description: "One way the change fits or does not fit, in one or two sentences." },
+              point: { type: "string", description: "One way the change fits or does not fit, in one short sentence." },
+              detail: { type: "string", description: "The evidence behind the point, such as what the document says and what the change does, for a reader who wants more. Optional." },
               source: { type: "string", description: "The file, and the section if it has one, that shows what the project expects." },
             },
           },
@@ -138,7 +141,8 @@ export function parseFit(submission: Record<string, unknown>, model: string): Fi
   const reasons = (Array.isArray(submission.reasons) ? submission.reasons : [])
     .map((reason: unknown) => {
       const item = reason && typeof reason === "object" ? reason as Record<string, unknown> : {};
-      return { point: text(item.point), source: text(item.source) };
+      const detail = text(item.detail);
+      return { point: text(item.point), source: text(item.source), ...(detail ? { detail } : {}) };
     })
     .filter((reason) => reason.point)
     .slice(0, MAX_REASONS);

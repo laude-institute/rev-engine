@@ -21,6 +21,8 @@ test("rejects a submission with no known verdict or no summary", () => {
   assert.equal(parseFit({ verdict: "maybe", summary: "x", reasons: [] }, "m"), null);
   assert.equal(parseFit({ verdict: "fits", summary: "  ", reasons: [] }, "m"), null);
   assert.deepEqual(parseFit({ verdict: "fits", summary: "Fine." }, "m")?.reasons, []);
+  assert.deepEqual(parseFit({ verdict: "fits", summary: "Fine.", reasons: [{ point: "Reuses the queue.", source: "a.md", detail: "Same email type." }, { point: "Short.", source: "b.md" }] }, "m")?.reasons,
+    [{ point: "Reuses the queue.", source: "a.md", detail: "Same email type." }, { point: "Short.", source: "b.md" }]);
 });
 
 test("gives the fit prompt the rules from base and the documents to read", () => {

@@ -103,24 +103,24 @@ test("builds one review with line comments, a summary and the fit assessment", (
     existing: [{ path: "src/a.ts", line: 42, start_line: null, body: commentBody(finding("src/a.ts", 42, 42)) }],
   });
   assert.deepEqual(parts.comments.map((comment) => [comment.path, comment.start_line, comment.line]), [["src/a.ts", 11, 12]]);
-  assert.match(parts.body, /Reviewed commit abcdef0 with vendor\/model\./);
+  assert.match(parts.body, /Reviewed commit abcdef0 with vendor\/model, by reading the code\. It did not run the code or look at the checks\./);
   assert.match(parts.body, /\*\*It fits, with concerns\.\*\* It mostly belongs\./);
-  assert.match(parts.body, /- Adds a second cache\. \(docs\/design\.md\)/);
+  assert.match(parts.body, /\*\*It fits, with concerns\.\*\* It mostly belongs\.\n\n<details>\n<summary>1 reason with sources<\/summary>\n\n- Adds a second cache\. \(docs\/design\.md\)/);
   assert.match(parts.body, /1 finding of medium or high severity, see the inline comment:\n\n- High severity\. Title\./);
   assert.match(parts.body, /1 finding was not commented again because an earlier review's open comment/);
-  assert.match(parts.body, /1 finding about lines the diff does not show:/);
+  assert.match(parts.body, /1 finding about lines the diff does not show:\n\n- Medium severity\. Far away\. `src\/a\.ts:100-101`\n\n<details>\n<summary>Details of this finding<\/summary>/);
   assert.match(parts.body, /- Medium severity, `src\/a\.ts:100-101`\. \*\*Far away\.\*\* Not in the diff\./);
   assert.doesNotMatch(parts.body, /more finding/);
 });
 
 test("gives merge advice from the findings and the fit assessment", () => {
   const fits = { verdict: "fits", summary: "", reasons: [] };
-  assert.match(recommendation([], null), /^\*\*Recommendation: merge\.\*\* The review found nothing of medium or high severity\. The reviewer read the code without running it/);
+  assert.match(recommendation([], null), /^\*\*Recommendation: merge\.\*\* The review found nothing of medium or high severity\.$/);
   assert.match(recommendation([finding("a", 1, 1, "low")], fits), /Recommendation: merge\.\*\*/);
   assert.match(recommendation([finding("a", 1, 1, "medium"), finding("a", 2, 2, "medium")], fits), /Recommendation: merge and fast-follow\.\*\* 2 medium severity findings can be fixed after the merge\./);
   assert.match(recommendation([finding("a", 1, 1, "high"), finding("a", 2, 2, "medium")], null), /Recommendation: fix, then merge\.\*\* 1 high severity finding should be fixed first\./);
-  assert.match(recommendation([finding("a", 1, 1, "high")], { ...fits, verdict: "does_not_fit" }), /needs a maintainer's decision\.\*\* .*belongs in the project, and 1 high severity finding should be fixed in any case\./);
-  assert.match(recommendation([], { ...fits, verdict: "unclear" }), /needs a maintainer's decision\.\*\* .*belongs in the project\. The reviewer/);
+  assert.match(recommendation([finding("a", 1, 1, "high")], { ...fits, verdict: "does_not_fit" }), /needs a maintainer's decision\.\*\* The change may not belong in the project, and 1 high severity finding should be fixed in any case\.$/);
+  assert.match(recommendation([], { ...fits, verdict: "unclear" }), /needs a maintainer's decision\.\*\* The project states too little to tell whether the change belongs\.$/);
   assert.match(buildReview({ ...base, findings: [finding("src/a.ts", 11, 12)] }).body, /^### Automated review\n\n\*\*Recommendation: fix, then merge\.\*\*/);
 });
 
@@ -166,4 +166,14 @@ test("can move every line comment into the summary", () => {
   assert.deepEqual(moved.comments, []);
   assert.match(moved.body, /`src\/a\.ts:11-12` \*\*High severity\. Title\.\*\* Detail text\./);
   assert.equal(moved.body.split(MARKER).length, 2);
+});
+
+test("the fit section keeps two sentences of the summary in view and collapses the rest", () => {
+  const parts = buildReview({ ...base, findings: [], fit: {
+    verdict: "fits", summary: "It extends an existing feature. It reuses the queue. It also adds a helper folder, which is allowed.",
+    reasons: [{ point: "Reuses the mention queue.", detail: "The spec lists the same email type.", source: "specs/lander.spec.md" }],
+  } });
+  assert.match(parts.body, /\*\*It fits the project\.\*\* It extends an existing feature\. It reuses the queue\.\n\n<details>\n<summary>1 reason with sources<\/summary>\n\nIt also adds a helper folder, which is allowed\.\n\n- Reuses the mention queue\. The spec lists the same email type\. \(specs\/lander\.spec\.md\)/);
+  const bare = buildReview({ ...base, findings: [], fit: { verdict: "fits", summary: "A bug fix. It fits.", reasons: [] } });
+  assert.doesNotMatch(bare.body, /<details>/);
 });
