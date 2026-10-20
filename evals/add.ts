@@ -1,11 +1,13 @@
 // Starts an eval case from a pull request, so that collecting one takes a single command.
 //
-//   node evals/add.ts <owner/repo#number | pull request URL> [--private] [--review <review id>] [--head <commit>] [--details <details.json>]
+//   node evals/add.ts <owner/repo#number | pull request URL> [--private] [--review <review id>] [--head <commit>] [--details <details.json>] [--id <case id>]
 //
 // It records the pull request's commits and text, and lists the findings of the
 // action's review of it as "unlabeled" for a person to label. Each finding keeps
 // its lines and the review's own wording and severity, so the case can be rebuilt.
-// Without --review it uses the action's most recent review.
+// Without --review it uses the action's most recent review. A pull request
+// reviewed several times can have one case per review; give the later ones an
+// --id such as repo-123-abcdef0.
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -65,7 +67,7 @@ async function savedDetails(repo: string, pr: number, before?: string): Promise<
 }
 
 const argv = process.argv.slice(2);
-const reference = argv.find((value, index) => !value.startsWith("--") && !["--details", "--head"].includes(argv[index - 1] ?? "")) ?? "";
+const reference = argv.find((value, index) => !value.startsWith("--") && !["--details", "--head", "--review", "--id"].includes(argv[index - 1] ?? "")) ?? "";
 const parsed = /^(?:https:\/\/github\.com\/)?([\w.-]+\/[\w.-]+)(?:#|\/pull\/)(\d+)/.exec(reference);
 if (!parsed) throw new Error("name a pull request as owner/repo#number or by its URL");
 const repo = parsed[1]!;
@@ -116,7 +118,7 @@ const reviews: ReviewRef[] = review ? [{
 const after = (await gh("api", "--paginate", `repos/${repo}/pulls/${pr}/commits`, "--jq", ".[].sha")).trim().split("\n").filter(Boolean);
 const fixes = after.includes(caseHead) ? after.slice(after.indexOf(caseHead) + 1) : [];
 const evalCase: EvalCase = {
-  id: `${repo.split("/")[1]}-${pr}`,
+  id: option("--id") ?? `${repo.split("/")[1]}-${pr}`,
   repo, pr, base: pull.base.sha, head: caseHead, title: pull.title, body: pull.body ?? "",
   source: "",
   ...(reviews.length ? { reviews } : {}),

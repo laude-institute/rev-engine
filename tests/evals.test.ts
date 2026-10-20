@@ -52,6 +52,8 @@ test("rejects malformed sources, lines and severities", () => {
   const withFinding = (extra: Record<string, unknown>) => ({ ...CASE, findings: [{ id: "a", label: "must", what: "w", ...extra }] });
   assert.throws(() => parseCase(withFinding({ found_by: [{ type: "a guess" }] }), "x"), /found_by type/);
   assert.throws(() => parseCase(withFinding({ judged_by: { type: "me" } }), "x"), /judged_by type/);
+  assert.throws(() => parseCase(withFinding({ judged_by: { type: "agent", confirmed_by: "agent" } }), "x"), /confirmed_by/);
+  assert.doesNotThrow(() => parseCase(withFinding({ judged_by: { type: "agent", producer: "claude-opus-5.5", confirmed_by: "maintainer" } }), "x"));
   assert.throws(() => parseCase(withFinding({ start_line: 4 }), "x"), /both start_line and end_line/);
   assert.throws(() => parseCase(withFinding({ start_line: 4, end_line: 2 }), "x"), /ends before it starts/);
   assert.throws(() => parseCase(withFinding({ severity: "huge" }), "x"), /unknown severity/);

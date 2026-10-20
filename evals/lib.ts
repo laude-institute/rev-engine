@@ -20,9 +20,15 @@ export type Label = (typeof LABELS)[number];
 export const ORIGINS = ["rev-engine-prime", "other-reviewer", "human-review", "author-fix", "tool", "person"] as const;
 export type OriginType = (typeof ORIGINS)[number];
 
-/** Who decided the label. second-review: another review tool whose verdict the maintainer accepted. */
-export const JUDGES = ["maintainer", "author", "teammate", "second-review"] as const;
+/**
+ * Who decided the label. second-review: another review tool whose verdict was
+ * accepted as it stood. agent: a coding agent that judged the findings, such as
+ * one triaging a review; confirmed_by says whether a person then agreed.
+ */
+export const JUDGES = ["maintainer", "author", "teammate", "second-review", "agent"] as const;
 export type JudgeType = (typeof JUDGES)[number];
+/** The people who can confirm an agent's or another tool's judgment. */
+export const CONFIRMERS = ["maintainer", "author", "teammate"] as const;
 
 /** One source that reported the finding, with enough detail to find it again. */
 export interface Origin {
@@ -41,6 +47,10 @@ export interface Origin {
 
 export interface Judgment {
   type: JudgeType;
+  /** The agent or tool and its model, for agent and second-review judgments. */
+  producer?: string;
+  /** The person who agreed with an agent's or tool's judgment, when one did. Absent means nobody checked it. */
+  confirmed_by?: (typeof CONFIRMERS)[number];
   /** A link or id where the decision is written down, such as a PR comment or a commit. */
   ref?: string;
   /** The judge's own words, when they said something short and to the point. */
@@ -148,7 +158,11 @@ export function parseCase(value: unknown, name: string): EvalCase {
         if (origin.severity !== undefined && !(String(origin.severity) in SEVERITY_RANK)) fail(`${named} has a found_by severity that is unknown`);
       }
     }
-    if (entry.judged_by !== undefined && !JUDGES.includes((entry.judged_by as Record<string, unknown>)?.type as JudgeType)) fail(`${named} has a judged_by type other than ${JUDGES.join(", ")}`);
+    if (entry.judged_by !== undefined) {
+      const judgment = entry.judged_by as Record<string, unknown>;
+      if (!JUDGES.includes(judgment?.type as JudgeType)) fail(`${named} has a judged_by type other than ${JUDGES.join(", ")}`);
+      if (judgment.confirmed_by !== undefined && !CONFIRMERS.includes(judgment.confirmed_by as (typeof CONFIRMERS)[number])) fail(`${named} has a confirmed_by other than ${CONFIRMERS.join(", ")}`);
+    }
     if (entry.fixed_in !== undefined && !SHA.test(String(entry.fixed_in))) fail(`${named} has a fixed_in that is not a full commit id`);
   }
   if (item.reviews !== undefined) {
