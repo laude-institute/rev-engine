@@ -83,3 +83,12 @@ test("a seat may name one focus after its model", () => {
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MODEL: "vendor/one@speling" }), /unknown focus "speling"/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MODEL: "@tests" }), /seat with no model/);
 });
+
+test("turns on the swarm prototype, but not together with the naive baseline", () => {
+  const config = loadConfig({ ...BASE, RB_CONFIG_SWARM: "on" });
+  assert.equal(config.swarm, true);
+  assert.ok(describeSettings(config).startsWith("swarm=on model="));
+  assert.equal(loadConfig(BASE).swarm, false);
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_SWARM: "yes" }), /RB_CONFIG_SWARM/);
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_SWARM: "on", RB_CONFIG_NAIVE: "on" }), /cannot both be on/);
+});

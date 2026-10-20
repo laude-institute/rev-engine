@@ -25,6 +25,8 @@ export interface ChatRequest {
   timeoutMs: number;
   /** Names who is asking, such as "s1" or "verifier", so usage can be totalled for each. */
   caller?: string;
+  /** The longest one attempt may take, when shorter than ATTEMPT_TIMEOUT_MS. */
+  attemptTimeoutMs?: number;
 }
 
 export type Chat = (request: ChatRequest) => Promise<ChatMessage>;
@@ -144,7 +146,7 @@ export function createChat(options: ClientOptions): Chat {
     const deadline = Date.now() + request.timeoutMs;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await once(request, Math.max(1_000, Math.min(ATTEMPT_TIMEOUT_MS, deadline - Date.now())));
+        return await once(request, Math.max(1_000, Math.min(request.attemptTimeoutMs ?? ATTEMPT_TIMEOUT_MS, ATTEMPT_TIMEOUT_MS, deadline - Date.now())));
       } catch (error) {
         const delay = RETRY_DELAYS_MS[attempt];
         if (delay === undefined || !retryable(error) || Date.now() + delay >= deadline) throw error;

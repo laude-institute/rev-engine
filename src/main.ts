@@ -68,7 +68,9 @@ try {
       return send(request);
     }
     : send;
-  const outcome = await (config.naive ? naiveReview : review)(config, chat, log);
+  // The swarm is a prototype kept outside src, so it is loaded only when it is turned on.
+  const swarmReview = config.swarm ? (await import("../experiments/prototypes/swarm/review.ts")).swarmReview : null;
+  const outcome = await (swarmReview ?? (config.naive ? naiveReview : review))(config, chat, log);
   await write(outcome.findings);
   if (config.detailsOutPath) {
     const details = outcome.ranked.map((candidate) => ({

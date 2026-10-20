@@ -15,6 +15,7 @@ ENV NODE_USE_ENV_PROXY=1
 WORKDIR /agent
 COPY package.json ./
 COPY src ./src
+COPY experiments/prototypes ./experiments/prototypes
 
 # Node 24 runs TypeScript directly, so the image needs no build step.
 ENTRYPOINT ["node", "/agent/src/main.ts"]

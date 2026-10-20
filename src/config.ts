@@ -39,6 +39,8 @@ export interface Config {
   retryEmpty: boolean;
   /** Replace the whole review with one model call over the diff, as a baseline to compare against. */
   naive: boolean;
+  /** Replace the review with the swarm prototype in experiments/prototypes/swarm, which reads its own RB_CONFIG_SWARM_* settings. */
+  swarm: boolean;
   /** Findings less severe than this are dropped before verification. */
   minSeverity: Severity;
   /** A model that judges whether the change belongs in the project. Null for none. */
@@ -110,6 +112,10 @@ export function loadConfig(env: Env): Config {
   const naive = env.RB_CONFIG_NAIVE?.trim() || "off";
   if (!["on", "off"].includes(naive)) throw new Error("RB_CONFIG_NAIVE must be on or off");
 
+  const swarm = env.RB_CONFIG_SWARM?.trim() || "off";
+  if (!["on", "off"].includes(swarm)) throw new Error("RB_CONFIG_SWARM must be on or off");
+  if (naive === "on" && swarm === "on") throw new Error("RB_CONFIG_NAIVE and RB_CONFIG_SWARM cannot both be on");
+
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
 
@@ -136,6 +142,7 @@ export function loadConfig(env: Env): Config {
     followUpModel: env.RB_CONFIG_FOLLOW_UP?.trim() || null,
     retryEmpty: retryEmpty === "on",
     naive: naive === "on",
+    swarm: swarm === "on",
     minSeverity,
     fitModel: env.RB_CONFIG_FIT?.trim() || null,
     fitOutPath: join(dirname(outPath), "fit.json"),
@@ -152,6 +159,7 @@ export function loadConfig(env: Env): Config {
 /** The settings line the benchmark looks for: every configured label value must appear in the output. */
 export function describeSettings(config: Config): string {
   if (config.naive) return `naive=on model=${config.models[0]} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000}`;
+  if (config.swarm) return `swarm=on model=${config.models[0]} verifier=${config.verifierModel} verify=${config.verify} effort=${config.effort ?? "default"} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} max_turns=${config.maxTurns}`;
   return [
     `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,

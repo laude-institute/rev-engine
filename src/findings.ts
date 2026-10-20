@@ -194,8 +194,11 @@ function better(a: Candidate, b: Candidate): boolean {
 const NEARBY_LINES = 3;
 const DUPLICATE_SIMILARITY = 0.45;
 
-/** Drops a finding when another one covers nearly the same lines in nearly the same words. */
-export function dedupe(candidates: Candidate[]): Candidate[] {
+/**
+ * Drops a finding when another one covers nearly the same lines in nearly the same words.
+ * onMerge hears of each finding dropped and the one kept in its place, for tracing a run.
+ */
+export function dedupe(candidates: Candidate[], onMerge?: (dropped: Candidate, kept: Candidate) => void): Candidate[] {
   const kept: Array<{ candidate: Candidate; words: Set<string> }> = [];
   for (const candidate of candidates) {
     const candidateWords = words(candidate);
@@ -205,7 +208,10 @@ export function dedupe(candidates: Candidate[]): Candidate[] {
       && other.startLine <= candidate.endLine + NEARBY_LINES
       && similarity(candidateWords, otherWords) >= DUPLICATE_SIMILARITY);
     if (twin === -1) kept.push({ candidate, words: candidateWords });
-    else if (better(candidate, kept[twin]!.candidate)) kept[twin] = { candidate, words: candidateWords };
+    else if (better(candidate, kept[twin]!.candidate)) {
+      onMerge?.(kept[twin]!.candidate, candidate);
+      kept[twin] = { candidate, words: candidateWords };
+    } else onMerge?.(candidate, kept[twin]!.candidate);
   }
   return kept.map(({ candidate }) => candidate);
 }

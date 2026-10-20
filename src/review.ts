@@ -54,7 +54,7 @@ const MAX_INDEXED_FILES = 20_000;
 const MAX_FILES_LISTED = 25;
 
 /** Lock files and generated output are rarely worth a reviewer's turn. */
-const GENERATED = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|go\.sum|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(min\.js|map|snap|lock)$/;
+export const GENERATED = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|go\.sum|poetry\.lock|composer\.lock|Gemfile\.lock)$|\.(min\.js|map|snap|lock)$/;
 
 function fileList(files: string[]): string {
   const listed = files.slice(0, MAX_FILES_LISTED).map((file) => `- ${file}`).join("\n");
@@ -175,7 +175,7 @@ export async function loadPullRequest(config: Config): Promise<PullRequestInfo> 
   return info;
 }
 
-async function loadRules(workspace: Workspace): Promise<ProjectRule[]> {
+export async function loadRules(workspace: Workspace): Promise<ProjectRule[]> {
   const rules: ProjectRule[] = [];
   let total = 0;
   for (const path of RULE_FILES) {

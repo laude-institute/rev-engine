@@ -35,8 +35,10 @@ export interface AgentOptions {
   maxTurns: number;
   /** When set, each submission is answered with the next request, and the model submits again. */
   secondLook?: SecondLook;
-  /** Names this run in the usage totals, such as "s1" or "verifier". */
+  /** Names this run in the usage totals and the log, such as "s1" or "verifier". */
   caller?: string;
+  /** Cuts off one model call sooner than the client's default, so a stalled call is retried sooner. */
+  attemptTimeoutMs?: number;
   log: (message: string) => void;
 }
 
@@ -117,17 +119,19 @@ export async function runAgent(options: AgentOptions): Promise<Record<string, un
     return await loop(options, held);
   } catch (error) {
     if (held.submissions.length && options.secondLook) {
-      options.log(`${options.model}: second look failed, keeping the submissions so far: ${describe(error)}`);
+      options.log(`${options.caller ?? options.model}: second look failed, keeping the submissions so far: ${describe(error)}`);
       return options.secondLook.combine(held.partial ? [...held.submissions, held.partial] : held.submissions);
     }
     if (!held.partial) throw error;
-    options.log(`${options.model}: failed after a cut-off submission, keeping its complete entries: ${describe(error)}`);
+    options.log(`${options.caller ?? options.model}: failed after a cut-off submission, keeping its complete entries: ${describe(error)}`);
     return held.partial;
   }
 }
 
 async function loop(options: AgentOptions, held: Held): Promise<Record<string, unknown>> {
   const { chat, model, workspace, submit, deadline, maxTurns, secondLook, log } = options;
+  // Several runs can share one model, so the log names the caller when there is one.
+  const who = options.caller ?? model;
   const started = Date.now();
   const submitName = submit.function.name;
   const tools = [...readTools, submit];
@@ -156,6 +160,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
     const request = {
       model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - WRAP_UP_MS,
       ...(options.caller ? { caller: options.caller } : {}),
+      ...(options.attemptTimeoutMs ? { attemptTimeoutMs: options.attemptTimeoutMs } : {}),
     };
     let reply: ChatMessage;
     try {
@@ -168,7 +173,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
         reply = await chat(request);
       } else if (!wrappingUp && !rejected && deadline - Date.now() > 10_000) {
         // A slow or failing call used up the investigation time. Ask for the submission instead of giving up.
-        log(`${model}: turn ${turn} failed (${describe(error)}); asking for the submission`);
+        log(`${who}: turn ${turn} failed (${describe(error)}); asking for the submission`);
         wrapUp();
         continue;
       } else {
@@ -179,7 +184,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
 
     const calls = reply.tool_calls ?? [];
     const elapsed = Math.round((Date.now() - started) / 1000);
-    log(`${model}: turn ${turn} at ${elapsed}s: ${calls.map((call) => label(call.function.name, call.function.arguments)).join(", ") || "text"}`);
+    log(`${who}: turn ${turn} at ${elapsed}s: ${calls.map((call) => label(call.function.name, call.function.arguments)).join(", ") || "text"}`);
 
     const submission = calls.find((call) => call.function.name === submitName);
     if (submission) {
@@ -187,7 +192,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
       held.partial = value ? null : completeEntries(submission.function.arguments) ?? held.partial;
       if (!value && held.partial && wrappingUp) {
         // There is no time to ask again, and another cut-off answer would lose these too.
-        log(`${model}: the submission was cut off; keeping its complete entries`);
+        log(`${who}: the submission was cut off; keeping its complete entries`);
         return held.submissions.length && secondLook ? secondLook.combine([...held.submissions, held.partial]) : held.partial;
       }
       if (value) held.submissions.push(value);
