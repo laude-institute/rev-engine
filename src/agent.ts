@@ -39,6 +39,8 @@ export interface AgentOptions {
   caller?: string;
   /** Cuts off one model call sooner than the client's default, so a stalled call is retried sooner. */
   attemptTimeoutMs?: number;
+  /** Time kept back for the submission, when a short deadline needs less than WRAP_UP_MS. */
+  wrapUpMs?: number;
   log: (message: string) => void;
 }
 
@@ -132,6 +134,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
   const { chat, model, workspace, submit, deadline, maxTurns, secondLook, log } = options;
   // Several runs can share one model, so the log names the caller when there is one.
   const who = options.caller ?? model;
+  const wrapUpMs = options.wrapUpMs ?? WRAP_UP_MS;
   const started = Date.now();
   const submitName = submit.function.name;
   const tools = [...readTools, submit];
@@ -154,11 +157,11 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new Error(`${model} ran out of time before submitting`);
-    if (!wrappingUp && (turn === maxTurns || remaining <= WRAP_UP_MS || contextChars > MAX_CONTEXT_CHARS)) wrapUp();
+    if (!wrappingUp && (turn === maxTurns || remaining <= wrapUpMs || contextChars > MAX_CONTEXT_CHARS)) wrapUp();
 
     // An ordinary turn must leave the wrap-up window untouched; the wrap-up turn gets all that is left.
     const request = {
-      model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - WRAP_UP_MS,
+      model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - wrapUpMs,
       ...(options.caller ? { caller: options.caller } : {}),
       ...(options.attemptTimeoutMs ? { attemptTimeoutMs: options.attemptTimeoutMs } : {}),
     };
@@ -196,7 +199,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
         return held.submissions.length && secondLook ? secondLook.combine([...held.submissions, held.partial]) : held.partial;
       }
       if (value) held.submissions.push(value);
-      const next = value && secondLook && !wrappingUp && deadline - Date.now() > 2 * WRAP_UP_MS ? secondLook.message(held.submissions.length) : null;
+      const next = value && secondLook && !wrappingUp && deadline - Date.now() > 2 * wrapUpMs ? secondLook.message(held.submissions.length) : null;
       if (value && !next) return secondLook && held.submissions.length > 1 ? secondLook.combine(held.submissions) : value;
       // Every call needs a result before the next turn. An unparsable submission is usually output cut off mid-JSON.
       const content = value

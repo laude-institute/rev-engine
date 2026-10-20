@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { chunk, chunkContext, chunkSymbols, findMentions, splitDiff, units } from "../experiments/prototypes/swarm/chunks.ts";
-import { SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM, submitSwarmReview } from "../experiments/prototypes/swarm/prompts.ts";
+import { SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM, submitFastReview, submitSwarmReview } from "../experiments/prototypes/swarm/prompts.ts";
 import { cleanGroups, representative } from "../experiments/prototypes/swarm/merge.ts";
-import { rankBySupport, swarmReview, swarmSettings, tally } from "../experiments/prototypes/swarm/review.ts";
+import { fastPace, hedge, rankBySupport, swarmReview, swarmSettings, tally } from "../experiments/prototypes/swarm/review.ts";
 import type { Candidate } from "../src/findings.ts";
 import { loadConfig } from "../src/config.ts";
 import { ModelError, type Chat, type ChatRequest } from "../src/llm.ts";
@@ -100,6 +100,43 @@ test("reads and checks the swarm settings", () => {
   assert.doesNotMatch(SWARM_SYSTEM, /ten or more findings/);
   assert.match(SWARM_VERIFIER_SYSTEM, /outside specification or standard says, and nothing in the checkout shows it, mark the finding uncertain/);
   assert.ok((submitSwarmReview.function.parameters.required as string[]).includes("checked"));
+  assert.ok(!(submitFastReview.function.parameters.required as string[]).includes("checked"));
+  assert.equal(swarmSettings({}).target, 0);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60" }).target, 60);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "10" }), /RB_CONFIG_SWARM_TARGET/);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_SORT: "latency" }).sort, "latency");
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_SORT: "cheapest" }), /RB_CONFIG_SWARM_SORT/);
+});
+
+test("the fast pace fits every phase inside the target", () => {
+  const pace = fastPace(60);
+  assert.equal(pace.verifyTurns, 1);
+  assert.ok(pace.wrapUpMs! < 60_000 * pace.reviewShare, "agents get ordinary turns before they must submit");
+  assert.ok(pace.hedgeMs < pace.callTimeoutMs, "a slow call is sent again before it would time out");
+  assert.ok(pace.minStartMs < 60_000 * pace.reviewShare);
+  assert.equal(pace.minRetryMs, Infinity, "there is no time to run an agent twice");
+});
+
+test("sends a slow call again and keeps the first answer, and passes a fast call through", async () => {
+  const sent = { count: 0 };
+  let calls = 0;
+  const reply = (content: string) => ({ role: "assistant" as const, content });
+  const slowFirst: Chat = async () => {
+    calls += 1;
+    const delay = calls === 1 ? 500 : 10;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return reply(`call ${calls === 1 ? "first" : "second"}`);
+  };
+  const request: ChatRequest = { model: "m", messages: [], tools: [], timeoutMs: 5_000 };
+  assert.equal((await hedge(slowFirst, 50, sent)(request)).content, "call second");
+  assert.equal(sent.count, 1);
+
+  const fast: Chat = async () => reply("quick");
+  assert.equal((await hedge(fast, 50, sent)(request)).content, "quick");
+  assert.equal(sent.count, 1, "a call that answers in time is not sent again");
+
+  const failing: Chat = async () => { throw new ModelError(500, "down"); };
+  await assert.rejects(hedge(failing, 50, sent)(request), /down/);
 });
 
 test("runs the whole swarm end to end with a stand-in model", async () => {
@@ -254,4 +291,29 @@ test("folds differently worded repeats into one finding with the model merge", a
   assert.equal(traced.merges[0].groups[0].ids.length, 3);
   assert.equal(traced.final[0].support, 3);
   assert.equal(traced.proposals.filter((proposal: { groupedInto: string | null }) => proposal.groupedInto).length, 2);
+});
+
+test("a fast review asks for few findings, needs no checklist, and shows verifiers the code instead of letting them read", async () => {
+  const { config } = await swarmFixture();
+  const requests: ChatRequest[] = [];
+  const chat: Chat = async (request) => {
+    requests.push(request);
+    return submitting(request);
+  };
+  const saved = process.env.RB_CONFIG_SWARM_TARGET;
+  process.env.RB_CONFIG_SWARM_TARGET = "60";
+  try {
+    const outcome = await swarmReview(config, chat, () => {});
+    assert.equal(outcome.findings.length, 1);
+  } finally {
+    if (saved === undefined) delete process.env.RB_CONFIG_SWARM_TARGET;
+    else process.env.RB_CONFIG_SWARM_TARGET = saved;
+  }
+  const reviewer = requests.find((request) => request.tools.at(-1)!.function.name === "submit_review")!;
+  assert.match(String(reviewer.messages[1]!.content), /within 60 seconds[\s\S]*at most 6 findings/);
+  assert.ok(!(reviewer.tools.at(-1)!.function.parameters.required as string[]).includes("checked"));
+  const verifiers = requests.filter((request) => request.tools.at(-1)!.function.name === "submit_verdicts");
+  assert.equal(verifiers.length, 3);
+  assert.match(String(verifiers[0]!.messages[1]!.content), /<code finding="f1" path="src\/pool.ts" lines="1-17">\n1: export class Pool/);
+  assert.equal(verifiers[0]!.forceTool, "submit_verdicts", "a one-turn verifier is told to submit at once");
 });

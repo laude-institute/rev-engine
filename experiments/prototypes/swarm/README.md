@@ -37,6 +37,8 @@ The tasks are:
 | `RB_CONFIG_SWARM_VOTES` | `3` | Verifiers for each batch of findings, from 0 to 5. `0` skips verification, and so does `RB_CONFIG_VERIFY=off`. |
 | `RB_CONFIG_SWARM_TASKS` | all | A comma-separated subset of the task names, for leaving tasks out. |
 | `RB_CONFIG_SWARM_MERGE` | `on` | `on` has the model group repeats before verification. `off` uses only the word-based merge. |
+| `RB_CONFIG_SWARM_TARGET` | `0` | Seconds the whole review should take, from 30 to 780. `0` fills the benchmark's time budget. Any other value turns on the fast pace described below. |
+| `RB_CONFIG_SWARM_SORT` | unset | `latency` or `throughput` asks OpenRouter to route every call to the provider that is best by that measure. |
 
 With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls are in flight at once.
 
@@ -49,6 +51,17 @@ With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls
 - **The search for mentions gives up after 30 seconds** on a huge checkout, and the agents search for themselves.
 - **The trace is written after each phase**, so a run the benchmark stops still shows what it did.
 - **Every log line names its agent**, such as `c2/callers: turn 3 at 41s`.
+
+## The fast pace
+
+Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns one after another, the turn that writes the findings is the slowest, and a few calls stall until they time out. The review ends only when its slowest agent does. With `RB_CONFIG_SWARM_TARGET` set, the swarm changes the following to finish near the target:
+
+- **Every agent starts at once** and has 65% of the target to review. Each keeps a quarter of the target for its submission, and an agent has at most 6 turns.
+- **Agents are asked for at most 6 findings** with short details, and do not list what they checked, because the submission turn grows with what the model writes.
+- **A call still running after a sixth of the target is sent again**, and the first answer is used. Most slow calls have stalled at the provider. Both calls are paid for, and the trace counts how many were sent again.
+- **Failed agents are not run again**, because there is no time for it.
+- **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files.
+- **The merge gets 15% of the target.**
 
 ## Tracing misses
 

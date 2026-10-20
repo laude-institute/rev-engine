@@ -8,6 +8,9 @@
 //   RB_CONFIG_SWARM_VOTES  verifiers per batch of findings, 0 to 5, default 3; 0 skips verification
 //   RB_CONFIG_SWARM_TASKS  a comma-separated subset of the task names, default all
 //   RB_CONFIG_SWARM_MERGE  on (a model groups repeats before verification, the default) or off (the word-based merge only)
+//   RB_CONFIG_SWARM_TARGET seconds the whole review should take, 30 to 780, or 0 (the default) to use the benchmark's budget
+//                          as before. A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
+//   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
 //
 // Every run writes swarm.json beside the findings file: the chunks, each agent's
 // findings and checklist, what the merge folded together, each verifier's vote and
@@ -23,27 +26,57 @@ import { diffInPrompt, submitVerdicts, verifierPrompt } from "../../../src/promp
 import { loadPullRequest, loadRules, type ReviewContext, type ReviewOutcome } from "../../../src/review.ts";
 import { Workspace } from "../../../src/tools.ts";
 import { mergeRepeats, type MergeResult } from "./merge.ts";
-import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, splitDiff, units } from "./chunks.ts";
-import { chunkPrompt, globalPrompt, sharedSection, submitSwarmReview, SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM } from "./prompts.ts";
+import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, numbered, splitDiff, units } from "./chunks.ts";
+import { chunkPrompt, globalPrompt, sharedSection, snippetsSection, submitFastReview, submitSwarmReview, SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM } from "./prompts.ts";
 import { CHUNK_TASKS, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
 
-const REVIEW_SHARE = 0.6;
-const FINISH_SHARE = 0.92;
-const MIN_VERIFY_MS = 60_000;
-const CHUNK_TURNS = 10;
-const GLOBAL_TURNS = 16;
-const VERIFY_TURNS = 12;
 const VERIFY_BATCH = 12;
-/** Model calls in flight at once, across the whole swarm. */
-const CONCURRENCY = 16;
-/** A cheap model answers one turn in seconds, so a call this slow has stalled and is cut off and retried. */
-const CALL_TIMEOUT_MS = 90_000;
-/** An agent that would start with less review time than this left is skipped; it could only skim. */
-const MIN_START_MS = 120_000;
-/** A failed agent is run again in a new conversation when this much review time is left. */
-const MIN_RETRY_MS = 180_000;
-/** The longest the model merge may take, so verification keeps its time. */
-const MERGE_MS = 120_000;
+/** Lines of code shown above and below a finding to a verifier that has no time to read files. */
+const SNIPPET_LINES = 15;
+
+/** How the swarm spends its time. The normal pace fills the benchmark's budget; the fast pace aims at a target. */
+export interface Pace {
+  /** Shares of the time available by which the review agents and the whole swarm must be done. */
+  reviewShare: number;
+  finishShare: number;
+  chunkTurns: number;
+  globalTurns: number;
+  verifyTurns: number;
+  /** Model calls in flight at once, across the whole swarm. */
+  concurrency: number;
+  /** A cheap model answers one turn in seconds, so a call this slow has stalled and is cut off and retried. */
+  callTimeoutMs: number;
+  /** A call still running after this long is sent again, and the first answer wins; 0 never sends it again. */
+  hedgeMs: number;
+  /** An agent that would start with less review time than this left is skipped; it could only skim. */
+  minStartMs: number;
+  /** A failed agent is run again in a new conversation when this much review time is left. */
+  minRetryMs: number;
+  /** The longest the model merge may take, so verification keeps its time. */
+  mergeMs: number;
+  minVerifyMs: number;
+  /** Time each agent keeps back for its submission; null keeps the tool loop's default. */
+  wrapUpMs: number | null;
+}
+
+export const NORMAL_PACE: Pace = {
+  reviewShare: 0.6, finishShare: 0.92, chunkTurns: 10, globalTurns: 16, verifyTurns: 12, concurrency: 16,
+  callTimeoutMs: 90_000, hedgeMs: 0, minStartMs: 120_000, minRetryMs: 180_000, mergeMs: 120_000, minVerifyMs: 60_000, wrapUpMs: null,
+};
+
+/**
+ * The pace for a review that must end within `seconds`. Agents get a few turns and keep a
+ * quarter of the time for their submission, every agent starts at once, a slow call is
+ * sent again rather than waited on, and verifiers decide in one turn from the code shown.
+ */
+export function fastPace(seconds: number): Pace {
+  const ms = seconds * 1000;
+  return {
+    reviewShare: 0.65, finishShare: 0.92, chunkTurns: 6, globalTurns: 6, verifyTurns: 1, concurrency: 64,
+    callTimeoutMs: Math.round(ms / 3), hedgeMs: Math.round(ms / 6), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
+    mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.25),
+  };
+}
 
 export interface SwarmSettings {
   split: "task" | "chunk";
@@ -51,6 +84,9 @@ export interface SwarmSettings {
   votes: number;
   tasks: string[];
   merge: boolean;
+  /** Seconds the review should take; 0 uses the benchmark's budget. */
+  target: number;
+  sort: "latency" | "throughput" | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -72,7 +108,13 @@ export function swarmSettings(env: Env): SwarmSettings {
   }
   const merge = env.RB_CONFIG_SWARM_MERGE?.trim() || "on";
   if (merge !== "on" && merge !== "off") throw new Error("RB_CONFIG_SWARM_MERGE must be on or off");
+  const target = integer(env, "RB_CONFIG_SWARM_TARGET", 0, 0, 780);
+  if (target && target < 30) throw new Error("RB_CONFIG_SWARM_TARGET must be 0 or from 30 to 780");
+  const sort = env.RB_CONFIG_SWARM_SORT?.trim() || null;
+  if (sort !== null && sort !== "latency" && sort !== "throughput") throw new Error("RB_CONFIG_SWARM_SORT must be latency or throughput");
   return {
+    target,
+    sort,
     merge: merge === "on",
     split,
     chunks: integer(env, "RB_CONFIG_SWARM_CHUNKS", 10, 1, 40),
@@ -82,7 +124,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -97,6 +139,32 @@ function pool(size: number): <T>(job: () => Promise<T>) => Promise<T> {
     } finally {
       running -= 1;
       waiting.shift()?.();
+    }
+  };
+}
+
+/**
+ * Sends a call again when it has run for `afterMs`, and returns whichever answer comes
+ * first. Most slow calls have stalled at the provider, and a new call usually lands on a
+ * healthy one. Both calls are paid for. `sent` counts the calls sent again.
+ */
+export function hedge(chat: Chat, afterMs: number, sent: { count: number }): Chat {
+  return async (request) => {
+    const first = chat(request);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const slow = new Promise<"slow">((resolve) => { timer = setTimeout(resolve, afterMs, "slow"); });
+    const settled = await Promise.race([first.then((message) => ({ message }), (error: unknown) => ({ error })), slow]);
+    clearTimeout(timer);
+    if (settled !== "slow") {
+      if ("error" in settled) throw settled.error;
+      return settled.message;
+    }
+    sent.count += 1;
+    const second = chat({ ...request, timeoutMs: Math.max(1_000, request.timeoutMs - afterMs) });
+    try {
+      return await Promise.any([first, second]);
+    } catch (error) {
+      throw error instanceof AggregateError ? error.errors[0] : error;
     }
   };
 }
@@ -159,7 +227,9 @@ interface Trace {
   verification: Array<{ findingId: string; batch: number; ballots: Array<{ voter: string; verdict: string | null; reason: string | null; duplicateOf: string | null }>; result: Verdict; kept: boolean }>;
   final: Array<{ findingId: string; rank: number; file: string; startLine: number; endLine: number; severity: string; kind: string; title: string; support: number; from: string[] }>;
   cutByCap: string[];
-  timing: { reviewMs: number; verifyMs: number; totalMs: number };
+  timing: { reviewMs: number; mergeMs: number; verifyMs: number; totalMs: number };
+  /** Model calls sent a second time because the first was slow. */
+  hedged: number;
 }
 
 function describe(error: unknown): string {
@@ -171,7 +241,7 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
   log(`swarm settings: ${describeSwarm(settings)}`);
   const trace: Trace = {
     settings: { ...settings, model: config.models[0]!, verifier: config.verifierModel },
-    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { reviewMs: 0, verifyMs: 0, totalMs: 0 },
+    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { reviewMs: 0, mergeMs: 0, verifyMs: 0, totalMs: 0 }, hedged: 0,
   };
   const started = Date.now();
   // The trace is for analysis only, so failing to write it never fails the review. It is
@@ -187,12 +257,20 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
   }
 }
 
-async function swarm(config: Config, chat: Chat, log: (message: string) => void, settings: SwarmSettings, trace: Trace, save: () => Promise<void>): Promise<ReviewOutcome> {
+async function swarm(config: Config, baseChat: Chat, log: (message: string) => void, settings: SwarmSettings, trace: Trace, save: () => Promise<void>): Promise<ReviewOutcome> {
   const started = Date.now();
-  const reviewDeadline = started + config.budgetMs * REVIEW_SHARE;
-  const finishDeadline = started + config.budgetMs * FINISH_SHARE;
+  const target = settings.target ? Math.min(settings.target * 1000, config.budgetMs) : 0;
+  const pace = target ? fastPace(target / 1000) : NORMAL_PACE;
+  const available = target || config.budgetMs;
+  const reviewDeadline = started + available * pace.reviewShare;
+  const finishDeadline = started + available * pace.finishShare;
   const model = config.models[0]!;
-  const run = pool(CONCURRENCY);
+  const run = pool(pace.concurrency);
+  const hedges = { count: 0 };
+  const sorted: Chat = settings.sort ? (request) => baseChat({ ...request, providerSort: settings.sort! }) : baseChat;
+  const chat = pace.hedgeMs ? hedge(sorted, pace.hedgeMs, hedges) : sorted;
+  const fastSeconds = target ? Math.round(target / 1000) : 0;
+  const wrapUp = pace.wrapUpMs === null ? {} : { wrapUpMs: pace.wrapUpMs };
 
   const workspace = new Workspace(config.repoDir, config.diffPath, config.base);
   const [pr, diff, rules] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace)]);
@@ -217,13 +295,13 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
     const context = chunkContext(piece, headFile, mentions);
     const groups = settings.split === "task" ? chunkTasks.map((task) => [task]) : chunkTasks.length ? [chunkTasks] : [];
     for (const tasks of groups) {
-      const turns = Math.min(config.maxTurns, CHUNK_TURNS * tasks.length);
-      jobs.push({ caller: `${piece.id}/${tasks.length > 1 ? "all" : tasks[0]!.name}`, tasks, turns, prompt: async () => chunkPrompt(shared, tasks, turns, where, await context) });
+      const turns = Math.min(config.maxTurns, target ? pace.chunkTurns : pace.chunkTurns * tasks.length);
+      jobs.push({ caller: `${piece.id}/${tasks.length > 1 ? "all" : tasks[0]!.name}`, tasks, turns, prompt: async () => chunkPrompt(shared, tasks, turns, where, await context, fastSeconds) });
     }
   }
   for (const task of globalTasks) {
-    const turns = Math.min(config.maxTurns, GLOBAL_TURNS);
-    jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async () => globalPrompt(shared, task, turns, diff) });
+    const turns = Math.min(config.maxTurns, pace.globalTurns);
+    jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async () => globalPrompt(shared, task, turns, diff, fastSeconds) });
   }
   log(`swarm: ${chunks.length} chunk(s), ${jobs.length} agent(s) with ${model}`);
 
@@ -233,7 +311,7 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
     const entry: Trace["agents"][number] = { caller: job.caller, tasks: job.tasks.map((task) => task.name), status: "failed", attempts: 0, errors: [], ms: 0, submitted: 0, kept: 0, checked: [] };
     trace.agents.push(entry);
     try {
-      if (reviewDeadline - Date.now() < MIN_START_MS) {
+      if (reviewDeadline - Date.now() < pace.minStartMs) {
         entry.status = "skipped";
         throw new Error("skipped: too little review time was left when its turn came");
       }
@@ -245,8 +323,8 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
           const seatWorkspace = new Workspace(config.repoDir, config.diffPath, config.base);
           context.readers.push({ caller, reads: seatWorkspace.reads });
           const submission = await runAgent({
-            chat, model, system: SWARM_SYSTEM, prompt, workspace: seatWorkspace, submit: submitSwarmReview,
-            deadline: reviewDeadline, maxTurns: job.turns, log, caller, attemptTimeoutMs: CALL_TIMEOUT_MS,
+            chat, model, system: SWARM_SYSTEM, prompt, workspace: seatWorkspace, submit: target ? submitFastReview : submitSwarmReview,
+            deadline: reviewDeadline, maxTurns: job.turns, log, caller, attemptTimeoutMs: pace.callTimeoutMs, ...wrapUp,
           });
           const candidates = await normalizeCandidates(submission.findings, { seat: job.caller, repoDir: config.repoDir, changed, headFile, log });
           entry.status = "ok";
@@ -258,7 +336,7 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
         } catch (error) {
           entry.errors.push(describe(error));
           // One more try in a new conversation, since most failures are a stalled or refused call, not the task.
-          if (entry.attempts >= 2 || reviewDeadline - Date.now() < MIN_RETRY_MS) throw error;
+          if (entry.attempts >= 2 || reviewDeadline - Date.now() < pace.minRetryMs) throw error;
           log(`${job.caller} failed, trying once more: ${describe(error)}`);
         }
       }
@@ -305,11 +383,12 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
   let survivors = merged.map((candidate) => ({ ...candidate, id: findingIds.get(candidate.id)! }));
   log(`word merge kept ${survivors.length} of ${proposals.length} finding(s)`);
 
+  const mergeStarted = Date.now();
   if (settings.merge && survivors.length > 1) {
-    const mergeDeadline = Math.min(Date.now() + MERGE_MS, finishDeadline - MIN_VERIFY_MS);
-    if (mergeDeadline - Date.now() >= 30_000) {
+    const mergeDeadline = Math.min(Date.now() + pace.mergeMs, finishDeadline - pace.minVerifyMs);
+    if (mergeDeadline - Date.now() >= Math.min(30_000, pace.mergeMs / 2)) {
       const result = await mergeRepeats(survivors, {
-        chat, model, deadline: mergeDeadline, attemptTimeoutMs: CALL_TIMEOUT_MS, run, log,
+        chat, model, deadline: mergeDeadline, attemptTimeoutMs: pace.callTimeoutMs, run, log, ...wrapUp,
         workspace: () => new Workspace(config.repoDir, config.diffPath, config.base),
       });
       trace.merges = result.batches;
@@ -326,6 +405,7 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
       log("model merge skipped: too little time is left");
     }
   }
+  trace.timing.mergeMs = Date.now() - mergeStarted;
   // How many agents reported each finding, counting an agent's retry as the same agent.
   const support = new Map<string, number>();
   for (const candidate of survivors) {
@@ -335,15 +415,28 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
 
   let verified = false;
   const verifyStarted = Date.now();
-  if (config.verify !== "off" && settings.votes > 0 && survivors.length && finishDeadline - Date.now() >= MIN_VERIFY_MS) {
+  if (config.verify !== "off" && settings.votes > 0 && survivors.length && finishDeadline - Date.now() >= pace.minVerifyMs) {
     const groups = batches(survivors);
+    // A one-turn verifier cannot read files, so it is shown the code around each finding.
+    const prompts = await Promise.all(groups.map(async (group) => {
+      const base = verifierPrompt(pr, changed, diff, group);
+      if (pace.verifyTurns > 1) return base;
+      const snippets = await Promise.all(group.map(async (candidate) => {
+        const text = await headFile(candidate.file);
+        if (text === null) return null;
+        const first = Math.max(1, candidate.startLine - SNIPPET_LINES);
+        const last = candidate.endLine + SNIPPET_LINES;
+        return { id: candidate.id, file: candidate.file, first, last, text: numbered(text, first, last) };
+      }));
+      return `${base}\n\n${snippetsSection(snippets.filter((snippet) => snippet !== null))}`;
+    }));
     type Ballot = { voter: string; verdicts: Verdict[]; reasons: Map<string, string> };
     const ballots = await Promise.all(groups.map((group, batch) => Promise.all(
       Array.from({ length: settings.votes }, (_, vote) => run(async (): Promise<Ballot> => {
         // Named "verifier" so the coverage script counts these as checkers, not reviewers.
         const voter = `verifier/b${batch + 1}v${vote + 1}`;
         // A vote that starts too late is no vote; the tally counts only the votes cast.
-        if (finishDeadline - Date.now() < MIN_VERIFY_MS) {
+        if (finishDeadline - Date.now() < pace.minVerifyMs) {
           log(`${voter} skipped: too little time was left when its turn came`);
           return { voter, verdicts: [], reasons: new Map() };
         }
@@ -351,9 +444,9 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
         context.readers.push({ caller: voter, reads: verifierWorkspace.reads });
         try {
           const submission = await runAgent({
-            chat, model: config.verifierModel, system: SWARM_VERIFIER_SYSTEM, prompt: verifierPrompt(pr, changed, diff, group),
-            workspace: verifierWorkspace, submit: submitVerdicts, deadline: finishDeadline, maxTurns: Math.min(config.maxTurns, VERIFY_TURNS), log, caller: voter,
-            attemptTimeoutMs: CALL_TIMEOUT_MS,
+            chat, model: config.verifierModel, system: SWARM_VERIFIER_SYSTEM, prompt: prompts[batch]!,
+            workspace: verifierWorkspace, submit: submitVerdicts, deadline: finishDeadline, maxTurns: Math.min(config.maxTurns, pace.verifyTurns), log, caller: voter,
+            attemptTimeoutMs: pace.callTimeoutMs, ...wrapUp,
           });
           const reasons = new Map<string, string>();
           for (const item of Array.isArray(submission.verdicts) ? submission.verdicts : []) {
@@ -388,6 +481,8 @@ async function swarm(config: Config, chat: Chat, log: (message: string) => void,
     log("verification skipped");
   }
   trace.timing.verifyMs = Date.now() - verifyStarted;
+  trace.hedged = hedges.count;
+  if (hedges.count) log(`swarm: ${hedges.count} slow call(s) sent again`);
   await save();
 
   const ranked = rankBySupport(survivors, support, config.maxFindings);

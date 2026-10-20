@@ -27,6 +27,8 @@ export interface ChatRequest {
   caller?: string;
   /** The longest one attempt may take, when shorter than ATTEMPT_TIMEOUT_MS. */
   attemptTimeoutMs?: number;
+  /** Asks OpenRouter to route to the provider with the lowest latency or highest throughput. */
+  providerSort?: "latency" | "throughput";
 }
 
 export type Chat = (request: ChatRequest) => Promise<ChatMessage>;
@@ -84,6 +86,7 @@ export function createChat(options: ClientOptions): Chat {
       max_tokens: MAX_OUTPUT_TOKENS,
     };
     if (openRouter) body.usage = { include: true };
+    if (openRouter && request.providerSort) body.provider = { sort: request.providerSort };
     // Anthropic models cache a prompt prefix only when asked to. A review resends a
     // growing conversation every turn, so caching decides most of its cost.
     if (openRouter && request.model.startsWith("anthropic/")) body.cache_control = { type: "ephemeral" };

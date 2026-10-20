@@ -206,7 +206,7 @@ export async function findMentions(repoDir: string, names: string[]): Promise<Ma
   return found;
 }
 
-function numbered(text: string, first: number, last: number): string {
+export function numbered(text: string, first: number, last: number): string {
   const lines = text.split("\n");
   if (lines.at(-1) === "") lines.pop();
   return lines.slice(first - 1, last).map((line, index) => `${first + index}: ${line}`).join("\n");

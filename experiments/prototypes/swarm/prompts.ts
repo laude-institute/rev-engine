@@ -46,6 +46,21 @@ export const submitSwarmReview: ToolDefinition = (() => {
   return { type: "function", function: { ...submitReview.function, parameters } };
 })();
 
+/** The same tool without the required list of what was checked, which lengthens the slowest turn of a fast review. */
+export const submitFastReview: ToolDefinition = (() => {
+  const parameters = structuredClone(submitSwarmReview.function.parameters) as { required: string[] };
+  parameters.required = parameters.required.filter((name) => name !== "checked");
+  return { type: "function", function: { ...submitSwarmReview.function, parameters } };
+})();
+
+/** Added to each agent's task when the review must finish in about a minute. */
+export function fastSection(seconds: number): string {
+  return `This review must finish within ${seconds} seconds, so work quickly. Most of what you need is in this message; read files only to settle a specific doubt, with several reads in one turn. Report at most ${FAST_FINDINGS} findings, the ones you are surest of, and keep each detail to two or three sentences.`;
+}
+
+/** The most findings one agent of a fast review is asked for. */
+export const FAST_FINDINGS = 6;
+
 function rulesSection(rules: ProjectRule[]): string {
   if (!rules.length) return "The project has no contributor or agent instruction files at its root.";
   const files = rules.map((rule) => `<project_file path="${rule.path}">\n${rule.text}\n</project_file>`).join("\n\n");
@@ -57,20 +72,27 @@ export function sharedSection(pr: PullRequestInfo, changed: ChangedLines, rules:
   return [pullRequestSection(pr), rulesSection(rules), changedFilesSection(changed)].join("\n\n");
 }
 
-export function taskSection(tasks: SwarmTask[], turns: number): string {
+export function taskSection(tasks: SwarmTask[], turns: number, fastSeconds = 0): string {
   const briefs = tasks.map((task) => `Task: ${task.name}. ${task.goal}\n${task.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}`);
-  return `Your budget is ${turns} turns. You will be told when it is time to submit.\n\n${briefs.join("\n\n")}`;
+  const budget = `Your budget is ${turns} turns. You will be told when it is time to submit.`;
+  return [budget, ...(fastSeconds ? [fastSection(fastSeconds)] : []), briefs.join("\n\n")].join("\n\n");
 }
 
-export function chunkPrompt(shared: string, tasks: SwarmTask[], turns: number, where: string, context: string): string {
+export function chunkPrompt(shared: string, tasks: SwarmTask[], turns: number, where: string, context: string, fastSeconds = 0): string {
   return [
     shared,
-    taskSection(tasks, turns),
+    taskSection(tasks, turns, fastSeconds),
     `Your part of the change is ${where}. Other reviewers have the rest. Report problems in your part, and in the code it affects elsewhere, such as its callers.`,
     context,
   ].join("\n\n");
 }
 
-export function globalPrompt(shared: string, task: SwarmTask, turns: number, diff: string): string {
-  return [shared, taskSection([task], turns), `Your task covers the whole change.`, diffSection(diff)].join("\n\n");
+export function globalPrompt(shared: string, task: SwarmTask, turns: number, diff: string, fastSeconds = 0): string {
+  return [shared, taskSection([task], turns, fastSeconds), `Your task covers the whole change.`, diffSection(diff)].join("\n\n");
+}
+
+/** The code around each finding, so a verifier of a fast review can decide without reading files. */
+export function snippetsSection(snippets: Array<{ id: string; file: string; first: number; last: number; text: string }>): string {
+  const parts = snippets.map((snippet) => `<code finding="${snippet.id}" path="${snippet.file}" lines="${snippet.first}-${snippet.last}">\n${snippet.text}\n</code>`);
+  return `There is no time to read files. Decide from the diff and the code around each finding below, after the change. When they are not enough to tell, mark the finding uncertain.\n\n${parts.join("\n\n")}`;
 }

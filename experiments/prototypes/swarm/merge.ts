@@ -108,6 +108,7 @@ export interface MergeOptions {
   model: string;
   deadline: number;
   attemptTimeoutMs: number;
+  wrapUpMs?: number;
   run: <T>(job: () => Promise<T>) => Promise<T>;
   workspace: () => Workspace;
   log: (message: string) => void;
@@ -138,6 +139,7 @@ export async function mergeRepeats(candidates: Candidate[], options: MergeOption
         prompt: `Findings in ${batch[0]!.file}:\n\n<findings>\n${JSON.stringify(findings, null, 2)}\n</findings>`,
         workspace: options.workspace(), submit: submitGroups, deadline: options.deadline, maxTurns: MERGE_TURNS,
         log: options.log, caller, attemptTimeoutMs: options.attemptTimeoutMs,
+        ...(options.wrapUpMs === undefined ? {} : { wrapUpMs: options.wrapUpMs }),
       });
       const problems = new Map<string, string>();
       for (const item of Array.isArray(submission.groups) ? submission.groups : []) {
