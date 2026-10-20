@@ -63,6 +63,21 @@ export function parsePrior(raw: unknown): PriorDecisions | null {
   return { entries, omitted: Number.isInteger(item.omitted) && (item.omitted as number) > 0 ? item.omitted as number : 0 };
 }
 
+/** Whether a finding repeating this decision may stay only when the problem is still there, as opposed to only when the code changed. */
+export function settledByCode(decision: Decision): boolean {
+  return decision === "fixed" || decision === "partly_fixed" || decision === "resolved";
+}
+
+/**
+ * The sentence added to a finding the verifier kept although it repeats an earlier
+ * decided one, so the author sees which earlier finding it is and why it is back.
+ */
+export function repeatNote(entry: PriorEntry): string {
+  return settledByCode(entry.decision)
+    ? `This is earlier finding ${entry.id} from round ${entry.round}, decided as ${DESCRIBED[entry.decision]}; the code at head shows the problem is still there.`
+    : `This is earlier finding ${entry.id} from round ${entry.round}, decided as ${DESCRIBED[entry.decision]}; the code has changed since in a way that makes it right now.`;
+}
+
 /** The decisions file, or null when there is none. A broken file is logged and ignored. */
 export async function loadPrior(path: string, log: (message: string) => void): Promise<PriorDecisions | null> {
   let text: string;
@@ -100,8 +115,8 @@ function entriesBlock(prior: PriorDecisions): string {
 export function priorDecisionsSection(prior: PriorDecisions): string {
   return `Earlier reviews of this pull request and the maintainer's decisions. These findings were reported on earlier commits and decided by the maintainer. They are given by file, title and decision; their lines may have moved, so judge by the problem each one describes.
 
-- Do not report again a finding decided as wrong, won't fix, deferred, or resolved, unless the code at head changed in a way that makes it right now.
-- Do not report again a finding decided as fixed or partly fixed, unless code at head shows the fix is missing or incomplete.
+- Do not report again a finding decided as wrong, won't fix or deferred, unless the code at head changed in a way that makes it right now.
+- Do not report again a finding decided as fixed, partly fixed, or resolved without a stated reason, unless code at head shows the problem is still there. A thread is often resolved after a fix, but sometimes only to clear it.
 - Report every other problem as you normally would. These decisions say nothing about code they do not cover.
 
 ${entriesBlock(prior)}`;
@@ -114,8 +129,8 @@ export function priorDecisionsVerifierSection(prior: PriorDecisions): string {
 For each finding you check, decide whether it describes the same problem as one of these earlier findings: the same file, and a developer who fixed one would have fixed the other. If it does, set repeat_of to that earlier id. Otherwise set repeat_of to null.
 
 When repeat_of is set, set exception_holds from the code at head, not from what the finding says about itself:
-- For an earlier finding decided as fixed or partly fixed: true only when the code at head shows the fix is missing or incomplete.
-- For any other decision: true only when the code changed since that review in a way that makes the finding right now.
+- For an earlier finding decided as fixed, partly fixed, or resolved without a stated reason: true only when the code at head shows the problem is still there.
+- For wrong, won't fix or deferred: true only when the code changed since that review in a way that makes the finding right now.
 Otherwise set exception_holds to false. Give the finding its verdict as usual either way.
 
 ${entriesBlock(prior)}`;

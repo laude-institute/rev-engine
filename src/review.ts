@@ -36,7 +36,7 @@ import {
   type ProjectRule,
   type PullRequestInfo,
 } from "./prompts.ts";
-import { loadPrior } from "./prior.ts";
+import { loadPrior, repeatNote } from "./prior.ts";
 import { Workspace, type ReadRecord } from "./tools.ts";
 
 /** Instruction files read from the base revision, so the change cannot rewrite the rules it is judged by. */
@@ -311,7 +311,12 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
       });
       const before = survivors;
       const verdicts = new Map(parseVerdicts(submission.verdicts).map((verdict) => [verdict.id, verdict]));
-      survivors = applyVerdicts(survivors, [...verdicts.values()], config.verify === "strict");
+      survivors = applyVerdicts(survivors, [...verdicts.values()], config.verify === "strict").map((candidate) => {
+        // A repeat the verifier kept says which earlier finding it is, so the author can tell a regression from noise.
+        const verdict = verdicts.get(candidate.id);
+        const earlier = verdict?.repeatOf && verdict.exceptionHolds ? prior?.entries.find((entry) => entry.id === verdict.repeatOf) : undefined;
+        return earlier ? { ...candidate, detail: `${candidate.detail.trimEnd()} ${repeatNote(earlier)}` } : candidate;
+      });
       verified = true;
       for (const candidate of before) {
         const verdict = verdicts.get(candidate.id);

@@ -209,12 +209,12 @@ export interface RunResult {
 
 /** Ids of the expectations made from earlier decisions start with this. */
 export const EARLIER = "earlier-";
-const SUPPRESSED = new Set(["wrong", "wont_fix", "deferred", "resolved"]);
+const SUPPRESSED = new Set(["wrong", "wont_fix", "deferred"]);
 
 /**
  * The case with the findings the maintainer already decided against added as
  * invalid expectations, so the report counts how often a review raises one again.
- * Fixed findings are left out: reporting one again is only wrong when its fix holds.
+ * Fixed and resolved findings are left out: reporting one again is only wrong when the problem is gone.
  */
 export function withEarlierDecisions(evalCase: EvalCase): EvalCase {
   if (!evalCase.prior) return evalCase;

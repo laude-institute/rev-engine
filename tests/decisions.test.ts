@@ -42,6 +42,7 @@ test("counts only explicit decisions by someone who may decide", () => {
       thread(1, "Fixed by a maintainer", [{ author: MAINTAINER, body: "**Fixed** in abc1234. The guard is back." }]),
       thread(1, "Waved off by the contributor", [{ author: CONTRIBUTOR, body: "**Won't fix.** Not my problem." }]),
       thread(1, "Nobody answered"),
+      thread(1, "Only a question", [{ author: MAINTAINER, body: "Fixed? I am not sure this is right." }]),
       thread(1, "Resolved by a maintainer", [], { isResolved: true, resolvedBy: MAINTAINER }),
       thread(1, "Resolved by the contributor", [], { isResolved: true, resolvedBy: CONTRIBUTOR }),
       thread(1, "Changed mind", [

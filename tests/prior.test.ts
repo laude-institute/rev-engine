@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildReview, type ReviewInput } from "../action/comments.ts";
 import { applyVerdicts, parseVerdicts, type Candidate } from "../src/findings.ts";
-import { parsePrior, priorDecisionsSection, type PriorDecisions } from "../src/prior.ts";
+import { parsePrior, priorDecisionsSection, priorDecisionsVerifierSection, repeatNote, type PriorDecisions } from "../src/prior.ts";
 import { reviewerPrompt, submitVerdicts, submitVerdictsWithPrior, verifierPrompt } from "../src/prompts.ts";
 
 const PRIOR: PriorDecisions = {
@@ -66,4 +66,12 @@ test("the summary says how many findings were left out as already decided", () =
   const input: ReviewInput = { findings: [], fit: null, hunks: new Map(), existing: [], head: "a".repeat(40), model: "m", minSeverity: "medium", maxComments: 10 };
   assert.doesNotMatch(buildReview(input).body, /already decided/);
   assert.match(buildReview({ ...input, decided: ["P2", "P5", "P2"] }).body, /3 findings were left out as already decided by the maintainer in an earlier round \(P2, P5\)\./);
+});
+
+test("a resolved finding may come back when the problem is still there, like a fixed one", () => {
+  assert.match(priorDecisionsSection(PRIOR), /decided as fixed, partly fixed, or resolved without a stated reason, unless code at head shows the problem is still there/);
+  assert.match(priorDecisionsSection(PRIOR), /decided as wrong, won't fix or deferred, unless the code at head changed/);
+  assert.match(priorDecisionsVerifierSection(PRIOR), /fixed, partly fixed, or resolved without a stated reason: true only when the code at head shows the problem is still there/);
+  assert.match(repeatNote({ ...PRIOR.entries[0]!, decision: "resolved" }), /problem is still there/);
+  assert.match(repeatNote(PRIOR.entries[0]!), /^This is earlier finding P1 from round 1, decided as won't fix; the code has changed since/);
 });

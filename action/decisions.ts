@@ -90,7 +90,8 @@ interface Finding {
   resolved: { source: string } | null;
 }
 
-const REPLY = /^\s*\**\s*(fixed|partly fixed|won['’]?t fix|deferred|wrong|invalid)\b[\s.:,*]*/i;
+// The decision word must end the reply or be followed by punctuation or a space, so "Fixed? Not sure" does not count.
+const REPLY = /^\s*\**\s*(fixed|partly fixed|won['’]?t fix|deferred|wrong|invalid)(?=$|[\s.:,;!*)\-\u2013\u2014])[\s.:,*]*/i;
 
 function replyDecision(word: string): Decision {
   const lower = word.toLowerCase().replace("’", "'");
@@ -191,7 +192,8 @@ export function evaluationLines(body: string): EvaluationLine[] {
 
 /** Keeps the decisions that suppress repeats first, then the newest rounds, up to the cap. */
 function capped(findings: Array<{ entry: Omit<PriorEntry, "id">; order: number }>): { kept: typeof findings; omitted: number } {
-  const priority = (decision: Decision): number => (decision === "fixed" ? 2 : decision === "partly_fixed" ? 1 : 0);
+  // Resolved findings come back when the problem is still there, like partly fixed ones, so they go after the suppressing decisions.
+  const priority = (decision: Decision): number => (decision === "fixed" ? 2 : decision === "partly_fixed" || decision === "resolved" ? 1 : 0);
   const ranked = [...findings].sort((a, b) => priority(a.entry.decision) - priority(b.entry.decision) || b.entry.round - a.entry.round || a.order - b.order);
   const kept = ranked.slice(0, MAX_ENTRIES).sort((a, b) => a.entry.round - b.entry.round || a.order - b.order);
   return { kept, omitted: findings.length - kept.length };

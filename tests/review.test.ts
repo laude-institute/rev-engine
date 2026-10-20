@@ -126,3 +126,28 @@ test("the sweep joins nearby changed lines into hunks, skips generated files and
   const small = new Map<string, Array<[number, number]>>([["a.ts", [[1, 2]]], ["b.ts", [[3, 3]]]]);
   assert.deepEqual(sweepRounds(small), ["- a.ts: lines 1 to 2\n- b.ts: line 3"]);
 });
+
+test("a repeat of an earlier decided finding is dropped, and one the verifier keeps names the earlier finding", async () => {
+  const priorPath = join(dir, "prior.json");
+  await writeFile(priorPath, JSON.stringify({ omitted: 0, entries: [
+    { id: "P1", file: "a.ts", title: "b is unused.", decision: "wont_fix", round: 1, source: "x" },
+    { id: "P2", file: "a.ts", title: "a is misnamed.", decision: "resolved", round: 1, source: "y" },
+  ] }));
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const other = { ...finding, start_line: 1, end_line: 1, title: "Misnamed", detail: "a says nothing about its purpose." };
+  const chat: Chat = async (request) => {
+    const verifying = request.tools.some((tool) => tool.function.name === "submit_verdicts");
+    const args = verifying
+      ? { verdicts: [
+        { id: "s1-01", verdict: "confirmed", repeat_of: "P1", exception_holds: false },
+        { id: "s1-02", verdict: "confirmed", repeat_of: "P2", exception_holds: true },
+      ] }
+      : { findings: [finding, other] };
+    const name = verifying ? "submit_verdicts" : "submit_review";
+    return { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+  };
+  const outcome = await review(configFor({ RB_PRIOR_JSON: priorPath }), chat, () => {});
+  assert.deepEqual(outcome.decided?.map((repeat) => repeat.repeatOf), ["P1"]);
+  assert.equal(outcome.findings.length, 1);
+  assert.match(outcome.findings[0]!.message, /earlier finding P2 from round 1, decided as resolved without a stated reason; the code at head shows the problem is still there\.$/);
+});
