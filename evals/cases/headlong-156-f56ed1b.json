@@ -1,0 +1,419 @@
+{
+  "id": "headlong-156-f56ed1b",
+  "repo": "laude-institute/headlong",
+  "pr": 156,
+  "base": "2a63d92ce1038eba0d5fb9c14f6accded9edbb5f",
+  "head": "f56ed1b716803c35544556d1f58895302e8d5187",
+  "title": "skill-compiler: compile skills into validated cached adapters, with pool-attested pass verification",
+  "body": "Port of fork PR 12 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
+  "source": "The review evaluation posted on the pull request on 2026-10-16 at the maintainer's request, written by the maintainer's review agent from focused offline reproductions of each claim. The description is copied from the earlier case of this pull request, where names were replaced.",
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+      "commit": "f56ed1b716803c35544556d1f58895302e8d5187",
+      "date": "2026-10-16",
+      "fit": "fits_with_concerns"
+    }
+  ],
+  "fixes": [
+    "d76b930249cf8860c24da98c47fb02d4881cf264",
+    "2c8544fdf63308b719408b5b1cf5bcff264a3fc8"
+  ],
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ],
+  "findings": [
+    {
+      "id": "ampersand-substitution",
+      "label": "must",
+      "what": "Placeholder substitution breaks on '&' in the skill spec, pool or path under bash 5.2.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 644,
+      "end_line": 651,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Placeholder substitution breaks on '&' in the skill spec, pool or path under bash 5.2. The teacher prompt is filled in with `${prompt//__PHRASE_POOL__/$phrase_pool}`, `${prompt/__SKILL_SPEC__/$skill_spec}`, `__BINS_STATUS__` and `__SKILL_ABS__`, and the replacement variable is never quoted. Bash 5.2 turns on `patsub_replacement` by default. With it on, an unquoted `&` in the replacement is swapped for the matched text. Skill bodies and script vocabulary often contain `&&` or `&`. So the teacher gets text like `cd x __SKILL_SPEC____SKILL_SPEC__ y`, and any path holding `&` comes out corrupted. That breaks the verbatim vocabulary the teacher is told to copy and the absolute script paths it must call. Quoting the replacement (`\"$phrase_pool\"`) or using a non-bash substitution would fix it. No test checks the teacher prompt for `&`. The regression suite's `skills & #` directory only checks the Python-based path rewrite in execute_test.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced on Linux Bash 5.2: an & in the skill body, a pool phrase or a path is replaced with placeholder text in the teacher prompt. Bash 3.2 does not reproduce it.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "pool-cap-alphabetic",
+      "label": "valid",
+      "what": "Final pool cap drops entries alphabetically, not by source priority.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 557,
+      "end_line": 561,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Final pool cap drops entries alphabetically, not by source priority. Here `$offered` is `(src + doc + live + hist capped) | unique | capped($cap)`. jq's `unique` returns a sorted array, so the overall `SKILL_POOL_CAP` cuts by lexicographic order. Phrases late in the alphabet are dropped whatever source they came from. The comment at lines 456-460 says \"Script and live-run pools keep priority\", and the test comment at tests/test_skill_compiler.sh:313 calls lexicographic dropping the bug that was fixed. With more than 400 eligible entries, real script or live output starting with late letters is withheld from the teacher and labeled POOL-DROPPED, while low-value doc or metadata tokens are kept.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced. Truncation is reported as POOL-DROPPED, so alphabetic selection is not false evidence or data loss. Overlaps the history-cap finding.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "history-cap-order",
+      "label": "valid",
+      "what": "History pool loses its frequency order before SKILL_HARVEST_MAX_ENTRIES is applied.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 548,
+      "end_line": 548,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "History pool loses its frequency order before SKILL_HARVEST_MAX_ENTRIES is applied. harvest_history_pool writes `entries` sorted by descending count, so the most common real output lines come first. capture_phrase_pool then reads them with `[... .line] | ... | unique`, which sorts them alphabetically. The later `$hist | capped($hist_cap)` therefore keeps the alphabetically first 300 lines, not the 300 most frequent. When history is large, the best-attested tool output is pushed into `dropped` and those literals are labeled POOL-DROPPED instead of VERIFIED. Removing duplicates while keeping order (e.g. a reduce, or skipping `unique` for the entries form) would keep the ranking.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced. Related to the pool-cap finding but at an earlier cap; not a separate false-verification blocker.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "error-on-runner-failure",
+      "label": "must",
+      "what": "expect=error passes whenever shellm itself fails.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 839,
+      "end_line": 843,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "expect=error passes whenever shellm itself fails. An `error` case passes if `rc -ne 0`, and rc is shellm's own exit status. A missing API key, a provider outage, an iteration limit or any harness crash gives a nonzero exit, so the case is recorded as passed. If it has no expect_contains it is counted as GREEN-NO-LITERALS in `summary.passed`. shellm's stdout and stderr both go to /dev/null (line 791), so nothing shows why it failed. SKILL.md says `pass` checks the expected terminal step, but here a broken environment counts as success.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced with shellm exiting 1 and no trajectory evidence: the case passed. The evaluation adds that expect=final also ignores a nonzero exit, as an extension of this defect, not a separate finding.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "unfinished-runs-pass",
+      "label": "must",
+      "what": "observation and shell-output expectations pass on unfinished runs.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 829,
+      "end_line": 838,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "observation and shell-output expectations pass on unfinished runs. `expect=observation` accepts a last step of `reasoning`, and `expect=shell-output` accepts a last step of `shell-output` or `reasoning`. Neither checks for a final answer. A shellm run that hits `--max-iterations` without answering ends on a shell-output or reasoning step, so these cases pass with no evidence the task finished. bin/shellm never writes an `observation` record at all. Without literals, such cases count toward `passed`.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced for observation and shell-output. Requiring a final answer for every non-final expectation is not the only valid fix.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "unordered-trajectory",
+      "label": "must",
+      "what": "Trajectory file chosen with an unordered find | head -1.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 795,
+      "end_line": 795,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Trajectory file chosen with an unordered find | head -1. bin/traj nests child trajectories inside the parent's directory (base_dir is the parent's dir, then `$dir_name/trajectory.jsonl`). The `find \"$traj_dir\" -name '*.jsonl' -o -name '*.json' | head -1` follows readdir order. When the agent starts a sub-run, it can return a child's trajectory.jsonl instead of the root run's. In that case last_step_type, final_content and the evidence for expect_contains all come from the sub-run, and the test can pass or fail wrongly. TRAJ_ID is set to `test_traj_id`, so the root file can be found directly, e.g. via `traj` resolution.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced with parent-before-child creation order. The review's proposed remedy is wrong: exported TRAJ_ID is not the new run's id.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "probe-live-stores",
+      "label": "must",
+      "what": "Phrase-pool probe runs the skill script with the live MEM_DIR/TRAJ_DIR. capture_phrase_pool runs the skill's script twice, with `--help` and with no arguments, for both `compile` and `pool`.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 443,
+      "end_line": 454,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Phrase-pool probe runs the skill script with the live MEM_DIR/TRAJ_DIR. capture_phrase_pool runs the skill's script twice, with `--help` and with no arguments, for both `compile` and `pool`. It only changes into a scratch cwd and does not set the throwaway MEM_DIR, TRAJ_DIR or SHELLM_* overrides that execute_test sets at lines 740-752 (the STORE-ISOLATION fix). Run from an identity shell, a skill that writes memories or trajectories by default writes into the live identity store during a plain `pool` call. SKILL.md lines 36-38 suggest this probe is isolated like tests are.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced: a plain pool call wrote into the inherited MEM_DIR and TRAJ_DIR.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "case-handling",
+      "label": "valid",
+      "what": "Phrase literals match case-sensitively, single words case-insensitively.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 918,
+      "end_line": 924,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Phrase literals match case-sensitively, single words case-insensitively. _word_match compiles its regex with `re.I`, so the literal `Hello` matches `hello`. _phrase_match uses awk `index()`, which is case-sensitive, so `Hello world` does not match `hello world`. Whether a literal passes depends on whether it has a space, which the teacher cannot know. The same output-casing difference fails one test and passes another. The quote-fold path (lines 930-937) is also case-sensitive.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed. Nonblocking matching-policy cleanup; the review does not show case-insensitive phrases are required.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "pipe-joined-missed",
+      "label": "valid",
+      "what": "expect_contains_missed is corrupted for literals containing '|'.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 953,
+      "end_line": 976,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "expect_contains_missed is corrupted for literals containing '|'. Missed literals are joined with `|` into `ec_missed`, and the report rebuilds them with `$ec_missed|split(\"|\")`. Literals with a pipe are common in shell skills, e.g. `a | b` or the test fixture's `Hello ... | phrase-pool world`. Such a literal shows up in `expect_contains_missed` as several fragments, so the report misstates which assertions failed. A JSON array built with jq would avoid this.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced. Corrupts diagnostic attribution, but the assertion still fails correctly.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "unvalidated-caps",
+      "label": "valid",
+      "what": "Source cap env vars are not validated and abort compile.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 553,
+      "end_line": 555,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Source cap env vars are not validated and abort compile. `SKILL_POOL_CAP` is checked against `^[0-9]+$` with a fallback (lines 550-551), but `SKILL_POOL_SRC_CAP`, `SKILL_POOL_LIVE_CAP` and `SKILL_HARVEST_MAX_ENTRIES` go straight to `--argjson`. _sc_jq turns these into `fromjson`. A value like `200 ` or `abc` makes jq fail, capture_phrase_pool returns 1, and compile dies with the generic \"cannot capture phrase pool\" message, which does not name the bad variable.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Valid with an incorrect example: `200 ` with trailing whitespace is accepted and works, contrary to the review.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "shellcheck-unused",
+      "label": "invalid",
+      "what": "Unused variable `f` will likely fail the CI shellcheck gate.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 1223,
+      "end_line": 1228,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Unused variable `f` will likely fail the CI shellcheck gate. In the Markdown loop, `f` is set from `.final` but never used. .github/workflows/ci.yml runs `shellcheck -S warning` on every tracked file with a bash shebang, and this script has one. SC2034 (variable appears unused) is a warning-level check, and the workflow says the tree is clean at that level. This should fail the shellcheck job. It is dead code either way, since the final answer was presumably meant to appear in the report.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "The predicted ShellCheck failure is wrong: the script passes ShellCheck 0.11.0 and the hosted job passed. The dead assignment itself is a harmless nit.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "tests-error-outcomes",
+      "label": "valid",
+      "what": "No tests for the error, observation and shell-output terminal checks.",
+      "file": "tests/test_skill_compiler_regressions.py",
+      "start_line": 257,
+      "end_line": 282,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "No tests for the error, observation and shell-output terminal checks. Every generated case in both suites uses `expect: final`. The `error` branch, which passes on any nonzero shellm exit, and the `observation`/`shell-output` branches that accept unfinished runs are never tested. A test needs a shellm stub that exits nonzero, or ends on a shell-output step, with no final answer, and it should check that those cases are not reported as passes.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Coverage for the two runner-failure findings, not another runtime defect.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "tests-teacher-prompt",
+      "label": "valid",
+      "what": "No test that teacher-prompt substitution keeps spec and pool text verbatim.",
+      "file": "tests/test_skill_compiler.sh",
+      "start_line": 232,
+      "end_line": 256,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "No test that teacher-prompt substitution keeps spec and pool text verbatim. The only teacher-prompt check greps for rule headings and bins status. No test puts a skill body or pool entry with `&`, `&&` or a backslash through synthesize_tests and checks that it reaches the teacher prompt unchanged. That is the case that breaks under bash 5.2's patsub_replacement. The teacher-failure path (llm exits nonzero, retries, then die) is not tested either.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "The existing tests missed the reproduced substitution corruption. Overlaps the ampersand finding.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "sleep-after-last-try",
+      "label": "valid",
+      "what": "Teacher retry sleeps after the last attempt too.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 656,
+      "end_line": 661,
+      "kind": "maintainability",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Teacher retry sleeps after the last attempt too. The loop sleeps `attempt * 5` seconds after every failed try, including the fourth, then dies. A teacher that is down always costs an extra 20 seconds (50 seconds in total) before the error is reported. The die message also prints `model=` as empty when no `--teacher-model` was given.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed with a sleep recorder. Small nonblocking cleanup.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "harness-deletes-cache",
+      "label": "valid",
+      "what": "Regression harness deletes and writes a cache dir next to the compiler script.",
+      "file": "tests/test_skill_compiler_regressions.py",
+      "start_line": 91,
+      "end_line": 92,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5544589632",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Regression harness deletes and writes a cache dir next to the compiler script. Case sets `self.cache = SC.parent / '.compiled'` and calls `shutil.rmtree` on it for every case. Run directly against `skills/skill-compiler/skill-compiler`, as the docstring invites, it creates and deletes `skills/skill-compiler/.compiled` in the source tree. install.sh's `cp -R` or symlink install would then ship it. The cache should live under the test's own ROOT.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "A direct-helper-use hazard; normal test runs are protected by the compiler copy in WORK.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
+        "date": "2026-10-16"
+      }
+    }
+  ]
+}

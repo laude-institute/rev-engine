@@ -1,0 +1,375 @@
+{
+  "id": "headlong-156-2c8544f",
+  "repo": "laude-institute/headlong",
+  "pr": 156,
+  "base": "2a63d92ce1038eba0d5fb9c14f6accded9edbb5f",
+  "head": "2c8544fdf63308b719408b5b1cf5bcff264a3fc8",
+  "title": "skill-compiler: compile skills into validated cached adapters, with pool-attested pass verification",
+  "body": "Port of fork PR 12 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
+  "source": "The review evaluation posted on the pull request on 2026-10-17 at the maintainer's request, written by the maintainer's review agent from focused offline reproductions of each claim. The description is copied from the earlier case of this pull request, where names were replaced.",
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+      "commit": "2c8544fdf63308b719408b5b1cf5bcff264a3fc8",
+      "date": "2026-10-16",
+      "fit": "fits_with_concerns"
+    }
+  ],
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ],
+  "findings": [
+    {
+      "id": "mutable-pool-provenance",
+      "label": "must",
+      "what": "Provenance labels read the dropped vocabulary from a mutable on-disk pool file, not the pool used for this compile.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 1105,
+      "end_line": 1124,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Provenance labels read the dropped vocabulary from a mutable on-disk pool file, not the pool used for this compile. `write_cache` gets the offered pool in memory (`phrase_pool`) but takes the dropped list for POOL-DROPPED and `pool_truncated` from `$COMPILED_DIR/pool-<skill>.json`, which it re-reads after all tests have run (often minutes later). Three commands can change that file in the meantime: `pool --skill X` deletes and rewrites it (line 471), possibly under different cap settings; `clean` removes it; a second compile overwrites it. In each case the report labels literals against a different truncation than the teacher saw, so a real dropped literal can turn into INVENTED and `pool_truncated` can be wrong. capture_phrase_pool should return the full pool_json and that should be passed through to write_cache.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced: replacing the shared pool file between synthesis and reporting changed POOL-DROPPED to INVENTED. Wrong provenance, not a false VERIFIED.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "identity-selectors",
+      "label": "must",
+      "what": "State isolation leaves identity-scoped selectors (CHATRC, SKILLSRC, THINKERS_DIR, SHELLM_BROKER_DIR) pointing at the live identity.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 449,
+      "end_line": 459,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "State isolation leaves identity-scoped selectors (CHATRC, SKILLSRC, THINKERS_DIR, SHELLM_BROKER_DIR) pointing at the live identity. An activated identity exports a set of variables, and its deactivate path unsets all of them: `unset TRAJ_DIR TRAJ_ID THINKERS_DIR SKILLSRC SHELLM_TRAJ_DIR SHELLM_ENVS_DIR SHELLM_WORKDIRS_DIR SHELLM_BROKER_DIR SHELLM_CONF_DIR ... CHATRC` (tools/identity line 432). `_sc_isolate_state` redirects or unsets most of these but leaves out CHATRC, SKILLSRC, THINKERS_DIR and SHELLM_BROKER_DIR. Probes and teacher-generated shellm test runs started from inside an identity therefore keep the live chatrc (`chat send` posts as that identity), the live skills rc, the live thinkers dir, and shellm's live docker-broker state dir (bin/shellm line 50/785). The README says the tool \"clear[s] caller identity/run selectors\", and design/runtime_isolation.md records a nested skill-compiler run (09-08) that damaged live state, so this gap is the incident the isolation was written to prevent.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "A full stubbed compile kept all four selectors, and the real skills loader sourced a synthetic .skillsrc. The CHATRC explanation needs narrowing. The evaluation adds the caller's .skillsrc fallback as an extension of this finding.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "blank-literals",
+      "label": "must",
+      "what": "An empty or single-space expected literal matches ordinary unrelated output, so a case with one passes.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 288,
+      "end_line": 303,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Empty or whitespace-only expect_contains literals always match. The teacher validation (line 775) accepts any string in expect_contains, including \"\". `_word_match` builds `(?<!\\w)` + `re.escape(\"\")` + `(?:s|es)?(?!\\w)`, and that pattern matches at the end of any line, so an empty literal always counts as a hit. Unlike `_phrase_match`, it has no `if lit` guard. A literal of a single space goes through `_phrase_match` and matches any evidence line that contains a space. Either way the test is marked a pass on an assertion that checks nothing (it shows up as GREEN-ON-INVENTED rather than FAIL), which works against the change's goal that literals cannot pass without evidence. Empty or blank literals should be rejected at validation or should never match.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced for an empty string and a single space. The claim that every whitespace-only literal always matches is wrong; see whitespace-always.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "whitespace-always",
+      "label": "invalid",
+      "what": "Every whitespace-only expected literal always matches, whatever the output.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 288,
+      "end_line": 303,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Empty or whitespace-only expect_contains literals always match. The teacher validation (line 775) accepts any string in expect_contains, including \"\". `_word_match` builds `(?<!\\w)` + `re.escape(\"\")` + `(?:s|es)?(?!\\w)`, and that pattern matches at the end of any line, so an empty literal always counts as a hit. Unlike `_phrase_match`, it has no `if lit` guard. A literal of a single space goes through `_phrase_match` and matches any evidence line that contains a space. Either way the test is marked a pass on an assertion that checks nothing (it shows up as GREEN-ON-INVENTED rather than FAIL), which works against the change's goal that literals cannot pass without evidence. Empty or blank literals should be rejected at validation or should never match.",
+          "date": "2026-10-16"
+        }
+      ],
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      },
+      "note": "Wrong: a tab failed against space-only output, and a space still needs a space in the evidence."
+    },
+    {
+      "id": "first-bracket-json",
+      "label": "valid",
+      "what": "Teacher JSON extraction decodes from the first '[' anywhere in the reply.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 760,
+      "end_line": 768,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Teacher JSON extraction decodes from the first '[' anywhere in the reply. The extractor runs `raw_decode` starting at the first `[` in the teacher's reply. Take a reply that has prose before the array, such as `Here are [3] cases:` followed by a ```json fenced array. The decode returns `[3]`, and validation then rejects it, so the run dies with \"Teacher returned invalid test cases\". If a bracket in the prose does not parse, `extracted` comes back empty and the raw text is validated, which also dies. The comment says the code handles markdown fences, but it only works when no `[` comes before the real array. It should try each `[` position, or the fenced block first, until it decodes a valid array of objects.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced. A robustness improvement for a teacher that breaks the JSON-only format; not a blocker.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "f5",
+      "label": "unlabeled",
+      "what": "Live probe output is collected without a size bound. Each probe (no arguments and `--help`) can run for 15 seconds. Its whole stdout is piped through sed/awk into `jq -Rs`, written to live.json, loaded into a shell variable, staged into jq again, and the full `$all - $offered` list is then written to pool-<skill>.json. A script that prints continuously when run with no arguments (a watcher, a loop, `yes`-style output) can produce hundreds of MB to GB in that window, all held in memory several times and written to the compiled dir. `SKILL_POOL_LIVE_CAP` limits only the offered entries, not what is collected. The probe output should be capped by bytes or lines before it reaches the jq stage (for example with `head -c`).",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 530,
+      "end_line": 540,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Live probe output is collected without a size bound. Each probe (no arguments and `--help`) can run for 15 seconds. Its whole stdout is piped through sed/awk into `jq -Rs`, written to live.json, loaded into a shell variable, staged into jq again, and the full `$all - $offered` list is then written to pool-<skill>.json. A script that prints continuously when run with no arguments (a watcher, a loop, `yes`-style output) can produce hundreds of MB to GB in that window, all held in memory several times and written to the compiled dir. `SKILL_POOL_LIVE_CAP` limits only the offered entries, not what is collected. The probe output should be capped by bytes or lines before it reaches the jq stage (for example with `head -c`).",
+          "date": "2026-10-16"
+        }
+      ]
+    },
+    {
+      "id": "f6",
+      "label": "unlabeled",
+      "what": "Probed script is chosen by unordered `find | head -1`. When SKILL.md does not name a `.py`/`.sh` file that exists, both `capture_phrase_pool` and `harvest_history_pool` (lines 321-323) take the first result of `find -maxdepth 1 ... | head -1`. The order of `find` output depends on the filesystem's directory order, so for a skill with several scripts, which one gets executed as the probe and searched for in history can differ between machines or after files are rewritten. The source-pool pass, by contrast, sorts the files. The candidates should be sorted, or a deterministic choice made.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 518,
+      "end_line": 526,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Probed script is chosen by unordered `find | head -1`. When SKILL.md does not name a `.py`/`.sh` file that exists, both `capture_phrase_pool` and `harvest_history_pool` (lines 321-323) take the first result of `find -maxdepth 1 ... | head -1`. The order of `find` output depends on the filesystem's directory order, so for a skill with several scripts, which one gets executed as the probe and searched for in history can differ between machines or after files are rewritten. The source-pool pass, by contrast, sorts the files. The candidates should be sorted, or a deterministic choice made.",
+          "date": "2026-10-16"
+        }
+      ]
+    },
+    {
+      "id": "descendant-test-timing",
+      "label": "valid",
+      "what": "Probe-descendant test relies on a 0.8 s wall-clock budget.",
+      "file": "tests/test_skill_compiler_regressions.py",
+      "start_line": 656,
+      "end_line": 663,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Probe-descendant test relies on a 0.8 s wall-clock budget. `probe_children` asserts `elapsed<0.8` for a run that starts bash, then python3 with a heredoc, then a Python parent and child, with a 0.2 s timeout. On a loaded CI runner or a cold machine, interpreter startup alone can use up that margin, so the regression fails at random even when `_sc_bounded` is correct. The real property is that the marker file is never written; the elapsed bound should be much looser or dropped.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "A plausible load-sensitive test; no CI flake reproduced. Removing the time check is an incomplete fix.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "retained-run-location",
+      "label": "valid",
+      "what": "SC_KEEP_RUNS prints only the scratch path, not the runs directory when SC_RUNS_BASE is set.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 14,
+      "end_line": 17,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "SC_KEEP_RUNS prints only the scratch path, not the runs directory when SC_RUNS_BASE is set. The README says that with SC_KEEP_RUNS=1 the location of the retained runs is printed to stderr. `cleanup` prints only `$SC_SCRATCH`. When SC_RUNS_BASE is set, the per-test rundirs that hold prompts, runner stderr and trajectories are created under that base (line 833) instead, and their location is never reported.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed, though the run directories are discoverable through the runs manifest.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "duplicated-parsing",
+      "label": "valid",
+      "what": "Script discovery, emit() helpers and frontmatter regexes are duplicated.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 318,
+      "end_line": 324,
+      "kind": "maintainability",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Script discovery, emit() helpers and frontmatter regexes are duplicated. Script discovery is written twice: lines 318-324 in harvest_history_pool and lines 519-524 in capture_phrase_pool. The `emit()`/`PLACEHOLDER_SCAFFOLD_RE` block is copied between the source-pool and doc-pool Python heredocs. The jq `stable_unique` def appears twice (lines 636 and 643). The frontmatter regex appears in four different forms (lines 128, 222, 573 and 1212); some accept trailing whitespace and others do not. The copies already disagree, so a skill whose `---` line has trailing spaces is parsed as having frontmatter in parse_skill_spec but not in the doc pool or the provenance classifier. These should share a single helper each.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "The frontmatter parsing inconsistency is concrete; extracting every duplicate is optional.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "usage-omissions",
+      "label": "valid",
+      "what": "Usage text omits --max-iterations from the compile synopsis and misdescribes the search roots.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 46,
+      "end_line": 64,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Usage text omits --max-iterations from the compile synopsis and misdescribes the search roots. The synopsis on line 47 lists `[--teacher-model] [--num-tests]` but leaves out `--max-iterations`, which is accepted and documented in the option list. `--skill` is described as a \"directory name under skills/ or kernel/\", but the roots are actually SKILLS_DIR (by default the parent of the script) and SKILLS_KERNEL_DIR. The usage text also says the command compiles a skill, while README/SKILL.md say it only produces validation reports and does not train adapters. The PR title (\"compile skills into validated cached adapters\") makes the same overstatement.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Small documentation fixes.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "missing-requires-bins",
+      "label": "valid",
+      "what": "Skill does not declare its required binaries in frontmatter.",
+      "file": "skills/skill-compiler/SKILL.md",
+      "start_line": 1,
+      "end_line": 4,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Skill does not declare its required binaries in frontmatter. SKILL.md says the skill requires Bash, Python 3, jq, llm, shellm and skills. skills/skill-author/SKILL.md says such requirements belong in `metadata.shelllm.requires.bins`, so the skill is filtered out where they are missing. This skill declares none of them, so `skills list` offers it on hosts where it cannot run.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "The loader supports filtering on that metadata, so the declaration is worth adding.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "stale-test-name",
+      "label": "valid",
+      "what": "Test name refers to \"rules 15-18\" but the prompt numbers them 1-4.",
+      "file": "tests/test_skill_compiler.sh",
+      "start_line": 262,
+      "end_line": 266,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Test name refers to \"rules 15-18\" but the prompt numbers them 1-4. The check is reported as \"teacher prompt carries rules 15-18 and the bins install status\". The teacher template in skill-compiler (lines 720-723) numbers these rules 1-4, so the name refers to a numbering that no longer exists and will mislead anyone reading a failure.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Rename the test; its checks remain useful.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    },
+    {
+      "id": "tests-isolation-gaps",
+      "label": "valid",
+      "what": "No tests for the isolation gaps, blank literals or prose-wrapped teacher output.",
+      "file": "tests/test_skill_compiler_regressions.py",
+      "start_line": 239,
+      "end_line": 255,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5546561301",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "No tests for the isolation gaps, blank literals or prose-wrapped teacher output. The regression suite has no case for any of these: running the compiler with CHATRC/SKILLSRC/THINKERS_DIR/SHELLM_BROKER_DIR set by an activated identity (`probe_isolation` checks only MEM/TRAJ/HOME/CONF/ENVS), an empty or whitespace-only expect_contains literal, or a teacher reply where bracketed prose comes before the JSON array. Each of these is a branch where the current code misbehaves and a test would catch it.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Coverage for the selector, blank-literal and bracketed-prose findings, not three more defects.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
+        "date": "2026-10-17"
+      }
+    }
+  ]
+}

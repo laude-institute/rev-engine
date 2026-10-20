@@ -1,0 +1,343 @@
+{
+  "id": "headlong-156-d76b930",
+  "repo": "laude-institute/headlong",
+  "pr": 156,
+  "base": "2a63d92ce1038eba0d5fb9c14f6accded9edbb5f",
+  "head": "d76b930249cf8860c24da98c47fb02d4881cf264",
+  "title": "skill-compiler: compile skills into validated cached adapters, with pool-attested pass verification",
+  "body": "Port of fork PR 12 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
+  "source": "The review evaluation posted on the pull request on 2026-10-16 at the maintainer's request, written by the maintainer's review agent from focused offline reproductions of each claim. The description is copied from the earlier case of this pull request, where names were replaced.",
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+      "commit": "d76b930249cf8860c24da98c47fb02d4881cf264",
+      "date": "2026-10-16",
+      "fit": "fits_with_concerns"
+    }
+  ],
+  "fixes": [
+    "2c8544fdf63308b719408b5b1cf5bcff264a3fc8"
+  ],
+  "fit": "fits",
+  "advice": [
+    "fix, then merge"
+  ],
+  "findings": [
+    {
+      "id": "credentials-lost",
+      "label": "must",
+      "what": "Test runs lose the operator's API key and model config: the state home is redirected and key variables are exported as empty strings.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 776,
+      "end_line": 813,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "high",
+          "text": "Test runs lose the operator's API key and model config: the state home is redirected and key variables are exported as empty strings. `_sc_isolate_state` points HEADLONG_HOME, SHELLM_HOME and SHELLM_CONF_DIR at `$rundir/state`. bin/shellm (lines 42-46) and bin/llm (lines 32-36) load credentials and model only from `./.env` and `$SHELLM_CONF_DIR|$HEADLONG_HOME/.env`, so the operator's `~/.headlong/.env` is never read. AGENTS.md lists that file as where the key and model live in a standard install. Lines 807-813 then export OPENROUTER_API_KEY, ANTHROPIC_API_KEY, LLM_API_URL, LLM_PROVIDER and the others as empty strings. `_shellm_load_env` and `_llm_load_env` skip any variable that is already set (`${!key+x}`), so even a reachable .env could not fill them. An empty LLM_API_URL is also recorded as an explicit process override (shellm lines 23-25, 89-90) and wipes a configured SHELLM_API_URL. As a result, on a normal install the teacher call works (it runs before isolation), but every shellm test run has no key and a fallback model, so every case ends in harness_error. The README's claim that 'credentials/model configuration remain available' is false.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed with the repository's configuration loader: the test runner loses the key and model from the state-home and working-directory .env. The evaluation says the high severity is justified.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      },
+      "severity": "high"
+    },
+    {
+      "id": "obsidian-not-refused",
+      "label": "must",
+      "what": "Skip list omits this repo's live-store skill (obsidian) and lists fork-only skill names.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 139,
+      "end_line": 142,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Skip list omits this repo's live-store skill (obsidian) and lists fork-only skill names. COMPILE_SKIP_SKILLS names github-api, traj, recap, goal-review and git-diff-summarizer, none of which ship in this repo's skills/. It does not name skills/obsidian, whose SKILL.md documents writing, moving and `rm` of notes under `$OBSIDIAN_VAULT`. `_sc_isolate_state` does not unset or redirect OBSIDIAN_VAULT, so generated tests for `compile --skill obsidian` run against the user's real vault and can modify or delete notes. The README says the fixed refusal list 'excludes known messaging, credential and live-store skills', which is not true for this repository.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "The bundled Obsidian skill writes through OBSIDIAN_VAULT and is not on the refusal list. Keeping extra names for user-installed skills is not a bug.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "unchecked-options",
+      "label": "valid",
+      "what": "--num-tests and --max-iterations are not validated, and the returned case count is never checked.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 1288,
+      "end_line": 1298,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "--num-tests and --max-iterations are not validated, and the returned case count is never checked. `num_tests` and `max_iterations` are taken from argv unchecked. A non-numeric or zero `--num-tests` is pasted into the teacher prompt ('Return only a JSON array with abc objects'). `--max-iterations` goes straight to shellm, so a bad value fails every test as a harness error rather than being rejected up front. The validation at lines 711-716 only requires a non-empty array, so a teacher that returns 1 or 30 cases is accepted silently, with cost and coverage the operator did not ask for. A missing option value (e.g. a trailing `--skill`) dies with a bash 'unbound variable' error instead of a usage message. Caps get careful validation in `_sc_cap`; these options get none.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced. Useful cost and coverage control; not every subcase merits medium.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "history-min-silent",
+      "label": "valid",
+      "what": "Invalid SKILL_HARVEST_MIN_COUNT silently disables history harvesting.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 276,
+      "end_line": 298,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Invalid SKILL_HARVEST_MIN_COUNT silently disables history harvesting. SKILL_HARVEST_MIN_COUNT is passed to jq via `--argjson` (line 277) and to Python `int()` (line 298) with no validation. A non-integer value makes the cache check fail, and the harvester's ValueError is hidden by `2>/dev/null || return 1`, so history is silently left out of both the pool and TOOL-OUTPUT classification. The pool caps reject bad values and name the variable (`_sc_cap`); this setting does not, and the README does not document it.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed. Configuration handling for an optional vocabulary source.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "unchecked-reported-missed",
+      "label": "valid",
+      "what": "expect_contains_missed lists every literal as missed even when matching never ran.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 880,
+      "end_line": 881,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "expect_contains_missed lists every literal as missed even when matching never ran. `ec_missed` starts as the full `expect_contains` array and is reset to `[]` only when literal matching actually runs. When the runner failed or the named evidence was absent, the result JSON reports every literal under `expect_contains_missed`, even though no literal was checked. That misleads anyone diagnosing a failure from the report.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed. A reporting improvement, not a false pass; the evaluation says medium overstates it.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "tests-credentials",
+      "label": "valid",
+      "what": "Tests never check that test runs can reach the operator's credentials or state-home .env.",
+      "file": "tests/test_skill_compiler.sh",
+      "start_line": 136,
+      "end_line": 136,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Tests never check that test runs can reach the operator's credentials or state-home .env. Every test case strips all *_API_KEY and LLM_* variables, and the stub shellm needs no credentials. No test checks that a key or model configured in `$HEADLONG_HOME/.env` reaches the isolated shellm run. That is exactly the setup that breaks under `_sc_isolate_state` combined with the empty exports. A regression that asserts the stub shellm sees the configured key, and an unchanged SHELLM_API_URL, would catch it.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Coverage for the credentials finding, not an additional runtime problem.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "documented-output-filtered",
+      "label": "must",
+      "what": "Tool-output lines that match documented SKILL.md examples are removed from the evidence.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 888,
+      "end_line": 894,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Tool-output lines that match documented SKILL.md examples are removed from the evidence. `exec_filter_file` is built from `full_prompt`, which includes the `skills prompt` text and the whole pre-loaded SKILL.md (`skill_content`). Any shell-output line that is identical to a line in the skill's documentation is then subtracted from `exec_content`. The doc pool (capture_phrase_pool) harvests exactly those fenced example lines, and the teacher is told to copy literals verbatim from the pool. So when a tool prints its documented output, the matching line is discarded and the literal can only be satisfied by the final answer. The FINAL-AS-EXPECTED comment says skill text must not be filtered, but only the final answer gets that treatment. This causes false FAILs for observation and shell-output cases.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Reproduced: observation and shell-output expectations fail when the recorded output also appears in SKILL.md.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "incidental-error",
+      "label": "valid",
+      "what": "`error` expectation passes on any failed command in the run, even one unrelated to the skill.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 867,
+      "end_line": 869,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "`error` expectation passes on any failed command in the run, even one unrelated to the skill. The `error` branch passes when any shell-output row in the root run has a nonzero `exit` and is not a timeout. Agents routinely run commands that fail while exploring (a missing file in `ls`, `cat`, `which`). So a case meant to check the skill's documented failure passes as soon as any incidental command fails, even if the skill never ran or succeeded. Nothing ties the failing command to the skill's script or binary.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Confirmed, but the README defines this coarse contract. Weak attribution, not a blocker.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "probe-children",
+      "label": "must",
+      "what": "A probe's background children survive a normal exit and keep its output pipe open, so the probe deadline does not hold and the pool pipeline waits.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 723,
+      "end_line": 735,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Probe subprocesses inherit stdin and keep background children alive after a normal exit. `_sc_bounded` starts the skill script with `subprocess.Popen(sys.argv[2:], start_new_session=True)` and does not set `stdin=subprocess.DEVNULL`. A script run with no arguments that reads stdin therefore blocks for the full 15-second deadline on an interactive terminal, or consumes the caller's piped stdin. The process group is killed only on timeout, so any background process the probe spawns survives a normal exit and outlives the scratch directory cleanup.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Must for child-process lifetime: a child keeping the output pipe defeats the deadline. The stdin part of the same finding is wrong; see probe-stdin.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      }
+    },
+    {
+      "id": "probe-stdin",
+      "label": "invalid",
+      "what": "The probe's child processes can read the caller's stdin because it is not set to DEVNULL.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 723,
+      "end_line": 735,
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "Probe subprocesses inherit stdin and keep background children alive after a normal exit. `_sc_bounded` starts the skill script with `subprocess.Popen(sys.argv[2:], start_new_session=True)` and does not set `stdin=subprocess.DEVNULL`. A script run with no arguments that reads stdin therefore blocks for the full 15-second deadline on an interactive terminal, or consumes the caller's piped stdin. The process group is killed only on timeout, so any background process the probe spawns survives a normal exit and outlives the scratch directory cleanup.",
+          "date": "2026-10-16"
+        }
+      ],
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      },
+      "note": "The stdin claim is wrong as written: Python reads its program from the heredoc first, so the child gets EOF."
+    },
+    {
+      "id": "stale-rule-refs",
+      "label": "valid",
+      "what": "A comment cites teacher prompt rule 7, which no longer exists, and prompt rules numbered from 15 are confusing to maintain.",
+      "file": "skills/skill-compiler/skill-compiler",
+      "start_line": 660,
+      "end_line": 663,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Teacher prompt and comments cite rules 7, 15-18 that no longer exist as a numbered list. The prompt template numbers only rules 15-18, with no rules 1-14 before them. The comment at line 613 cites 'rule 18' and the comment at line 746 cites 'rule 7', which no longer exists. These numbers are left over from an earlier prompt and confuse both the teacher model and maintainers.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Valid, low severity. The rule-7 reference is stale, but rules 15 to 18 do still exist, so the claim that they do not is wrong.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      },
+      "severity": "low"
+    },
+    {
+      "id": "tests-list-names",
+      "label": "valid",
+      "what": "`list` command and skill-name validation for show/clean have no tests.",
+      "file": "tests/test_skill_compiler.sh",
+      "start_line": 155,
+      "end_line": 168,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/156#pullrequestreview-5545383955",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "`list` command and skill-name validation for show/clean have no tests. The suite covers compile, pool and clean, but never runs `skill-compiler list`, including its 'No compiled skills' branch. It also never checks that `show` and `clean` reject path-like names through `validate_skill_name`.",
+          "date": "2026-10-16"
+        }
+      ],
+      "note": "Valid, low severity. Missing coverage, not a path-validation bypass.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
+        "date": "2026-10-16"
+      },
+      "severity": "low"
+    }
+  ]
+}
