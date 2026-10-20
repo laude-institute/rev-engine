@@ -82,6 +82,16 @@ npm run eval -- <run-name> --split tune     # the cases to tune on
 npm run eval -- <run-name> --split check    # confirm a change on the rest
 ```
 
+## Earlier decisions
+
+A case for a later review of a pull request can carry `prior`: the maintainer's decisions on the earlier reviews, as the action would have collected them before this review. Rebuild it with the collector, giving the time just before the case's review:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) RB_NWO=owner/repo RB_PR_NUMBER=123 PRIOR_PATH=prior.json node action/collect.ts --before 2026-10-16T10:36:45Z
+```
+
+The eval gives `prior` to the reviewer, and `--no-prior` leaves it out. Either way, the earlier findings decided as wrong, won't fix, deferred or resolved are scored as extra invalid findings with ids starting `earlier-`. The report counts how often a review raises one again, apart from the other invalid findings, and how many repeats the verifier left out. Compare a run with `prior` against one with `--no-prior`: repeats should fall, and the `must` findings should still be reported.
+
 ## Export to ReviewBench
 
 The cases can be scored with ReviewBench's judging CLI as well, which gives precision, recall and F1 and judges the findings that match no label:

@@ -21,6 +21,20 @@
   "advice": [
     "fix, then merge"
   ],
+  "prior": {
+    "entries": [
+      {
+        "id": "P1",
+        "file": "",
+        "title": "unused `f` will fail ShellCheck",
+        "decision": "wrong",
+        "reason": "The exact script passes local ShellCheck 0.11.0 at warning level, and the published commit's hosted ShellCheck job passed. The assignment is unused within that loop and is reasonable cleanup, but the predicted SC2034 failure is not supported. Keep the harmless dead-assignment nit separate from th...",
+        "round": 2,
+        "source": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232"
+      }
+    ],
+    "omitted": 0
+  },
   "findings": [
     {
       "id": "mutable-pool-provenance",

@@ -1,6 +1,7 @@
 // Case files, scoring and the report for the review evals. No model calls and
 // no file access here, so all of it can be unit tested.
 import { recommendation, type Finding, type Severity } from "../action/comments.ts";
+import { parsePrior, type PriorDecisions } from "../src/prior.ts";
 
 /**
  * must: every review should report it. valid: correct when reported, but not
@@ -122,6 +123,12 @@ export interface EvalCase {
   reviews?: ReviewRef[];
   /** Commits the author made after head in response to the reviews, oldest first. */
   fixes?: string[];
+  /**
+   * The maintainer's decisions on earlier reviews of this pull request, as the
+   * action would have collected them before this case's review (action/collect.ts
+   * with --before). The eval gives them to the reviewer unless run with --no-prior.
+   */
+  prior?: PriorDecisions;
   findings: Expectation[];
 }
 
@@ -177,6 +184,7 @@ export function parseCase(value: unknown, name: string): EvalCase {
       if (!SHA.test(String(review.commit))) fail("a review's commit must be a full commit id");
     }
   }
+  if (item.prior !== undefined && !parsePrior(item.prior)) fail("prior holds no usable earlier decision");
   if (item.split !== undefined && item.split !== "tune" && item.split !== "check") fail('split must be "tune" or "check"');
   if (item.fixes !== undefined && !(Array.isArray(item.fixes) && item.fixes.every((commit) => SHA.test(String(commit))))) fail("fixes must be a list of full commit ids");
   return { title: "", body: "", ...item } as unknown as EvalCase;
@@ -195,6 +203,26 @@ export interface RunResult {
   matches: Record<string, number[]>;
   /** Set when the review or the matching failed; such a run is left out of every count. */
   error?: string;
+  /** How many findings the verifier left out as repeats of earlier decided ones. */
+  decided?: number;
+}
+
+/** Ids of the expectations made from earlier decisions start with this. */
+export const EARLIER = "earlier-";
+const SUPPRESSED = new Set(["wrong", "wont_fix", "deferred", "resolved"]);
+
+/**
+ * The case with the findings the maintainer already decided against added as
+ * invalid expectations, so the report counts how often a review raises one again.
+ * Fixed findings are left out: reporting one again is only wrong when its fix holds.
+ */
+export function withEarlierDecisions(evalCase: EvalCase): EvalCase {
+  if (!evalCase.prior) return evalCase;
+  const earlier = evalCase.prior.entries.filter((entry) => SUPPRESSED.has(entry.decision)).map((entry): Expectation => ({
+    id: `${EARLIER}${entry.id}`, label: "invalid", what: `${entry.title}${entry.reason ? ` ${entry.reason}` : ""}`,
+    ...(entry.file ? { file: entry.file } : {}), note: `Decided as ${entry.decision} in round ${entry.round}.`,
+  }));
+  return { ...evalCase, findings: [...evalCase.findings, ...earlier] };
 }
 
 /** The label of the merge advice the action would show, such as "fix, then merge". */
@@ -222,6 +250,8 @@ export interface CaseScore {
   /** Reported findings that match no expectation, from every run. They are candidates for labeling. */
   unlabeled: Finding[];
   costUsd: number;
+  /** Repeats of earlier decided findings the verifier left out, over every run. */
+  decided: number;
 }
 
 export function scoreCase(evalCase: EvalCase, results: RunResult[]): CaseScore {
@@ -256,10 +286,16 @@ export function scoreCase(evalCase: EvalCase, results: RunResult[]): CaseScore {
     advice,
     unlabeled,
     costUsd: results.reduce((sum, run) => sum + run.costUsd, 0),
+    decided: runs.reduce((sum, run) => sum + (run.decided ?? 0), 0),
   };
 }
 
 export interface Totals {
+  /** Earlier decided findings a review raised again, and how many chances there were. */
+  earlierReported: number;
+  earlierPossible: number;
+  /** Repeats of earlier decided findings that the verifier left out. */
+  verifierLeftOut: number;
   mustReported: number;
   mustPossible: number;
   validReported: number;
@@ -278,11 +314,18 @@ export interface Totals {
 
 export function totals(scores: CaseScore[]): Totals {
   const sum: Totals = {
+    earlierReported: 0, earlierPossible: 0, verifierLeftOut: 0,
     mustReported: 0, mustPossible: 0, validReported: 0, validPossible: 0, invalidReported: 0, invalidPossible: 0,
     kindRight: 0, kindChecked: 0, severityRight: 0, severityChecked: 0, fitRight: 0, fitChecked: 0, adviceRight: 0, adviceChecked: 0,
   };
   for (const score of scores) {
+    sum.verifierLeftOut += score.decided;
     for (const entry of score.expectations) {
+      if (entry.expectation.id.startsWith(EARLIER)) {
+        sum.earlierReported += entry.reported;
+        sum.earlierPossible += score.runs;
+        continue;
+      }
       const label = entry.expectation.label as "must" | "valid" | "invalid";
       sum[`${label}Reported`] += entry.reported;
       sum[`${label}Possible`] += score.runs;
@@ -319,6 +362,10 @@ export function renderReport(name: string, settings: string, scores: CaseScore[]
     `- Severity at or above the expected level, when reported: ${ratio(sum.severityRight, sum.severityChecked)}.`,
     `- Fit verdict as expected: ${ratio(sum.fitRight, sum.fitChecked)}.`,
     `- Merge advice among the accepted ones: ${ratio(sum.adviceRight, sum.adviceChecked)}.`,
+    ...(sum.earlierPossible ? [
+      `- Findings the maintainer decided in an earlier round, reported again: ${ratio(sum.earlierReported, sum.earlierPossible)}. Lower is better.`,
+      `- Repeats of earlier decided findings that the verifier left out: ${sum.verifierLeftOut}.`,
+    ] : []),
   ];
   for (const score of scores) {
     lines.push("", `## ${score.case.id}${score.case.split === "check" ? " (check only)" : ""}`, "", `${score.case.repo}#${score.case.pr}, ${score.runs} run(s)${score.failed ? `, ${score.failed} failed` : ""}. Labels from: ${score.case.source.replace(/\.$/, "")}.`, "");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import type { Finding } from "../action/comments.ts";
-import { adviceLabel, parseCase, renderReport, scoreCase, totals, type EvalCase, type RunResult } from "../evals/lib.ts";
+import { adviceLabel, parseCase, renderReport, scoreCase, totals, withEarlierDecisions, type EvalCase, type RunResult } from "../evals/lib.ts";
 import { prKey, toReviewBench } from "../evals/reviewbench.ts";
 
 const CASE: EvalCase = {
@@ -131,4 +131,26 @@ test("counts how often each labeled finding was reported, and how", () => {
   assert.match(report, /\| bug: The sign is wrong\. \| must \| 3 of 3 \| 2 of 3 \| 2 of 3 \|/);
   assert.match(report, /Review cost \$2\.00, matching cost \$0\.02\./);
   assert.match(report, /- low, documentation, `a\.ts:1`\. Other/);
+});
+
+test("counts earlier decided findings raised again apart from the invalid ones", () => {
+  const prior = {
+    entries: [
+      { id: "P1", file: "a.ts", title: "No unsubscribe.", decision: "wont_fix" as const, round: 1, source: "x" },
+      { id: "P2", file: "a.ts", title: "Spec stale.", decision: "fixed" as const, round: 1, source: "y" },
+    ],
+    omitted: 0,
+  };
+  assert.throws(() => parseCase({ ...CASE, prior: { entries: [] } }, "x"), /prior/);
+  const scored = withEarlierDecisions(parseCase({ ...CASE, prior }, "x"));
+  // A fixed finding is only wrong to raise again when its fix holds, so it is not counted.
+  assert.deepEqual(scored.findings.filter((item) => item.id.startsWith("earlier-")).map((item) => [item.id, item.label]), [["earlier-P1", "invalid"]]);
+  const score = scoreCase(scored, [
+    { ...run([finding("medium", "defect", "Unsubscribe")], { bug: [], nit: [], wrong: [], "earlier-P1": [0] }), decided: 1 },
+    { ...run([], { bug: [], nit: [], wrong: [], "earlier-P1": [] }), decided: 2 },
+  ]);
+  const sum = totals([score]);
+  assert.deepEqual([sum.earlierReported, sum.earlierPossible, sum.verifierLeftOut, sum.invalidPossible], [1, 2, 3, 2]);
+  assert.match(renderReport("demo", "Settings.", [score], 0), /decided in an earlier round, reported again: 1 of 2\. Lower is better\./);
+  assert.equal(withEarlierDecisions(CASE), CASE);
 });

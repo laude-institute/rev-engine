@@ -1,7 +1,11 @@
 // Runs the review on every eval case several times and reports how often each
 // labeled finding came back. Nothing is posted anywhere.
 //
-//   node evals/run.ts <run-name> [--runs 3] [--case <id>]... [--split tune|check] [--model <id>] [--judge <id>] [--jobs 3] [--score-only]
+//   node evals/run.ts <run-name> [--runs 3] [--case <id>]... [--split tune|check] [--no-prior] [--model <id>] [--judge <id>] [--jobs 3] [--score-only]
+//
+// A case with earlier decisions gives them to the reviewer, the way the action
+// would on a later review of the same pull request. --no-prior leaves them out,
+// to compare.
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -11,7 +15,7 @@ import { promisify } from "node:util";
 import type { Finding } from "../action/comments.ts";
 import { createChat, emptyUsage } from "../src/llm.ts";
 import type { ToolDefinition } from "../src/tools.ts";
-import { parseCase, renderReport, scoreCase, type EvalCase, type RunResult } from "./lib.ts";
+import { parseCase, renderReport, scoreCase, withEarlierDecisions, type EvalCase, type RunResult } from "./lib.ts";
 
 const exec = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,6 +27,8 @@ interface Options {
   runs: number;
   cases: string[];
   split?: "tune" | "check";
+  /** Leave out the earlier decisions of cases that have them. */
+  noPrior: boolean;
   model: string;
   judge: string;
   jobs: number;
@@ -30,7 +36,7 @@ interface Options {
 }
 
 function parseArguments(argv: string[]): Options {
-  const options: Options = { name: "", runs: 3, cases: [], model: "anthropic/claude-opus-5.5", judge: "anthropic/claude-sonnet-5", jobs: 3, scoreOnly: false };
+  const options: Options = { name: "", runs: 3, cases: [], model: "anthropic/claude-opus-5.5", judge: "anthropic/claude-sonnet-5", jobs: 3, scoreOnly: false, noPrior: false };
   for (let at = 0; at < argv.length; at += 1) {
     const flag = argv[at]!;
     const value = (): string => argv[++at] ?? "";
@@ -45,6 +51,7 @@ function parseArguments(argv: string[]): Options {
     else if (flag === "--judge") options.judge = value();
     else if (flag === "--jobs") options.jobs = Number(value());
     else if (flag === "--score-only") options.scoreOnly = true;
+    else if (flag === "--no-prior") options.noPrior = true;
     else if (!flag.startsWith("-") && !options.name) options.name = flag;
     else throw new Error(`unknown argument ${flag}`);
   }
@@ -81,7 +88,7 @@ async function apiKey(): Promise<string> {
 const git = (directory: string, ...args: string[]) => exec("git", ["-C", directory, ...args], { maxBuffer: 256 * 1024 * 1024 });
 
 /** A checkout of the case's head, with the base fetched, plus the diff and the pull request text. */
-async function prepare(evalCase: EvalCase, directory: string): Promise<void> {
+async function prepare(evalCase: EvalCase, directory: string, noPrior: boolean): Promise<void> {
   const cache = join(root, "runs/.cache/evals", evalCase.repo.replace("/", "__"));
   const remote = `https://github.com/${evalCase.repo}`;
   if (!existsSync(cache)) {
@@ -98,6 +105,9 @@ async function prepare(evalCase: EvalCase, directory: string): Promise<void> {
   const { stdout } = await git(repo, "diff", `${evalCase.base}...${evalCase.head}`);
   await writeFile(join(directory, "pr/diff.patch"), stdout);
   await writeFile(join(directory, "pr/pr.json"), JSON.stringify({ title: evalCase.title, body: evalCase.body }));
+  // The reviewer reads prior.json when it exists, so a run without earlier decisions must remove it.
+  if (evalCase.prior && !noPrior) await writeFile(join(directory, "pr/prior.json"), JSON.stringify(evalCase.prior));
+  else await rm(join(directory, "pr/prior.json"), { force: true });
 }
 
 async function review(evalCase: EvalCase, directory: string, out: string, options: Options, key: string): Promise<void> {
@@ -106,7 +116,7 @@ async function review(evalCase: EvalCase, directory: string, out: string, option
   const env = {
     RB_NWO: evalCase.repo, RB_PR_NUMBER: String(evalCase.pr), RB_BASE: evalCase.base, RB_HEAD: evalCase.head,
     RB_CONFIG_MODEL: options.model, RB_CONFIG_FIT: options.model, RB_DETAILS_OUT: "/work/out/details.json", RB_CONTEXT_OUT: "/work/out/context.json",
-    RB_REPO: "/work/repo", RB_DIFF: "/work/pr/diff.patch", RB_PR_JSON: "/work/pr/pr.json", RB_OUT: "/work/out/findings.json", RB_ATTEMPT: "1",
+    RB_REPO: "/work/repo", RB_DIFF: "/work/pr/diff.patch", RB_PR_JSON: "/work/pr/pr.json", RB_PRIOR_JSON: "/work/pr/prior.json", RB_OUT: "/work/out/findings.json", RB_ATTEMPT: "1",
   };
   const args = [
     "run", "--rm", "-v", `${join(directory, "repo")}:/work/repo:ro`, "-v", `${join(directory, "pr")}:/work/pr:ro`, "-v", `${out}:/work/out`,
@@ -177,9 +187,12 @@ async function readRun(evalCase: EvalCase, out: string, chat: Chat, judge: strin
   const empty: RunResult = { findings: [], fit: null, costUsd: 0, seconds: 0, matches: {} };
   try {
     const output = JSON.parse(await readFile(join(out, "findings.json"), "utf8")) as { usage?: { cost_usd?: number; time_in_ms?: number } };
-    const details = JSON.parse(await readFile(join(out, "details.json"), "utf8")) as { findings: Finding[] };
+    const details = JSON.parse(await readFile(join(out, "details.json"), "utf8")) as { findings: Finding[]; decided?: unknown[] };
     const fit = await readFile(join(out, "fit.json"), "utf8").then((text) => (JSON.parse(text) as { verdict: string }).verdict, () => null);
-    const run = { ...empty, findings: details.findings, fit, costUsd: output.usage?.cost_usd ?? 0, seconds: Math.round((output.usage?.time_in_ms ?? 0) / 1000) };
+    const run = {
+      ...empty, findings: details.findings, fit, costUsd: output.usage?.cost_usd ?? 0, seconds: Math.round((output.usage?.time_in_ms ?? 0) / 1000),
+      decided: Array.isArray(details.decided) ? details.decided.length : 0,
+    };
     return { ...run, matches: await match(evalCase, details.findings, chat, judge) };
   } catch (error) {
     return { ...empty, error: error instanceof Error ? error.message : String(error) };
@@ -204,7 +217,7 @@ const say = (message: string): void => console.error(`eval: ${message}`);
 if (!options.scoreOnly) {
   say("building the image");
   await exec("docker", ["build", "--quiet", "--tag", IMAGE, root]);
-  for (const evalCase of cases) await prepare(evalCase, join(runRoot, evalCase.id));
+  for (const evalCase of cases) await prepare(evalCase, join(runRoot, evalCase.id), options.noPrior);
   const jobs = cases.flatMap((evalCase) => Array.from({ length: options.runs }, (_, index) => async () => {
     say(`reviewing ${evalCase.id}, run ${index + 1}`);
     await review(evalCase, join(runRoot, evalCase.id), join(runRoot, evalCase.id, `run-${index + 1}`), options, key);
@@ -219,13 +232,16 @@ const raw: Record<string, RunResult[]> = {};
 for (const evalCase of cases) {
   const directory = join(runRoot, evalCase.id);
   const runs = existsSync(directory) ? (await readdir(directory)).filter((name) => /^run-\d+$/.test(name)).sort() : [];
-  const results = await Promise.all(runs.map((run) => readRun(evalCase, join(directory, run), chat, options.judge)));
+  // Earlier decided findings are scored in runs with and without them, so the two can be compared.
+  const scored = withEarlierDecisions(evalCase);
+  const results = await Promise.all(runs.map((run) => readRun(scored, join(directory, run), chat, options.judge)));
   for (const [index, result] of results.entries()) if (result.error) say(`${evalCase.id} ${runs[index]} left out: ${result.error}`);
   raw[evalCase.id] = results;
-  scores.push(scoreCase(evalCase, results));
+  scores.push(scoreCase(scored, results));
 }
 
-const settings = `Reviewer ${options.model}, matching by ${options.judge}, up to ${options.runs} run(s) per case.`;
+const withPrior = cases.some((evalCase) => evalCase.prior);
+const settings = `Reviewer ${options.model}, matching by ${options.judge}, up to ${options.runs} run(s) per case.${withPrior ? ` Earlier decisions ${options.noPrior ? "left out" : "given to the reviewer"}.` : ""}`;
 const report = renderReport(options.name, settings, scores, judgeUsage.costUsd);
 await writeFile(join(runRoot, "report.md"), report);
 await writeFile(join(runRoot, "results.json"), `${JSON.stringify(raw, null, 2)}\n`);
