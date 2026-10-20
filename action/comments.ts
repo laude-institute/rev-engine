@@ -187,8 +187,9 @@ function location(finding: Finding): string {
 
 /** The first `count` sentences of a text, and the rest. */
 function sentences(text: string, count: number): { lead: string; rest: string } {
-  const parts = text.trim().match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)\s*/g) ?? [text];
-  return { lead: parts.slice(0, count).join("").trim(), rest: parts.slice(count).join("").trim() };
+  // A sentence ends at a stop followed by a space, so "AGENTS.md" or "v1.2" stays whole.
+  const parts = text.trim().split(/(?<=[.!?])\s+/);
+  return { lead: parts.slice(0, count).join(" "), rest: parts.slice(count).join(" ") };
 }
 
 /**

@@ -174,6 +174,8 @@ test("the fit section keeps two sentences of the summary in view and collapses t
     reasons: [{ point: "Reuses the mention queue.", detail: "The spec lists the same email type.", source: "specs/lander.spec.md" }],
   } });
   assert.match(parts.body, /\*\*It fits the project\.\*\* It extends an existing feature\. It reuses the queue\.\n\n<details>\n<summary>1 reason with sources<\/summary>\n\nIt also adds a helper folder, which is allowed\.\n\n- Reuses the mention queue\. The spec lists the same email type\. \(specs\/lander\.spec\.md\)/);
+  const dotted = buildReview({ ...base, findings: [], fit: { verdict: "fits", summary: "It rewrites vibes/AGENTS.md to approve its own layout. It fits.", reasons: [] } });
+  assert.match(dotted.body, /\*\* It rewrites vibes\/AGENTS\.md to approve its own layout\. It fits\.\n/);
   const bare = buildReview({ ...base, findings: [], fit: { verdict: "fits", summary: "A bug fix. It fits.", reasons: [] } });
   assert.doesNotMatch(bare.body, /<details>/);
 });
