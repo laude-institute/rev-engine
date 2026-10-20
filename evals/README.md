@@ -73,6 +73,15 @@ The stored description is what the reviewer reads. Replace the names of people a
 
 Only label from a person's judgment. A finding that looks right to you but that nobody has confirmed stays `unlabeled`.
 
+## Keep some cases for checking only
+
+A case with `"split": "check"` is not used for tuning. Run it to confirm that a change helps, but do not read its misses while changing the reviewer, so a gain there was not fitted to it. About one case in five should be `check`. Choose whole pull requests: when one pull request has a case for each of several reviews, give them all the same split, since they share code and findings.
+
+```sh
+npm run eval -- <run-name> --split tune     # the cases to tune on
+npm run eval -- <run-name> --split check    # confirm a change on the rest
+```
+
 ## Export to ReviewBench
 
 The cases can be scored with ReviewBench's judging CLI as well, which gives precision, recall and F1 and judges the findings that match no label:

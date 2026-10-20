@@ -23,6 +23,7 @@
   "fixes": [
     "823877811f784069bef3ea3f3b303b6a5b0fb006"
   ],
+  "split": "check",
   "findings": [
     {
       "id": "sigpipe",

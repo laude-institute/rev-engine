@@ -113,6 +113,11 @@ export interface EvalCase {
   fit?: string;
   /** The merge advice a person would accept, when one has been decided. */
   advice?: string[];
+  /**
+   * "check" keeps the case out of tuning: run it to confirm a change, but do not
+   * read its misses while changing the reviewer. Unset means "tune".
+   */
+  split?: "tune" | "check";
   /** The reviews the findings were collected from. */
   reviews?: ReviewRef[];
   /** Commits the author made after head in response to the reviews, oldest first. */
@@ -172,6 +177,7 @@ export function parseCase(value: unknown, name: string): EvalCase {
       if (!SHA.test(String(review.commit))) fail("a review's commit must be a full commit id");
     }
   }
+  if (item.split !== undefined && item.split !== "tune" && item.split !== "check") fail('split must be "tune" or "check"');
   if (item.fixes !== undefined && !(Array.isArray(item.fixes) && item.fixes.every((commit) => SHA.test(String(commit))))) fail("fixes must be a list of full commit ids");
   return { title: "", body: "", ...item } as unknown as EvalCase;
 }
@@ -315,7 +321,7 @@ export function renderReport(name: string, settings: string, scores: CaseScore[]
     `- Merge advice among the accepted ones: ${ratio(sum.adviceRight, sum.adviceChecked)}.`,
   ];
   for (const score of scores) {
-    lines.push("", `## ${score.case.id}`, "", `${score.case.repo}#${score.case.pr}, ${score.runs} run(s)${score.failed ? `, ${score.failed} failed` : ""}. Labels from: ${score.case.source.replace(/\.$/, "")}.`, "");
+    lines.push("", `## ${score.case.id}${score.case.split === "check" ? " (check only)" : ""}`, "", `${score.case.repo}#${score.case.pr}, ${score.runs} run(s)${score.failed ? `, ${score.failed} failed` : ""}. Labels from: ${score.case.source.replace(/\.$/, "")}.`, "");
     if (score.expectations.length) {
       lines.push("| Finding | Label | Reported | Kind right | Severity right |", "|---|---|---|---|---|");
       for (const entry of score.expectations) {

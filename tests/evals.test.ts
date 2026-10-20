@@ -61,6 +61,7 @@ test("rejects malformed sources, lines and severities", () => {
   assert.throws(() => parseCase(withFinding({ fixed_in: "abc" }), "x"), /fixed_in/);
   assert.throws(() => parseCase({ ...CASE, reviews: [{ producer: "r", commit: "abc" }] }, "x"), /review's commit/);
   assert.throws(() => parseCase({ ...CASE, fixes: ["abc"] }, "x"), /fixes/);
+  assert.throws(() => parseCase({ ...CASE, split: "test" }, "x"), /split/);
 });
 
 test("uses the judged severity as the expected minimum when no minimum is set", () => {

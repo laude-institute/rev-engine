@@ -24,6 +24,7 @@
   "fixes": [
     "c2c607e726cb02bbe99d60433aa37cd1ec173179"
   ],
+  "split": "check",
   "findings": [
     {
       "id": "f1",

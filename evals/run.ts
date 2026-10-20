@@ -1,7 +1,7 @@
 // Runs the review on every eval case several times and reports how often each
 // labeled finding came back. Nothing is posted anywhere.
 //
-//   node evals/run.ts <run-name> [--runs 3] [--case <id>]... [--model <id>] [--judge <id>] [--jobs 3] [--score-only]
+//   node evals/run.ts <run-name> [--runs 3] [--case <id>]... [--split tune|check] [--model <id>] [--judge <id>] [--jobs 3] [--score-only]
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -22,6 +22,7 @@ interface Options {
   name: string;
   runs: number;
   cases: string[];
+  split?: "tune" | "check";
   model: string;
   judge: string;
   jobs: number;
@@ -35,6 +36,11 @@ function parseArguments(argv: string[]): Options {
     const value = (): string => argv[++at] ?? "";
     if (flag === "--runs") options.runs = Number(value());
     else if (flag === "--case") options.cases.push(value());
+    else if (flag === "--split") {
+      const split = value();
+      if (split !== "tune" && split !== "check") throw new Error('--split must be "tune" or "check"');
+      options.split = split;
+    }
     else if (flag === "--model") options.model = value();
     else if (flag === "--judge") options.judge = value();
     else if (flag === "--jobs") options.jobs = Number(value());
@@ -49,7 +55,7 @@ function parseArguments(argv: string[]): Options {
 }
 
 /** Cases in git, and cases about private repositories in a folder git ignores. */
-async function loadCases(only: string[]): Promise<EvalCase[]> {
+async function loadCases(only: string[], split?: "tune" | "check"): Promise<EvalCase[]> {
   const cases: EvalCase[] = [];
   for (const folder of ["evals/cases", "evals/private"]) {
     const directory = join(root, folder);
@@ -60,7 +66,8 @@ async function loadCases(only: string[]): Promise<EvalCase[]> {
   }
   const missing = only.filter((id) => !cases.some((item) => item.id === id));
   if (missing.length) throw new Error(`no case named ${missing.join(", ")}`);
-  return only.length ? cases.filter((item) => only.includes(item.id)) : cases;
+  const named = only.length ? cases.filter((item) => only.includes(item.id)) : cases;
+  return split ? named.filter((item) => (item.split ?? "tune") === split) : named;
 }
 
 async function apiKey(): Promise<string> {
@@ -188,7 +195,7 @@ async function pool(jobs: Array<() => Promise<void>>, width: number): Promise<vo
 }
 
 const options = parseArguments(process.argv.slice(2));
-const cases = await loadCases(options.cases);
+const cases = await loadCases(options.cases, options.split);
 if (!cases.length) throw new Error("no eval cases found in evals/cases or evals/private");
 const key = await apiKey();
 const runRoot = join(root, "runs/evals", options.name);
