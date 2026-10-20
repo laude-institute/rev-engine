@@ -46,7 +46,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "identity-selectors",
@@ -72,7 +73,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "blank-literals",
@@ -98,7 +100,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "whitespace-always",
@@ -149,7 +152,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f5",
@@ -213,7 +217,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "retained-run-location",
@@ -239,7 +244,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "duplicated-parsing",
@@ -265,7 +271,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "usage-omissions",
@@ -291,7 +298,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "missing-requires-bins",
@@ -317,7 +325,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "stale-test-name",
@@ -343,7 +352,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "tests-isolation-gaps",
@@ -369,7 +379,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
         "date": "2026-10-17"
-      }
+      },
+      "severity": "low"
     }
   ]
 }

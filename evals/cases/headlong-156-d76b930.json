@@ -76,7 +76,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "unchecked-options",
@@ -102,7 +103,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "history-min-silent",
@@ -128,7 +130,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "unchecked-reported-missed",
@@ -154,7 +157,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "tests-credentials",
@@ -180,7 +184,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "documented-output-filtered",
@@ -206,7 +211,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "incidental-error",
@@ -232,7 +238,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "probe-children",
@@ -258,7 +265,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212113906",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "probe-stdin",

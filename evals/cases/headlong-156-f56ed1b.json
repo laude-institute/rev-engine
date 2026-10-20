@@ -50,7 +50,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "pool-cap-alphabetic",
@@ -76,7 +77,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "history-cap-order",
@@ -102,7 +104,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "error-on-runner-failure",
@@ -128,7 +131,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "unfinished-runs-pass",
@@ -154,7 +158,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "unordered-trajectory",
@@ -180,7 +185,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "probe-live-stores",
@@ -206,7 +212,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "case-handling",
@@ -232,7 +239,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "pipe-joined-missed",
@@ -258,7 +266,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "unvalidated-caps",
@@ -284,7 +293,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "shellcheck-unused",
@@ -335,7 +345,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "tests-teacher-prompt",
@@ -361,7 +372,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "sleep-after-last-try",
@@ -387,7 +399,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "harness-deletes-cache",
@@ -413,7 +426,8 @@
         "producer": "the maintainer's review evaluation agent",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6212054232",
         "date": "2026-10-16"
-      }
+      },
+      "severity": "low"
     }
   ]
 }

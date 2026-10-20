@@ -47,10 +47,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f2",
@@ -71,10 +74,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f3",
@@ -95,10 +101,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f4",
@@ -120,10 +129,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f5",
@@ -145,10 +157,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f6",
@@ -170,10 +185,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f7",
@@ -194,10 +212,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f8",
@@ -219,10 +240,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f9",
@@ -244,10 +268,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f10",
@@ -268,10 +295,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f11",
@@ -293,10 +323,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f12",
@@ -317,10 +350,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f13",
@@ -341,10 +377,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f14",
@@ -366,10 +405,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f15",
@@ -391,10 +433,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f16",
@@ -415,10 +460,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f17",
@@ -440,10 +488,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "f18",
@@ -464,10 +515,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f19",
@@ -488,10 +542,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f20",
@@ -512,10 +569,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f21",
@@ -536,10 +596,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f22",
@@ -560,10 +623,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f23",
@@ -585,10 +651,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f24",
@@ -610,10 +679,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "f25",
@@ -635,10 +707,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "workdir-scan",
@@ -656,10 +731,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "run-id-pairing",
@@ -677,10 +755,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "argument-size",
@@ -698,10 +779,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "source-caps",
@@ -719,10 +803,13 @@
         }
       ],
       "judged_by": {
-        "type": "maintainer",
+        "type": "agent",
+        "producer": "the maintainer's review evaluation agent",
+        "confirmed_by": "maintainer",
         "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6187546036",
         "date": "2026-10-15"
-      }
+      },
+      "severity": "medium"
     }
   ]
 }

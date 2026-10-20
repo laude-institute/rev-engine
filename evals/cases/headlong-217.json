@@ -46,7 +46,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "last-directory",
@@ -69,7 +70,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "caller-cwd",
@@ -92,7 +94,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "trial-count",
@@ -115,7 +118,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "silences-all-errors",
@@ -139,7 +143,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "chunked-writes-comment",
@@ -162,7 +167,8 @@
       "judged_by": {
         "type": "author",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "stale-commit",

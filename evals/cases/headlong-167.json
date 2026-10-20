@@ -49,7 +49,8 @@
         "producer": "the maintainer's second review tool, which ran the code",
         "confirmed_by": "maintainer",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "test-earlier-idle",
@@ -74,7 +75,8 @@
         "producer": "the maintainer's second review tool, which ran the code",
         "confirmed_by": "maintainer",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "medium"
     },
     {
       "id": "test-idle-then-fail",
@@ -99,7 +101,8 @@
         "producer": "the maintainer's second review tool, which ran the code",
         "confirmed_by": "maintainer",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "comment-reason",
@@ -122,7 +125,8 @@
       "judged_by": {
         "type": "maintainer",
         "date": "2026-10-13"
-      }
+      },
+      "severity": "low"
     },
     {
       "id": "test-header",
