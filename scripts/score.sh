@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 #
-# Scores one local run against the benchmark's golden findings with the
-# benchmark's judging CLI, and totals what the run cost.
+# Scores local runs against the benchmark's golden findings with the
+# benchmark's judging CLI, and totals what each run cost.
 #
-#   scripts/score.sh <run-name>
+#   scripts/score.sh <run-name> [<run-name>...]
+#
+# Several runs are scored at the same time, each in its own process with its own
+# judge checkouts, and their logs go to runs/<run-name>/<SCORING_NAME>.log.
+# Within a run, the judge works on up to JUDGE_JOBS pull requests at once
+# (default 25, so a test set run takes about as long as its slowest pull request).
 #
 # JUDGE_PROVIDER and JUDGE_MODEL choose the judge (default: openrouter,
 # google/gemini-3.5-flash). Scores from different judges are not comparable.
@@ -15,8 +20,34 @@
 # the tokens the judge used to classify findings, and what they cost.
 set -euo pipefail
 
-[ $# -eq 1 ] || { sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ $# -ge 1 ] || { sed -n '6p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 here="$(cd "$(dirname "$0")/.." && pwd)"
+
+if [ $# -gt 1 ]; then
+  # The judge may clean or rebuild a checkout it is reading from, so each run gets its own set.
+  pids=()
+  slot=0
+  for name in "$@"; do
+    slot=$((slot + 1))
+    mkdir -p "$here/runs/$name"
+    JUDGE_REPOS_SLOT="$slot" "$0" "$name" > "$here/runs/$name/${SCORING_NAME:-scoring}.log" 2>&1 &
+    pids+=($!)
+  done
+  failed=0
+  for index in "${!pids[@]}"; do
+    name="${@:$((index + 1)):1}"
+    results="$here/runs/$name/${SCORING_NAME:-scoring}/results.json"
+    if wait "${pids[$index]}" && [ -f "$results" ]; then
+      jq -r --arg name "$name" '.macro.overall as $o | "\($name): F1 \((200 * $o.grounded_precision * $o.grounded_recall / ($o.grounded_precision + $o.grounded_recall)) * 10 | round / 10) P \($o.grounded_precision * 1000 | round / 10) R \($o.grounded_recall * 1000 | round / 10)"' "$results" 2>/dev/null \
+        || echo "$name: scored, see $results"
+    else
+      echo "$name: scoring failed, see runs/$name/${SCORING_NAME:-scoring}.log" >&2
+      failed=1
+    fi
+  done
+  exit "$failed"
+fi
+
 bench="${REVIEWBENCH_DIR:-$here/../ReviewBench}"
 run="$here/runs/$1"
 [ -d "$run/findings" ] || { echo "no findings in $run" >&2; exit 2; }
@@ -28,9 +59,10 @@ out="$run/${SCORING_NAME:-scoring}"
 mkdir -p "$out"
 
 # The judging CLI only accepts models in its bundled registry, which lags behind
-# OpenRouter. Register a missing model in a registry kept under runs/, leaving
-# any registry in the user's home directory alone.
-export PI_CODING_AGENT_DIR="$here/runs/.cache/judge-registry"
+# OpenRouter. Register a missing model in a registry kept with this scoring, so
+# runs scored at the same time do not overwrite each other's, leaving any
+# registry in the user's home directory alone.
+export PI_CODING_AGENT_DIR="$out/.judge-registry"
 mkdir -p "$PI_CODING_AGENT_DIR"
 rm -f "$PI_CODING_AGENT_DIR/models.json"
 [ -d "$bench/node_modules" ] || (cd "$bench" && npm ci --no-audit --no-fund >/dev/null)
@@ -59,8 +91,8 @@ npm run judge --silent -- \
   --candidate "$run/findings" \
   --provider "$provider" --model "$model" \
   --output "$out/results.json" \
-  --repo-dir "$here/runs/.cache/judge-repos" \
-  --concurrency "${JUDGE_JOBS:-5}" ${JUDGE_ARGS:-} 2>&1 | tee "$out/judge.log" | sed -n '/Outcome Breakdown/,$p' || status=$?
+  --repo-dir "$here/runs/.cache/judge-repos${JUDGE_REPOS_SLOT:+-$JUDGE_REPOS_SLOT}" \
+  --concurrency "${JUDGE_JOBS:-25}" ${JUDGE_ARGS:-} 2>&1 | tee "$out/judge.log" | sed -n '/Outcome Breakdown/,$p' || status=$?
 
 # The judging CLI does not report what the judge cost. Its session logs hold the
 # token counts of every call in the classifying step, so total those. A model
