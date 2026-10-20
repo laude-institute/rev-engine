@@ -10,6 +10,9 @@ export type Decision = (typeof DECISIONS)[number];
 
 export const MAX_ENTRIES = 30;
 export const MAX_REASON_CHARS = 300;
+export const MAX_FIT_CHARS = 1_500;
+/** Fit answers kept, the latest rounds first. */
+export const MAX_FIT_ANSWERS = 3;
 
 export interface PriorEntry {
   id: string;
@@ -22,9 +25,19 @@ export interface PriorEntry {
   source: string;
 }
 
+/** The maintainer's answer on whether the change belongs, from one round's review evaluation. */
+export interface FitAnswer {
+  round: number;
+  verdict: "fits" | "does_not_fit" | "unclear";
+  text: string;
+  source: string;
+}
+
 export interface PriorDecisions {
   entries: PriorEntry[];
   omitted: number;
+  /** Only present when an evaluation answered the fit question. */
+  fit?: FitAnswer[];
 }
 
 export interface ReviewRecord {
@@ -195,6 +208,27 @@ export function evaluationLines(body: string): EvaluationLine[] {
   return found;
 }
 
+/**
+ * The "Fit and recommendation" section of a review evaluation: the maintainer's verdict
+ * from its "**Fit: yes.**" or "**Fit: no.**" line, and the text up to the next heading.
+ * A section with no such line is kept as unclear, so the answer still reaches the fit check.
+ */
+export function fitAnswer(body: string): { verdict: FitAnswer["verdict"]; text: string } | null {
+  const lines = body.split("\n");
+  const start = lines.findIndex((line) => /^#{2,4}\s*(?:\d+\.\s*)?fit and recommendation\b/i.test(line.trim()));
+  if (start < 0) return null;
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((line) => /^#{1,4}\s/.test(line.trim()));
+  const section = (end < 0 ? rest : rest.slice(0, end)).join("\n").trim();
+  if (!section) return null;
+  const stated = /\*\*\s*fit:\s*(yes|no)\b/i.exec(section)?.[1]?.toLowerCase();
+  const plain = section.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n");
+  return {
+    verdict: stated === "yes" ? "fits" : stated === "no" ? "does_not_fit" : "unclear",
+    text: plain.length > MAX_FIT_CHARS ? `${plain.slice(0, MAX_FIT_CHARS - 3).trimEnd()}...` : plain,
+  };
+}
+
 /** Keeps the decisions that suppress repeats first, then the newest rounds, up to the cap. */
 function capped(findings: Array<{ entry: Omit<PriorEntry, "id">; order: number }>): { kept: typeof findings; omitted: number } {
   // Resolved findings come back when the problem is still there, like partly fixed ones, so they go after the suppressing decisions.
@@ -216,6 +250,7 @@ export function collectDecisions(sources: Sources): PriorDecisions {
     .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
   const roundOf = new Map(ours.map((review, index) => [review.id, index + 1]));
   const findings = new Map<string, Finding>();
+  const fitByRound = new Map<number, FitAnswer>();
   let order = 0;
 
   for (const thread of sources.threads) {
@@ -242,6 +277,9 @@ export function collectDecisions(sources: Sources): PriorDecisions {
     const named = Number(/pullrequestreview-(\d+)/.exec(comment.body)?.[1]);
     const round = roundOf.get(named) ?? ours.filter((review) => review.submittedAt <= comment.createdAt).length;
     if (!round) continue;
+    // Comments are in time order, so a later evaluation of the same round replaces an earlier one.
+    const fit = fitAnswer(comment.body);
+    if (fit) fitByRound.set(round, { round, ...fit, source: comment.url });
     for (const line of evaluationLines(comment.body)) {
       const decision = evaluationDecision(line.label, line.reason);
       const key = line.commentId !== null && findings.has(`c${line.commentId}`) ? `c${line.commentId}` : `e${round}:${line.title.toLowerCase()}`;
@@ -265,5 +303,6 @@ export function collectDecisions(sources: Sources): PriorDecisions {
     });
   }
   const { kept, omitted } = capped(decided);
-  return { entries: kept.map(({ entry }, index) => ({ id: `P${index + 1}`, ...entry })), omitted };
+  const fit = [...fitByRound.values()].sort((a, b) => a.round - b.round).slice(-MAX_FIT_ANSWERS);
+  return { entries: kept.map(({ entry }, index) => ({ id: `P${index + 1}`, ...entry })), omitted, ...(fit.length ? { fit } : {}) };
 }

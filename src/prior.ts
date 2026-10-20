@@ -22,11 +22,24 @@ export interface PriorEntry {
   source: string;
 }
 
+/** The maintainer's answer on whether the change belongs, from one round's review evaluation. */
+export interface FitAnswer {
+  round: number;
+  verdict: "fits" | "does_not_fit" | "unclear";
+  /** The evaluation's fit section, cut to about 1,500 characters. */
+  text: string;
+  source: string;
+}
+
 export interface PriorDecisions {
   entries: PriorEntry[];
   /** Decisions left out to keep the list short. */
   omitted: number;
+  /** Fit answers, oldest round first. Absent from older files. */
+  fit?: FitAnswer[];
 }
+
+const FIT_VERDICTS = ["fits", "does_not_fit", "unclear"] as const;
 
 const DESCRIBED: Record<Decision, string> = {
   fixed: "fixed",
@@ -59,8 +72,16 @@ export function parsePrior(raw: unknown): PriorDecisions | null {
       source: typeof entry.source === "string" ? entry.source : "",
     });
   }
-  if (!entries.length) return null;
-  return { entries, omitted: Number.isInteger(item.omitted) && (item.omitted as number) > 0 ? item.omitted as number : 0 };
+  const fit: FitAnswer[] = [];
+  for (const value of Array.isArray(item.fit) ? item.fit : []) {
+    if (!value || typeof value !== "object") continue;
+    const answer = value as Record<string, unknown>;
+    const verdict = FIT_VERDICTS.find((known) => known === answer.verdict);
+    if (!verdict || typeof answer.text !== "string" || !answer.text.trim()) continue;
+    fit.push({ round: Number.isInteger(answer.round) ? answer.round as number : 0, verdict, text: answer.text.trim(), source: typeof answer.source === "string" ? answer.source : "" });
+  }
+  if (!entries.length && !fit.length) return null;
+  return { entries, omitted: Number.isInteger(item.omitted) && (item.omitted as number) > 0 ? item.omitted as number : 0, ...(fit.length ? { fit } : {}) };
 }
 
 /** Whether a finding repeating this decision may stay only when the problem is still there, as opposed to only when the code changed. */
@@ -88,7 +109,7 @@ export async function loadPrior(path: string, log: (message: string) => void): P
   }
   try {
     const prior = parsePrior(JSON.parse(text));
-    log(prior ? `${prior.entries.length} earlier decision(s) on this pull request${prior.omitted ? `, ${prior.omitted} more left out` : ""}` : "the earlier decisions file holds no usable entry");
+    log(prior ? `${prior.entries.length} earlier decision(s) on this pull request${prior.omitted ? `, ${prior.omitted} more left out` : ""}${prior.fit ? `, ${prior.fit.length} fit answer(s)` : ""}` : "the earlier decisions file holds no usable entry");
     return prior;
   } catch (error) {
     log(`ignoring the earlier decisions file: ${error instanceof Error ? error.message : String(error)}`);
@@ -120,6 +141,27 @@ export function priorDecisionsSection(prior: PriorDecisions): string {
 - Report every other problem as you normally would. These decisions say nothing about code they do not cover.
 
 ${entriesBlock(prior)}`;
+}
+
+const FIT_STATED: Record<FitAnswer["verdict"], string> = {
+  fits: "The maintainer's verdict: the change fits.",
+  does_not_fit: "The maintainer's verdict: the change does not fit.",
+  unclear: "The maintainer stated no verdict.",
+};
+
+/**
+ * The maintainer's earlier answers on fit, for the fit check. Null when there are none,
+ * so the fit prompt is unchanged.
+ */
+export function priorFitSection(prior: PriorDecisions | null | undefined): string | null {
+  if (!prior?.fit?.length) return null;
+  const answers = prior.fit.map((answer) => `<fit_answer round="${answer.round}">\n${FIT_STATED[answer.verdict]}\n\n${answer.text}\n</fit_answer>`);
+  return `The maintainer already answered whether this change belongs, on earlier reviews of this pull request. Their answers are below, the latest last.
+
+- The maintainer's latest verdict stands, unless the change has moved since in a way their answer does not cover. Then give your own verdict and say in your reasons what moved.
+- Do not raise a concern again that the maintainer answered. If every concern you would raise has been answered and the latest verdict is that the change fits, your verdict is fits.
+
+${answers.join("\n\n")}`;
 }
 
 /** The verifier's version: it marks repeats and judges, from the code, whether a repeat may stay. */

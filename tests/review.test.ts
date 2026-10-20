@@ -151,3 +151,20 @@ test("a repeat of an earlier decided finding is dropped, and one the verifier ke
   assert.equal(outcome.findings.length, 1);
   assert.match(outcome.findings[0]!.message, /earlier finding P2 from round 1, decided as resolved without a stated reason; the code at head shows the problem is still there\.$/);
 });
+
+test("a decisions file with only fit answers leaves the reviewer and verifier as they were", async () => {
+  const priorPath = join(dir, "fit-only.json");
+  await writeFile(priorPath, JSON.stringify({ entries: [], omitted: 0, fit: [{ round: 1, verdict: "fits", text: "Agreed.", source: "x" }] }));
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const requests: Array<{ tools: string[]; prompt: string }> = [];
+  const chat: Chat = async (request) => {
+    const verifying = request.tools.some((tool) => tool.function.name === "submit_verdicts");
+    requests.push({ tools: request.tools.map((tool) => JSON.stringify(tool.function.parameters)), prompt: String(request.messages[1]?.content) });
+    const args = verifying ? { verdicts: [{ id: "s1-01", verdict: "confirmed" }] } : { findings: [finding] };
+    return { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: verifying ? "submit_verdicts" : "submit_review", arguments: JSON.stringify(args) } }] };
+  };
+  const outcome = await review(configFor({ RB_PRIOR_JSON: priorPath }), chat, () => {});
+  assert.equal(outcome.findings.length, 1);
+  assert.ok(requests.every((request) => !request.prompt.includes("Earlier reviews of this pull request")));
+  assert.ok(requests.every((request) => request.tools.every((tool) => !tool.includes("repeat_of"))));
+});

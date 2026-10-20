@@ -208,12 +208,14 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
 
   const workspace = new Workspace(config.repoDir, config.diffPath, config.base);
   const [pr, diff, rules, prior] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace), loadPrior(config.priorJsonPath, log)]);
+  // A file can hold fit answers and no decided findings; then the reviewer and verifier are not told about decisions.
+  const decisions = prior?.entries.length ? prior : null;
   const changed = parseDiff(diff);
   const documents = pickDesignDocs(await workspace.allFiles(MAX_INDEXED_FILES), [...changed.keys()], rules.map((rule) => rule.path));
   log(`diff has ${diff.split("\n").length} lines across ${changed.size} file(s); ${rules.length} project rule file(s) at base, ${documents.length} design document(s) offered`);
 
   const budget = { turns: config.maxTurns, minutes: Math.max(1, Math.round((reviewDeadline - Date.now()) / 60_000)) };
-  const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget, undefined, prior);
+  const prompt = reviewerPrompt(pr, changed, diff, rules, documents, budget, undefined, decisions);
   const context: ReviewContext = { diffInPrompt: diffInPrompt(diff), readers: [] };
   const track = (caller: string, tracked: Workspace): Workspace => {
     context.readers.push({ caller, reads: tracked.reads });
@@ -258,7 +260,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
       const seatWorkspace = track(caller, new Workspace(config.repoDir, config.diffPath, config.base));
       const submission = await runAgent({
         chat, model, system: reviewerSystem(null),
-        prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section, prior),
+        prompt: reviewerPrompt(pr, changed, diff, rules, documents, againBudget, section, decisions),
         workspace: seatWorkspace, submit: submitReview, deadline: reviewDeadline, maxTurns: config.maxTurns, log, caller,
         ...afterFirstSubmission(config, seatWorkspace, changed),
       });
@@ -306,7 +308,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
     try {
       const submission = await runAgent({
         chat, model: config.verifierModel, system: VERIFIER_SYSTEM,
-        prompt: verifierPrompt(pr, changed, diff, survivors, prior), workspace, submit: prior ? submitVerdictsWithPrior : submitVerdicts,
+        prompt: verifierPrompt(pr, changed, diff, survivors, decisions), workspace, submit: decisions ? submitVerdictsWithPrior : submitVerdicts,
         deadline: finishDeadline, maxTurns: config.maxTurns, log, caller: `verifier (${config.verifierModel})`,
       });
       const before = survivors;
@@ -314,7 +316,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
       survivors = applyVerdicts(survivors, [...verdicts.values()], config.verify === "strict").map((candidate) => {
         // A repeat the verifier kept says which earlier finding it is, so the author can tell a regression from noise.
         const verdict = verdicts.get(candidate.id);
-        const earlier = verdict?.repeatOf && verdict.exceptionHolds ? prior?.entries.find((entry) => entry.id === verdict.repeatOf) : undefined;
+        const earlier = verdict?.repeatOf && verdict.exceptionHolds ? decisions?.entries.find((entry) => entry.id === verdict.repeatOf) : undefined;
         return earlier ? { ...candidate, detail: `${candidate.detail.trimEnd()} ${repeatNote(earlier)}` } : candidate;
       });
       verified = true;
@@ -345,7 +347,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   const fitDeadline = started + config.budgetMs;
   if (config.fitModel && fitDeadline - Date.now() >= MIN_FIT_MS) {
     fit = await assessFit({
-      chat, model: config.fitModel, pr, changed, diff, rules, documents, findings: ranked, deadline: fitDeadline,
+      chat, model: config.fitModel, pr, changed, diff, rules, documents, findings: ranked, prior, deadline: fitDeadline,
       maxTurns: config.maxTurns, log, workspace: track(`fit (${config.fitModel})`, new Workspace(config.repoDir, config.diffPath, config.base)),
     });
   } else if (config.fitModel) {

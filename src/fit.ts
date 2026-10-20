@@ -14,6 +14,7 @@ import {
   type PullRequestInfo,
 } from "./prompts.ts";
 import type { ToolDefinition, Workspace } from "./tools.ts";
+import { priorFitSection, type PriorDecisions } from "./prior.ts";
 
 export const FIT_VERDICTS = ["fits", "fits_with_concerns", "does_not_fit", "unclear"] as const;
 export type FitVerdict = (typeof FIT_VERDICTS)[number];
@@ -111,9 +112,11 @@ function findingsSection(findings: Candidate[]): string {
 ${listed}`;
 }
 
-export function fitPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], findings: Candidate[], minutes: number, turns: number): string {
+export function fitPrompt(pr: PullRequestInfo, changed: ChangedLines, diff: string, rules: ProjectRule[], documents: string[], findings: Candidate[], minutes: number, turns: number, prior?: PriorDecisions | null): string {
+  const answered = priorFitSection(prior);
   return [
     pullRequestSection(pr),
+    ...(answered ? [answered] : []),
     `Your budget is ${turns} turns and about ${minutes} minutes. A turn can hold many tool calls.`,
     rulesSection(rules),
     documentsSection(documents),
@@ -152,6 +155,8 @@ export interface FitOptions {
   documents: string[];
   /** The review's final findings. */
   findings: Candidate[];
+  /** The maintainer's decisions on earlier reviews, whose fit answers the check is given. */
+  prior?: PriorDecisions | null;
   workspace: Workspace;
   deadline: number;
   maxTurns: number;
@@ -166,7 +171,7 @@ export async function assessFit(options: FitOptions): Promise<FitAssessment | nu
   try {
     const submission = await runAgent({
       chat: options.chat, model, system: FIT_SYSTEM,
-      prompt: fitPrompt(options.pr, options.changed, options.diff, options.rules, options.documents, options.findings, minutes, turns),
+      prompt: fitPrompt(options.pr, options.changed, options.diff, options.rules, options.documents, options.findings, minutes, turns, options.prior),
       workspace: options.workspace, submit: submitFit, deadline: options.deadline, maxTurns: turns, log,
       caller: `fit (${model})`,
     });

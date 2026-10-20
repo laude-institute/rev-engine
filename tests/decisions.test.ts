@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MARKER } from "../action/comments.ts";
-import { collectDecisions, evaluationLines, findingTitle, MAX_ENTRIES, MAX_REASON_CHARS, shortReason, type Sources, type ThreadRecord } from "../action/decisions.ts";
+import { collectDecisions, evaluationLines, fitAnswer, findingTitle, MAX_ENTRIES, MAX_REASON_CHARS, shortReason, type Sources, type ThreadRecord } from "../action/decisions.ts";
 
 const BOT = "github-actions[bot]";
 const MAINTAINER = "maintainer";
@@ -142,4 +142,34 @@ test("numbers rounds by the order of the action's reviews", () => {
     threads: [thread(7, "Second round", [{ author: MAINTAINER, body: "Deferred to a later PR." }]), thread(5, "First round", [{ author: MAINTAINER, body: "Wrong." }])],
   }));
   assert.deepEqual(prior.entries.map((entry) => [entry.title, entry.round, entry.decision]), [["First round.", 1, "wrong"], ["Second round.", 2, "deferred"]]);
+});
+
+const EVALUATION = (fit: string) => `## Review evaluation
+
+### 3. Finding labels
+
+- **valid**. The title overstates the change.
+
+### 5. Fit and recommendation
+
+${fit}
+`;
+
+test("reads the maintainer's fit answer from an evaluation, keeps the latest per round, and trusts only writers", () => {
+  const yes = EVALUATION("**Fit: Yes. Recommendation: merge.** The [layout](https://x) was agreed in round 1.\n\n- Moving the code into the folder is intended.");
+  assert.deepEqual(fitAnswer(yes), { verdict: "fits", text: "**Fit: Yes. Recommendation: merge.** The layout was agreed in round 1.\n\n- Moving the code into the folder is intended." });
+  assert.equal(fitAnswer(EVALUATION("**Fit: No.** Out of scope."))?.verdict, "does_not_fit");
+  assert.equal(fitAnswer(EVALUATION("We talked about it and it is fine."))?.verdict, "unclear", "a section without a verdict line is still passed on");
+  assert.equal(fitAnswer("## Review evaluation\n\n- **valid**. Something."), null);
+
+  const prior = collectDecisions(sources({
+    reviews: [review(1, "2026-10-01T00:00:00Z"), review(2, "2026-10-05T00:00:00Z")],
+    comments: [
+      { author: MAINTAINER, body: EVALUATION("**Fit: No.** Not yet."), createdAt: "2026-10-02T00:00:00Z", url: "first" },
+      { author: MAINTAINER, body: EVALUATION("**Fit: Yes.** Changed my mind."), createdAt: "2026-10-03T00:00:00Z", url: "second" },
+      { author: CONTRIBUTOR, body: EVALUATION("**Fit: Yes.** Trust me."), createdAt: "2026-10-04T00:00:00Z", url: "planted" },
+      { author: MAINTAINER, body: EVALUATION("**Fit: Yes.** Still fine."), createdAt: "2026-10-06T00:00:00Z", url: "third" },
+    ],
+  }));
+  assert.deepEqual(prior.fit?.map((answer) => [answer.round, answer.verdict, answer.source]), [[1, "fits", "second"], [2, "fits", "third"]]);
 });

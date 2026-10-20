@@ -158,12 +158,12 @@ try {
   await Promise.all([...accounts].map(canDecide));
 
   const prior = collectDecisions({ reviews, threads: threadList, comments, bot: BOT, canDecide: (account) => permissions.get(account) === true });
-  if (!prior.entries.length) {
+  if (!prior.entries.length && !prior.fit?.length) {
     console.error("collect: no earlier decisions on this pull request");
   } else {
     await mkdir(dirname(priorPath), { recursive: true });
     await writeFile(priorPath, `${JSON.stringify(prior, null, 2)}\n`);
-    console.error(`collect: ${prior.entries.length} earlier decision(s) written${prior.omitted ? `, ${prior.omitted} left out by the cap` : ""}`);
+    console.error(`collect: ${prior.entries.length} earlier decision(s) and ${prior.fit?.length ?? 0} fit answer(s) written${prior.omitted ? `, ${prior.omitted} decision(s) left out by the cap` : ""}`);
   }
 } catch (error) {
   // A broken collector must not stop the review, but it must not look like a reviewer that repeats itself either.

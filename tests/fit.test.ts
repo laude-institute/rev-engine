@@ -36,3 +36,13 @@ test("gives the fit prompt the rules from base and the documents to read", () =>
   assert.match(prompt, /- docs\/charter\.md/);
   assert.match(prompt, /20 turns and about 9 minutes/);
 });
+
+test("the fit prompt carries the maintainer's earlier fit answers, and is unchanged without them", () => {
+  const prompt = (prior?: Parameters<typeof fitPrompt>[8]) => fitPrompt({ nwo: "o/r", number: 1, title: "T", body: "" }, new Map(), "", [], [], [], 1, 1, prior);
+  const plain = prompt();
+  assert.equal(prompt(null), plain);
+  assert.equal(prompt({ entries: [], omitted: 0 }), plain);
+  const answered = prompt({ entries: [], omitted: 0, fit: [{ round: 1, verdict: "fits", text: "The folder layout is intended.", source: "x" }] });
+  assert.match(answered, /The maintainer's latest verdict stands, unless the change has moved since/);
+  assert.match(answered, /<fit_answer round="1">\nThe maintainer's verdict: the change fits\.\n\nThe folder layout is intended\.\n<\/fit_answer>/);
+});
