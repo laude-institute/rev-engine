@@ -64,7 +64,7 @@ Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns 
 - **Agents are asked for at most 6 findings** with short details, and do not list what they checked, because the submission turn grows with what the model writes.
 - **A call may run for the whole review window**, because an agent's first answer is one long call. A call still running after 40% of the target is sent again, or after a sixth of it when reasoning is off (`RB_CONFIG_SWARM_EFFORT=none`), because such a call answers in seconds unless it has stalled. The first answer is used. Both calls are paid for, and the trace counts how many were sent again.
 - **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail or hand in no findings, those agents run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
-- **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files.
+- **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files. With `RB_CONFIG_SWARM_CONTEXT=rich` they are also shown where the names each finding mentions are defined or used elsewhere, so a claim about what a constant holds or a function does can be checked.
 - **The merge gets 15% of the target.**
 
 ## Tracing misses

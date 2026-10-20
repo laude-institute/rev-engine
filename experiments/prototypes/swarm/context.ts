@@ -184,3 +184,42 @@ export async function richContext(chunk: Chunk, sources: RichSources): Promise<s
   if (baseParts.length) parts.push(`The same places before the change, at the base revision:\n\n${baseParts.join("\n\n")}`);
   return parts.join("\n\n");
 }
+
+/** Identifier-like names a finding mentions, such as `parseTiff` or RESOLUTION_UNIT, which a verifier can look up. */
+export function namesInFinding(text: string): string[] {
+  const quoted = [...text.matchAll(/`([A-Za-z_][\w.]*)`/g)].map((match) => match[1]!.split(".").at(-1)!);
+  // Plain words are left out; a name with an inner capital or an underscore is almost always code.
+  const coded = [...text.matchAll(/\b([A-Za-z][a-z0-9]*[A-Z_][A-Za-z0-9_]*)\b/g)].map((match) => match[1]!);
+  return [...new Set([...quoted, ...coded])].filter((name) => name.length >= 4 && !NOT_NAMES.has(name)).slice(0, 4);
+}
+
+const EVIDENCE_RADIUS = 5;
+const MAX_EVIDENCE_LINES_PER_FINDING = 120;
+
+/**
+ * For a verifier that cannot read files: the code around the places, other than the
+ * finding's own lines, where each name a finding mentions is defined or used. A claim
+ * about a constant, a label or a function can then be checked against the code.
+ */
+export async function findingEvidence(
+  findings: Array<{ id: string; file: string; startLine: number; endLine: number; title: string; detail: string }>,
+  mentions: Map<string, Mention[]>,
+  headFile: (path: string) => Promise<string | null>,
+): Promise<string> {
+  const parts: string[] = [];
+  for (const finding of findings) {
+    const budget = { left: MAX_EVIDENCE_LINES_PER_FINDING };
+    for (const name of namesInFinding(`${finding.title} ${finding.detail}`)) {
+      const elsewhere = (mentions.get(name) ?? []).filter((mention) => !(mention.path === finding.file && mention.line >= finding.startLine - EVIDENCE_RADIUS && mention.line <= finding.endLine + EVIDENCE_RADIUS));
+      const byFile = new Map<string, number[]>();
+      for (const mention of elsewhere) byFile.set(mention.path, [...(byFile.get(mention.path) ?? []), mention.line]);
+      for (const [path, lines] of byFile) {
+        if (budget.left <= 0) break;
+        const text = await headFile(path);
+        if (text === null) continue;
+        parts.push(`<uses finding="${finding.id}" name="${name}" path="${path}">\n${windows(text, lines, EVIDENCE_RADIUS, budget).join("\n...\n")}\n</uses>`);
+      }
+    }
+  }
+  return parts.length ? `Where names these findings mention are defined or used elsewhere in the checkout, after the change. Use these to check claims about what a name holds or does:\n\n${parts.join("\n\n")}` : "";
+}

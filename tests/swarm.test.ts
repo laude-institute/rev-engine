@@ -429,3 +429,16 @@ test("rich context shows the code around uses, the definitions called, matching 
   assert.match(text, /<test path="test\/pool\.test\.ts">[\s\S]*new Pool\(\)\.acquire\(5, 2\);/);
   assert.match(text, /<before path="src\/pool\.ts">\n1: export class Pool \{\n2:   function acquire\(timeout\) \{/);
 });
+
+test("a fast verifier is shown where the names a finding mentions are used", async () => {
+  const { findingEvidence, namesInFinding } = await import("../experiments/prototypes/swarm/context.ts");
+  assert.deepEqual(namesInFinding("The test asserts `LANGUAGE_LABEL` ends in CY, but formatLabel adds it"), ["LANGUAGE_LABEL", "formatLabel"]);
+  const files: Record<string, string> = { "src/labels.ts": `${"x\n".repeat(20)}export const LANGUAGE_LABEL = "Cymraeg - CY";\n${"y\n".repeat(20)}` };
+  const text = await findingEvidence(
+    [{ id: "f1", file: "test/labels.test.ts", startLine: 3, endLine: 3, title: "Test hardcodes the CY suffix", detail: "It assumes `LANGUAGE_LABEL` has no suffix." }],
+    new Map([["LANGUAGE_LABEL", [{ path: "src/labels.ts", line: 21, text: "export const LANGUAGE_LABEL" }, { path: "test/labels.test.ts", line: 3, text: "own line" }]]]),
+    async (path) => files[path] ?? null,
+  );
+  assert.match(text, /<uses finding="f1" name="LANGUAGE_LABEL" path="src\/labels\.ts">\n16: x[\s\S]*21: export const LANGUAGE_LABEL = "Cymraeg - CY";/);
+  assert.doesNotMatch(text, /labels\.test\.ts/, "the finding's own lines are already shown");
+});

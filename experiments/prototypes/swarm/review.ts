@@ -32,7 +32,7 @@ import { Workspace } from "../../../src/tools.ts";
 import { mergeRepeats, type MergeResult } from "./merge.ts";
 import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, numbered, splitDiff, units } from "./chunks.ts";
 import { chunkPrompt, globalPrompt, sharedSection, snippetsSection, submitFastReview, submitSwarmReview, SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM } from "./prompts.ts";
-import { calledNames, findDefinitions, richContext } from "./context.ts";
+import { calledNames, findDefinitions, findingEvidence, namesInFinding, richContext } from "./context.ts";
 import { CHUNK_TASKS, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
 
 const VERIFY_BATCH = 12;
@@ -501,7 +501,11 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   const verifyStarted = Date.now();
   if (config.verify !== "off" && settings.votes > 0 && survivors.length && finishDeadline - Date.now() >= pace.minVerifyMs) {
     const groups = batches(survivors);
-    // A one-turn verifier cannot read files, so it is shown the code around each finding.
+    // A one-turn verifier cannot read files, so it is shown the code around each finding,
+    // and with rich context also where the names each finding mentions are used.
+    const evidenceMentions = rich && pace.verifyTurns === 1
+      ? await findMentions(config.repoDir, [...new Set(survivors.flatMap((candidate) => namesInFinding(`${candidate.title} ${candidate.detail}`)))])
+      : null;
     const prompts = await Promise.all(groups.map(async (group) => {
       const base = verifierPrompt(pr, changed, diff, group);
       if (pace.verifyTurns > 1) return base;
@@ -512,7 +516,8 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
         const last = candidate.endLine + SNIPPET_LINES;
         return { id: candidate.id, file: candidate.file, first, last, text: numbered(text, first, last) };
       }));
-      return `${base}\n\n${snippetsSection(snippets.filter((snippet) => snippet !== null))}`;
+      const evidence = evidenceMentions ? await findingEvidence(group, evidenceMentions, headFile) : "";
+      return [base, snippetsSection(snippets.filter((snippet) => snippet !== null)), ...(evidence ? [evidence] : [])].join("\n\n");
     }));
     type Ballot = { voter: string; verdicts: Verdict[]; reasons: Map<string, string> };
     const ballots = await Promise.all(groups.map((group, batch) => Promise.all(
