@@ -133,8 +133,9 @@ export async function richContext(chunk: Chunk, sources: RichSources): Promise<s
   const mentionBudget = { left: MAX_MENTION_LINES };
   const mentionParts: string[] = [];
   for (const [path, lines] of byFile) {
+    if (mentionBudget.left <= 0) break;
     const text = await sources.headFile(path);
-    if (text === null || mentionBudget.left <= 0) continue;
+    if (text === null) continue;
     mentionParts.push(`<code path="${path}">\n${windows(text, lines, MENTION_RADIUS, mentionBudget).join("\n...\n")}\n</code>`);
   }
   if (mentionParts.length) parts.push(`The code around each place a name this chunk changes is used, after the change:\n\n${mentionParts.join("\n\n")}`);
@@ -144,8 +145,9 @@ export async function richContext(chunk: Chunk, sources: RichSources): Promise<s
   const definitionParts: string[] = [];
   for (const name of calledNames(chunk)) {
     for (const definition of sources.definitions.get(name) ?? []) {
+      if (definitionBudget.left <= 0) break;
       const text = await sources.headFile(definition.path);
-      if (text === null || definitionBudget.left <= 0) continue;
+      if (text === null) continue;
       const end = Math.min(definition.line + DEFINITION_LINES - 1, definition.line + definitionBudget.left - 1);
       definitionParts.push(`<definition name="${name}" path="${definition.path}">\n${numbered(text, definition.line, end)}\n</definition>`);
       definitionBudget.left -= end - definition.line + 1;
@@ -159,8 +161,9 @@ export async function richContext(chunk: Chunk, sources: RichSources): Promise<s
   const testBudget = { left: MAX_TEST_LINES };
   const testParts: string[] = [];
   for (const file of testFilesFor(paths, sources.allFiles)) {
+    if (testBudget.left <= 0) break;
     const text = await sources.headFile(file);
-    if (text === null || testBudget.left <= 0) continue;
+    if (text === null) continue;
     const lines = text.split("\n").flatMap((line, index) => words.some((word) => line.includes(word)) ? [index + 1] : []);
     if (lines.length) testParts.push(`<test path="${file}">\n${windows(text, lines, TEST_RADIUS, testBudget).join("\n...\n")}\n</test>`);
   }
@@ -169,10 +172,13 @@ export async function richContext(chunk: Chunk, sources: RichSources): Promise<s
   // The code as it was before the change.
   const baseBudget = { left: MAX_BASE_LINES };
   const baseParts: string[] = [];
+  // Each base file is one git call, so stop reading once the budget is spent.
   for (const unit of chunk.units) {
-    const text = await sources.baseFile(unit.path);
+    if (baseBudget.left <= 0) break;
     const oldStarts = unit.hunks.map((hunk) => Number(/^@@ -(\d+)/.exec(hunk.text)?.[1])).filter((line) => line > 0);
-    if (text === null || !oldStarts.length || baseBudget.left <= 0) continue;
+    if (!oldStarts.length) continue;
+    const text = await sources.baseFile(unit.path);
+    if (text === null) continue;
     baseParts.push(`<before path="${unit.path}">\n${windows(text, oldStarts, BASE_WINDOW, baseBudget).join("\n...\n")}\n</before>`);
   }
   if (baseParts.length) parts.push(`The same places before the change, at the base revision:\n\n${baseParts.join("\n\n")}`);

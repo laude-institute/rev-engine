@@ -13,6 +13,12 @@ const MIN_CHUNK_LINES = 120;
 /** Lines of the file shown above and below each unit. */
 const WINDOW_LINES = 30;
 const MAX_WINDOW_LINES = 300;
+/**
+ * Lines of surrounding file shown for a whole chunk. A large diff packs many units into
+ * each chunk, and without a limit one prompt reached about 60,000 tokens, slow enough
+ * that a fast agent's first call timed out. Past the limit a unit shows only its hunks.
+ */
+const MAX_CHUNK_WINDOW_LINES = 1_200;
 const MAX_SYMBOLS_PER_CHUNK = 8;
 const MAX_MENTIONS_PER_SYMBOL = 15;
 /** A search that takes longer than this on a huge checkout is given up; the agents can search themselves. */
@@ -217,12 +223,19 @@ export function numbered(text: string, first: number, last: number): string {
 /** What a chunk's agents see: its hunks, the file around each unit, and where its names are used. */
 export async function chunkContext(chunk: Chunk, headFile: (path: string) => Promise<string | null>, mentions: Map<string, Mention[]>): Promise<string> {
   const parts: string[] = [];
+  let windowLines = MAX_CHUNK_WINDOW_LINES;
   for (const unit of chunk.units) {
+    const hunks = `<chunk_diff path="${unit.path}">\n${unit.hunks.map((hunk) => hunk.text).join("\n")}\n</chunk_diff>`;
     const first = Math.max(1, unit.hunks[0]!.start - WINDOW_LINES);
-    const last = Math.min(first + MAX_WINDOW_LINES - 1, unit.hunks.at(-1)!.end + WINDOW_LINES);
+    const last = Math.min(first + Math.min(MAX_WINDOW_LINES, windowLines) - 1, unit.hunks.at(-1)!.end + WINDOW_LINES);
+    if (last < first) {
+      parts.push(`${hunks}\n\n(The file around this part is not shown, to keep this message short; read it with read_file.)`);
+      continue;
+    }
     const text = await headFile(unit.path);
     const window = text === null ? "(the file cannot be shown; read it with read_file)" : numbered(text, first, last);
-    parts.push(`<chunk_diff path="${unit.path}">\n${unit.hunks.map((hunk) => hunk.text).join("\n")}\n</chunk_diff>\n\n<file_after_change path="${unit.path}" lines="${first}-${last}">\n${window}\n</file_after_change>`);
+    windowLines -= last - first + 1;
+    parts.push(`${hunks}\n\n<file_after_change path="${unit.path}" lines="${first}-${last}">\n${window}\n</file_after_change>`);
   }
   const inChunk = (mention: Mention): boolean => chunk.units.some((unit) =>
     unit.path === mention.path && unit.hunks.some((hunk) => mention.line >= hunk.start && mention.line <= hunk.end));
