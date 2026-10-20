@@ -12,6 +12,7 @@
 //                          as before. A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
 //   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
 //   RB_CONFIG_SWARM_EFFORT reasoning effort for the swarm's calls, such as low; unset uses RB_CONFIG_EFFORT
+//   RB_CONFIG_SWARM_REASONING_TOKENS the most tokens a swarm call may reason for, 100 to 32000; replaces the effort
 //
 // Every run writes swarm.json beside the findings file: the chunks, each agent's
 // findings and checklist, what the merge folded together, each verifier's vote and
@@ -66,16 +67,18 @@ export const NORMAL_PACE: Pace = {
 };
 
 /**
- * The pace for a review that must end within `seconds`. Agents get a few turns and keep a
- * quarter of the time for their submission, every agent starts at once, a slow call is
- * sent again rather than waited on, and verifiers decide in one turn from the code shown.
+ * The pace for a review that must end within `seconds`. Every agent starts at once and may
+ * spend nearly the whole review window on its first answer, because answering from the
+ * context takes one long call. A call is sent again only when it runs past 40% of the
+ * target, which a healthy answer rarely does. Verifiers decide in one turn from the code shown.
  */
 export function fastPace(seconds: number): Pace {
   const ms = seconds * 1000;
+  const reviewShare = 0.65;
   return {
-    reviewShare: 0.65, finishShare: 0.92, chunkTurns: 6, globalTurns: 6, verifyTurns: 1, concurrency: 64,
-    callTimeoutMs: Math.round(ms / 3), hedgeMs: Math.round(ms / 6), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
-    mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.15),
+    reviewShare, finishShare: 0.92, chunkTurns: 6, globalTurns: 6, verifyTurns: 1, concurrency: 64,
+    callTimeoutMs: Math.round(ms * reviewShare), hedgeMs: Math.round(ms * 0.4), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
+    mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.1),
   };
 }
 
@@ -102,6 +105,7 @@ export interface SwarmSettings {
   target: number;
   sort: "latency" | "throughput" | null;
   effort: string | null;
+  reasoningTokens: number | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -129,10 +133,13 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (sort !== null && sort !== "latency" && sort !== "throughput") throw new Error("RB_CONFIG_SWARM_SORT must be latency or throughput");
   const effort = env.RB_CONFIG_SWARM_EFFORT?.trim() || null;
   if (effort !== null && !["none", "minimal", "low", "medium", "high"].includes(effort)) throw new Error("RB_CONFIG_SWARM_EFFORT must be none, minimal, low, medium or high");
+  const reasoningTokens = integer(env, "RB_CONFIG_SWARM_REASONING_TOKENS", 0, 0, 32_000) || null;
+  if (reasoningTokens !== null && reasoningTokens < 100) throw new Error("RB_CONFIG_SWARM_REASONING_TOKENS must be from 100 to 32000");
   return {
     target,
     sort,
     effort,
+    reasoningTokens,
     merge: merge === "on",
     split,
     chunks: integer(env, "RB_CONFIG_SWARM_CHUNKS", 10, 1, 40),
@@ -142,7 +149,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -295,6 +302,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     try {
       const reply = await baseChat({
         ...request, ...(settings.sort ? { providerSort: settings.sort } : {}), ...(settings.effort ? { effort: settings.effort } : {}),
+        ...(settings.reasoningTokens ? { reasoningTokens: settings.reasoningTokens } : {}),
       });
       record.ok = true;
       record.reasoningChars = Array.isArray(reply.reasoning_details)

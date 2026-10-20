@@ -29,6 +29,8 @@ export interface ChatRequest {
   attemptTimeoutMs?: number;
   /** Reasoning effort for this call, in place of the client's. */
   effort?: string;
+  /** The most tokens the model may reason for on this call; takes the place of the effort. OpenRouter only. */
+  reasoningTokens?: number;
   /** Asks OpenRouter to route to the provider with the lowest latency or highest throughput. */
   providerSort?: "latency" | "throughput";
 }
@@ -93,7 +95,8 @@ export function createChat(options: ClientOptions): Chat {
     // growing conversation every turn, so caching decides most of its cost.
     if (openRouter && request.model.startsWith("anthropic/")) body.cache_control = { type: "ephemeral" };
     const effort = request.effort ?? options.effort;
-    if (effort) {
+    if (openRouter && request.reasoningTokens) body.reasoning = { max_tokens: request.reasoningTokens };
+    else if (effort) {
       if (openRouter) body.reasoning = { effort };
       else body.reasoning_effort = effort;
     }

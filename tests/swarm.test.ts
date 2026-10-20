@@ -108,6 +108,9 @@ test("reads and checks the swarm settings", () => {
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_SORT: "cheapest" }), /RB_CONFIG_SWARM_SORT/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_EFFORT: "low" }).effort, "low");
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EFFORT: "max" }), /RB_CONFIG_SWARM_EFFORT/);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_REASONING_TOKENS: "1500" }).reasoningTokens, 1500);
+  assert.equal(swarmSettings({}).reasoningTokens, null);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_REASONING_TOKENS: "10" }), /RB_CONFIG_SWARM_REASONING_TOKENS/);
 });
 
 test("the fast pace fits every phase inside the target", () => {

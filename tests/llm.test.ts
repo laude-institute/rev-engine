@@ -27,3 +27,18 @@ test("totals usage for the run and for each caller that names itself", async () 
   assert.deepEqual(usageByCaller.get("verifier"), { calls: 1, promptTokens: 100, completionTokens: 10, cachedTokens: 60, costUsd: 0.5 });
   assert.deepEqual([...usageByCaller.keys()], ["s1", "verifier"]);
 });
+
+test("sends a per-call effort, a reasoning cap in its place, and a provider sort to OpenRouter", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const fetchImpl = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }));
+  }) as unknown as typeof fetch;
+  const chat = createChat({ apiKey: "key", baseUrl: "https://openrouter.ai/api/v1", effort: "high", usage: emptyUsage(), fetchImpl });
+  const request = { model: "test/model", messages: [], tools: [], timeoutMs: 5_000 };
+  await chat(request);
+  await chat({ ...request, effort: "low" });
+  await chat({ ...request, effort: "low", reasoningTokens: 1500, providerSort: "latency" });
+  assert.deepEqual(bodies.map((body) => body.reasoning), [{ effort: "high" }, { effort: "low" }, { max_tokens: 1500 }]);
+  assert.deepEqual(bodies[2]!.provider, { sort: "latency" });
+});
