@@ -74,15 +74,17 @@ export const NORMAL_PACE: Pace = {
 /**
  * The pace for a review that must end within `seconds`. Every agent starts at once and may
  * spend nearly the whole review window on its first answer, because answering from the
- * context takes one long call. A call is sent again only when it runs past 40% of the
- * target, which a healthy answer rarely does. Verifiers decide in one turn from the code shown.
+ * context takes one long call. A call that reasons is sent again only when it runs past
+ * 40% of the target, which a healthy answer rarely does. Without reasoning a call answers
+ * in seconds, so one still running after a sixth of the target has stalled and is sent
+ * again then. Verifiers decide in one turn from the code shown.
  */
-export function fastPace(seconds: number): Pace {
+export function fastPace(seconds: number, reasoning = true): Pace {
   const ms = seconds * 1000;
   const reviewShare = 0.65;
   return {
     reviewShare, finishShare: 0.92, chunkTurns: 6, globalTurns: 6, verifyTurns: 1, concurrency: 64,
-    callTimeoutMs: Math.round(ms * reviewShare), hedgeMs: Math.round(ms * 0.4), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
+    callTimeoutMs: Math.round(ms * reviewShare), hedgeMs: Math.round(reasoning ? ms * 0.4 : ms / 6), minStartMs: Math.round(ms * 0.3), minRetryMs: Infinity,
     mergeMs: Math.round(ms * 0.15), minVerifyMs: Math.round(ms * 0.12), wrapUpMs: Math.round(ms * 0.1),
   };
 }
@@ -261,7 +263,8 @@ interface Trace {
   verification: Array<{ findingId: string; batch: number; ballots: Array<{ voter: string; verdict: string | null; reason: string | null; duplicateOf: string | null }>; result: Verdict; kept: boolean }>;
   final: Array<{ findingId: string; rank: number; file: string; startLine: number; endLine: number; severity: string; kind: string; title: string; support: number; from: string[] }>;
   cutByCap: string[];
-  timing: { reviewMs: number; mergeMs: number; verifyMs: number; totalMs: number };
+  /** setupMs is the time spent cutting the diff and gathering context, before any agent starts. */
+  timing: { setupMs: number; reviewMs: number; mergeMs: number; verifyMs: number; totalMs: number };
   /** Model calls sent a second time because the first was slow. */
   hedged: number;
   /** Every model call: who made it, when it started and how long it took, and how much it reasoned and wrote. */
@@ -277,7 +280,7 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
   log(`swarm settings: ${describeSwarm(settings)}`);
   const trace: Trace = {
     settings: { ...settings, model: config.models[0]!, verifier: config.verifierModel },
-    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { reviewMs: 0, mergeMs: 0, verifyMs: 0, totalMs: 0 }, hedged: 0, calls: [],
+    chunks: [], agents: [], proposals: [], merges: [], verification: [], final: [], cutByCap: [], timing: { setupMs: 0, reviewMs: 0, mergeMs: 0, verifyMs: 0, totalMs: 0 }, hedged: 0, calls: [],
   };
   const started = Date.now();
   // The trace is for analysis only, so failing to write it never fails the review. It is
@@ -296,7 +299,7 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
 async function swarm(config: Config, baseChat: Chat, log: (message: string) => void, settings: SwarmSettings, trace: Trace, save: () => Promise<void>): Promise<ReviewOutcome> {
   const started = Date.now();
   const target = settings.target ? Math.min(settings.target * 1000, config.budgetMs) : 0;
-  const pace = target ? fastPace(target / 1000) : NORMAL_PACE;
+  const pace = target ? fastPace(target / 1000, settings.effort !== "none") : NORMAL_PACE;
   const available = target || config.budgetMs;
   const reviewDeadline = started + available * pace.reviewShare;
   let finishDeadline = started + available * pace.finishShare;
@@ -364,7 +367,8 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const turns = (fast: boolean) => Math.min(config.maxTurns, fast ? fastPace(fastSeconds).globalTurns : NORMAL_PACE.globalTurns);
     jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async (fast) => globalPrompt(shared, task, turns(fast), diff, fast ? fastSeconds : 0) });
   }
-  log(`swarm: ${chunks.length} chunk(s), ${jobs.length} agent(s) with ${model}`);
+  trace.timing.setupMs = Date.now() - started;
+  log(`swarm: ${chunks.length} chunk(s), ${jobs.length} agent(s) with ${model}, set up in ${Math.round(trace.timing.setupMs / 1000)}s`);
 
   const context: ReviewContext = { diffInPrompt: diffInPrompt(diff), readers: [] };
   type Job = (typeof jobs)[number];

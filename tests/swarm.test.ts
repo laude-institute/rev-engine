@@ -120,6 +120,7 @@ test("the fast pace fits every phase inside the target", () => {
   assert.ok(pace.hedgeMs < pace.callTimeoutMs, "a slow call is sent again before it would time out");
   assert.ok(pace.minStartMs < 60_000 * pace.reviewShare);
   assert.equal(pace.minRetryMs, Infinity, "there is no time to run an agent twice");
+  assert.ok(fastPace(60, false).hedgeMs < pace.hedgeMs, "without reasoning, a slow call is sent again sooner");
 });
 
 test("sends a slow call again and keeps the first answer, and passes a fast call through", async () => {

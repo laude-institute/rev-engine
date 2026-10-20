@@ -44,7 +44,10 @@ export function calledNames(chunk: Chunk): string[] {
   return names.slice(0, MAX_CALLEES);
 }
 
-/** Where each name is defined in the checkout, found with one git grep. A line counts when a definition pattern names it. */
+/**
+ * Where each name is defined in the checkout, found with one git grep for all the names
+ * as one alternation. A line counts when a definition pattern names it.
+ */
 export async function findDefinitions(repoDir: string, names: string[]): Promise<Map<string, Mention[]>> {
   const found = new Map<string, Mention[]>(names.map((name) => [name, []]));
   const safe = names.filter((name) => /^[A-Za-z_]\w*$/.test(name));
@@ -53,7 +56,7 @@ export async function findDefinitions(repoDir: string, names: string[]): Promise
   try {
     ({ stdout } = await execFileAsync(
       "git",
-      ["-c", "safe.directory=*", "-C", repoDir, "grep", "-n", "-I", "-w", "-F", "--no-color", ...safe.flatMap((name) => ["-e", name]), "--", "."],
+      ["-c", "safe.directory=*", "-C", repoDir, "grep", "-n", "-I", "-w", "-E", "--no-color", "-e", `(${safe.join("|")})`, "--", "."],
       { maxBuffer: 32_000_000, timeout: GREP_TIMEOUT_MS, env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" } },
     ));
   } catch (error) {

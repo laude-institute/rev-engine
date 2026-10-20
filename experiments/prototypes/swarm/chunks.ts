@@ -174,7 +174,9 @@ export interface Mention {
 
 /**
  * Every line in the checkout that mentions one of the names, as a whole word, found
- * with one git grep. Names are plain identifiers, so they are safe to pass as arguments.
+ * with one git grep. Names are plain identifiers, so they are safe in the pattern. One
+ * alternation is far faster than one fixed string per name: for 55 names in a small
+ * repository, 0.2 seconds against 10.
  */
 export async function findMentions(repoDir: string, names: string[]): Promise<Map<string, Mention[]>> {
   const found = new Map<string, Mention[]>(names.map((name) => [name, []]));
@@ -184,7 +186,7 @@ export async function findMentions(repoDir: string, names: string[]): Promise<Ma
   try {
     ({ stdout } = await execFileAsync(
       "git",
-      ["-c", "safe.directory=*", "-C", repoDir, "grep", "-n", "-I", "-w", "-F", "--no-color", ...safe.flatMap((name) => ["-e", name]), "--", "."],
+      ["-c", "safe.directory=*", "-C", repoDir, "grep", "-n", "-I", "-w", "-E", "--no-color", "-e", `(${safe.join("|")})`, "--", "."],
       { maxBuffer: 32_000_000, timeout: GREP_TIMEOUT_MS, env: { ...process.env, GIT_NO_LAZY_FETCH: "1", GIT_TERMINAL_PROMPT: "0" } },
     ));
   } catch (error) {
