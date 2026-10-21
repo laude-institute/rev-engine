@@ -72,8 +72,19 @@ fi
 count=$(wc -l <<<"$indexes" | tr -d ' ')
 export bench image
 rm -rf findings logs/pr-*.log
-xargs -P "$jobs" -I{} sh -c \
-  '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@" <<<"$indexes"
+review() {
+  xargs -P "$jobs" -I{} sh -c \
+    '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
+}
+review "$@" <<<"$indexes"
+# Docker on an arm64 Mac runs the amd64 image under emulation, and now and then the
+# container crashes at start with exit code 139 before the reviewer prints anything.
+# Those pull requests are reviewed once more.
+crashed=$(grep -l "FAIL: exit code 139" logs/pr-*.log 2>/dev/null | sed -E 's/.*pr-([0-9]+)\.log$/\1/' || true)
+if [ -n "$crashed" ]; then
+  echo "reviewing again after a crash at start (exit code 139): $(tr '\n' ' ' <<<"$crashed")" >&2
+  review "$@" <<<"$crashed"
+fi
 done_count=$(find findings -name '*.json' 2>/dev/null | wc -l | tr -d ' ')
 grep -h -E '^(==|   (ok|FAIL))' logs/pr-*.log || true
 echo "$done_count of $count pull requests produced a valid findings file; logs in $run/logs" >&2
