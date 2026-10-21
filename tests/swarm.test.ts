@@ -97,6 +97,9 @@ test("reads and checks the swarm settings", () => {
   assert.deepEqual(swarmSettings({}).split, "task");
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_TASKS: "callers, tests" }).tasks, ["callers", "tests"]);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TASKS: "vibes" }), /unknown task/);
+  assert.equal(swarmSettings({}).evidence, true);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "off" }).evidence, false);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "maybe" }), /RB_CONFIG_SWARM_EVIDENCE/);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_VOTES: "9" }), /RB_CONFIG_SWARM_VOTES/);
   assert.doesNotMatch(SWARM_SYSTEM, /ten or more findings/);
   assert.match(SWARM_VERIFIER_SYSTEM, /outside specification or standard says, and nothing in the checkout shows it, mark the finding uncertain/);

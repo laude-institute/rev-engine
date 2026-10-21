@@ -114,6 +114,8 @@ export interface SwarmSettings {
   effort: string | null;
   reasoningTokens: number | null;
   context: "basic" | "rich";
+  /** With rich context, also shows a one-turn verifier where the names in each finding are used. */
+  evidence: boolean;
 }
 
 type Env = Record<string, string | undefined>;
@@ -145,7 +147,10 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (reasoningTokens !== null && reasoningTokens < 100) throw new Error("RB_CONFIG_SWARM_REASONING_TOKENS must be from 100 to 32000");
   const context = env.RB_CONFIG_SWARM_CONTEXT?.trim() || "basic";
   if (context !== "basic" && context !== "rich") throw new Error("RB_CONFIG_SWARM_CONTEXT must be basic or rich");
+  const evidence = env.RB_CONFIG_SWARM_EVIDENCE?.trim() || "on";
+  if (evidence !== "on" && evidence !== "off") throw new Error("RB_CONFIG_SWARM_EVIDENCE must be on or off");
   return {
+    evidence: evidence === "on",
     target,
     sort,
     effort,
@@ -160,7 +165,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context} swarm_evidence=${settings.evidence ? "on" : "off"}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -473,7 +478,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const groups = batches(survivors);
     // A one-turn verifier cannot read files, so it is shown the code around each finding,
     // and with rich context also where the names each finding mentions are used.
-    const evidenceMentions = rich && pace.verifyTurns === 1
+    const evidenceMentions = rich && settings.evidence && pace.verifyTurns === 1
       ? await findMentions(config.repoDir, [...new Set(survivors.flatMap((candidate) => namesInFinding(`${candidate.title} ${candidate.detail}`)))])
       : null;
     const prompts = await Promise.all(groups.map(async (group) => {

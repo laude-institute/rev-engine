@@ -43,6 +43,7 @@ The tasks are:
 | `RB_CONFIG_SWARM_EFFORT` | unset | The reasoning effort for the swarm's calls: `none`, `minimal`, `low`, `medium` or `high`. Unset uses `RB_CONFIG_EFFORT`. A call that reasons at length is slow, so a lower effort may speed up a fast review. |
 | `RB_CONFIG_SWARM_REASONING_TOKENS` | unset | The most tokens one swarm call may reason for, from 100 to 32000. It takes the place of the effort. DeepSeek V4.1 Flash reasons at about 100 tokens a second and treats `low` effort as a suggestion, so a cap is the dependable way to bound a call's time. |
 | `RB_CONFIG_SWARM_CONTEXT` | `basic` | `rich` also gives each chunk's agents the code around every use of a name the chunk changes, the first lines of the functions it calls, the tests whose file names match the changed files, and the code at the base revision. Each part has a line limit. Built in [`context.ts`](context.ts). |
+| `RB_CONFIG_SWARM_EVIDENCE` | `on` | With rich context and a target, `on` also shows each verifier where the names a finding mentions are defined or used elsewhere. `off` shows only the code around each finding. |
 
 With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls are in flight at once.
 
@@ -65,7 +66,7 @@ Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns 
 - **Agents are asked for at most 6 findings** with short details, and do not list what they checked, because the submission turn grows with what the model writes.
 - **A call may run for the whole review window**, because an agent's first answer is one long call. A call still running after 40% of the target is sent again, or after a sixth of it when reasoning is off (`RB_CONFIG_SWARM_EFFORT=none`), because such a call answers in seconds unless it has stalled. The first answer is used. Both calls are paid for, and the trace counts how many were sent again.
 - **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail or hand in no findings, those agents run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
-- **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files. With `RB_CONFIG_SWARM_CONTEXT=rich` they are also shown where the names each finding mentions are defined or used elsewhere, so a claim about what a constant holds or a function does can be checked.
+- **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files. With `RB_CONFIG_SWARM_CONTEXT=rich` and `RB_CONFIG_SWARM_EVIDENCE=on` they are also shown where the names each finding mentions are defined or used elsewhere, so a claim about what a constant holds or a function does can be checked.
 - **The merge, when it runs, gets up to 15% of the target** from what verification leaves, and is skipped when less than half of that is left.
 
 ## Tracing misses
