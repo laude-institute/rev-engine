@@ -3,10 +3,13 @@
 // the same word merge, then the merge under test, then the verifiers' recorded votes, then
 // the ranking and the cap. Only the merge calls a model.
 //
-//   node experiments/prototypes/swarm/replay-merge.ts <source-run> <new-run> [--original]
+//   node experiments/prototypes/swarm/replay-merge.ts <source-run> <new-run> [--original | --skip-under-cap | --after-verify]
 //
 // --original reuses the recorded groups instead of asking the model, which should reproduce
-// the source run's findings exactly; it checks the replay itself. A finding the recorded run
+// the source run's findings exactly; it checks the replay itself. --skip-under-cap asks the
+// model only when more findings than the cap are left after the word merge. --after-verify
+// keeps the recorded merge, applies the recorded votes, and asks the model to merge only
+// the findings the verifiers kept, and only when there are more of them than the cap. A finding the recorded run
 // grouped away was never verified, so when it is kept now it takes its group's most common vote.
 // Score the new run with JUDGE_MODE=match scripts/score.sh <new-run>.
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -22,6 +25,8 @@ if (!source || !target) {
   process.exit(2);
 }
 const original = flags.includes("--original");
+const skipUnderCap = flags.includes("--skip-under-cap");
+const afterVerify = flags.includes("--after-verify");
 const MAX_FINDINGS = 40;
 const MERGE_SECONDS = 9;
 
@@ -43,6 +48,18 @@ async function chatFor(): Promise<Chat> {
 }
 
 const chat = original ? null : await chatFor();
+let running = 0;
+const queue: Array<() => void> = [];
+const run = async <T>(job: () => Promise<T>): Promise<T> => {
+  if (running >= 64) await new Promise<void>((resolve) => queue.push(resolve));
+  running += 1;
+  try {
+    return await job();
+  } finally {
+    running -= 1;
+    queue.shift()?.();
+  }
+};
 const runDir = join("runs", source);
 const keys = (await readdir(join(runDir, "findings"))).filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -5)).sort();
 await mkdir(join("runs", target, "findings"), { recursive: true });
@@ -66,10 +83,21 @@ for (const key of keys) {
   const survivors = merged.map((candidate) => ({ ...candidate, id: shortId.get(candidate.id)! }));
   const byId = new Map(survivors.map((candidate) => [candidate.id, candidate]));
 
-  // The merge under test, or the recorded one.
+  // The model merge under test, which adds its groups to `into`.
   const into = new Map<string, string>();
-  let failed = 0;
-  if (original) {
+  const modelMerge = async (candidates: Candidate[]): Promise<void> => {
+    const settings = trace.settings;
+    const swarmChat: Chat = (request) => chat!({ ...request, ...(settings.effort ? { effort: settings.effort } : {}), ...(settings.sort ? { providerSort: settings.sort } : {}) });
+    const started = Date.now();
+    const result = await mergeRepeats(candidates, {
+      chat: swarmChat, model: settings.model, deadline: started + MERGE_SECONDS * 1000, attemptTimeoutMs: MERGE_SECONDS * 1000, run,
+      log: (message) => console.log(`  ${key.slice(0, 24)}: ${message}`),
+    });
+    for (const [from, to] of result.into) into.set(from, to);
+    const failed = result.batches.filter((batch) => batch.error).length;
+    console.log(`  ${key.slice(0, 24)}: merge took ${((Date.now() - started) / 1000).toFixed(1)}s, ${failed} of ${result.batches.length} batch(es) failed`);
+  };
+  if (original || afterVerify) {
     for (const batch of trace.merges) {
       const members = batch.ids.map((id) => byId.get(id)).filter((candidate) => candidate !== undefined);
       for (const group of cleanGroups(batch.groups, members)) {
@@ -77,32 +105,16 @@ for (const key of keys) {
         for (const member of group) if (member.id !== kept.id) into.set(member.id, kept.id);
       }
     }
-  } else {
-    let running = 0;
-    const queue: Array<() => void> = [];
-    const run = async <T>(job: () => Promise<T>): Promise<T> => {
-      if (running >= 64) await new Promise<void>((resolve) => queue.push(resolve));
-      running += 1;
-      try {
-        return await job();
-      } finally {
-        running -= 1;
-        queue.shift()?.();
-      }
-    };
-    const settings = trace.settings;
-    const swarmChat: Chat = (request) => chat!({ ...request, ...(settings.effort ? { effort: settings.effort } : {}), ...(settings.sort ? { providerSort: settings.sort } : {}) });
-    const started = Date.now();
-    const result = await mergeRepeats(survivors, {
-      chat: swarmChat, model: settings.model, deadline: started + MERGE_SECONDS * 1000, attemptTimeoutMs: MERGE_SECONDS * 1000, run,
-      log: (message) => console.log(`  ${key.slice(0, 24)}: ${message}`),
-    });
-    for (const [from, to] of result.into) into.set(from, to);
-    failed = result.batches.filter((batch) => batch.error).length;
-    console.log(`  ${key.slice(0, 24)}: merge took ${((Date.now() - started) / 1000).toFixed(1)}s, ${failed} of ${result.batches.length} batch(es) failed`);
+  } else if (!skipUnderCap || survivors.length > MAX_FINDINGS) {
+    await modelMerge(survivors);
   }
   const kept = survivors.filter((candidate) => !into.has(candidate.id));
-  const groupOf = (id: string): string => into.get(id) ?? id;
+  // A merge after verification can fold a finding into one that was itself folded before.
+  const groupOf = (id: string): string => {
+    let current = id;
+    for (let hops = 0; into.has(current) && hops < survivors.length; hops += 1) current = into.get(current)!;
+    return current;
+  };
 
   // Each kept finding's vote: its own, or the most common one in its group.
   const recordedVerdicts = new Map(trace.verification.map((entry) => [entry.findingId, entry.result]));
@@ -116,7 +128,11 @@ for (const key of keys) {
     const verdict = [...counts].sort((a, b) => b[1] - a[1] || (a[0] === "confirmed" ? -1 : 1))[0]![0] as Verdict["verdict"];
     return [{ id: candidate.id, verdict, duplicateOf: null }];
   });
-  const verifiedKept = applyVerdicts(kept, verdicts, false);
+  let verifiedKept = applyVerdicts(kept, verdicts, false);
+  if (afterVerify && verifiedKept.length > MAX_FINDINGS) {
+    await modelMerge(verifiedKept);
+    verifiedKept = verifiedKept.filter((candidate) => !into.has(candidate.id));
+  }
 
   const support = new Map<string, number>();
   for (const candidate of verifiedKept) {
