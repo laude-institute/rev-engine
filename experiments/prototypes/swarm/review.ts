@@ -467,35 +467,6 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   let survivors = merged.map((candidate) => ({ ...candidate, id: findingIds.get(candidate.id)! }));
   log(`word merge kept ${survivors.length} of ${proposals.length} finding(s)`);
 
-  const mergeStarted = Date.now();
-  if (settings.merge && survivors.length > 1) {
-    const mergeDeadline = Math.min(Date.now() + pace.mergeMs, finishDeadline - pace.minVerifyMs);
-    if (mergeDeadline - Date.now() >= Math.min(30_000, pace.mergeMs / 2)) {
-      const result = await mergeRepeats(survivors, {
-        chat, model, deadline: mergeDeadline, attemptTimeoutMs: pace.callTimeoutMs, run, log,
-      });
-      trace.merges = result.batches;
-      for (const proposal of trace.proposals) {
-        const kept = proposal.findingId ? result.into.get(proposal.findingId) : undefined;
-        if (kept) {
-          proposal.groupedInto = kept;
-          proposal.findingId = kept;
-        }
-      }
-      log(`model merge kept ${result.kept.length} of ${survivors.length} finding(s)`);
-      survivors = result.kept;
-    } else {
-      log("model merge skipped: too little time is left");
-    }
-  }
-  trace.timing.mergeMs = Date.now() - mergeStarted;
-  // How many agents reported each finding, counting an agent's retry as the same agent.
-  const support = new Map<string, number>();
-  for (const candidate of survivors) {
-    support.set(candidate.id, new Set(trace.proposals.filter((proposal) => proposal.findingId === candidate.id).map((proposal) => proposal.caller)).size);
-  }
-  await save();
-
   let verified = false;
   const verifyStarted = Date.now();
   if (config.verify !== "off" && settings.votes > 0 && survivors.length && finishDeadline - Date.now() >= pace.minVerifyMs) {
@@ -569,8 +540,39 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     log("verification skipped");
   }
   trace.timing.verifyMs = Date.now() - verifyStarted;
+
+  // Repeats are folded only among the findings the verifiers kept, and only when more are
+  // left than the cap. Each finding is verified on its own first, so a group never stands or
+  // falls on one member's votes, and a review under the cap keeps every finding it found.
+  const mergeStarted = Date.now();
+  if (settings.merge && survivors.length > config.maxFindings) {
+    const mergeDeadline = Math.min(Date.now() + pace.mergeMs, finishDeadline);
+    if (mergeDeadline - Date.now() >= Math.min(30_000, pace.mergeMs / 2)) {
+      const result = await mergeRepeats(survivors, {
+        chat, model, deadline: mergeDeadline, attemptTimeoutMs: pace.callTimeoutMs, run, log,
+      });
+      trace.merges = result.batches;
+      for (const proposal of trace.proposals) {
+        const kept = proposal.findingId ? result.into.get(proposal.findingId) : undefined;
+        if (kept) {
+          proposal.groupedInto = kept;
+          proposal.findingId = kept;
+        }
+      }
+      log(`model merge kept ${result.kept.length} of ${survivors.length} finding(s)`);
+      survivors = result.kept;
+    } else {
+      log("model merge skipped: too little time is left");
+    }
+  }
+  trace.timing.mergeMs = Date.now() - mergeStarted;
   trace.hedged = hedges.count;
   if (hedges.count) log(`swarm: ${hedges.count} slow call(s) sent again`);
+  // How many agents reported each finding, counting an agent's retry as the same agent.
+  const support = new Map<string, number>();
+  for (const candidate of survivors) {
+    support.set(candidate.id, new Set(trace.proposals.filter((proposal) => proposal.findingId === candidate.id).map((proposal) => proposal.caller)).size);
+  }
   await save();
 
   const ranked = rankBySupport(survivors, support, config.maxFindings);
@@ -581,8 +583,19 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     severity: candidate.severity, kind: candidate.kind, title: candidate.title, support: support.get(candidate.id) ?? 1,
     from: trace.proposals.filter((proposal) => proposal.findingId === candidate.id).map((proposal) => proposal.id),
   }));
+  // In agent mode each message starts with how severe the finding is and how many checks
+  // confirmed it, so the agent reading a long list can choose what to act on first.
+  const checks = new Map(trace.verification.map((entry) => [entry.findingId, entry.ballots.filter((ballot) => ballot.verdict !== null)]));
+  const label = (candidate: Candidate): string => {
+    const cast = checks.get(candidate.id) ?? [];
+    const confirmed = cast.filter((ballot) => ballot.verdict === "confirmed").length;
+    return `[${candidate.severity} severity, ${cast.length ? `confirmed by ${confirmed} of ${cast.length} checks` : "not checked"}] `;
+  };
   return {
-    findings: ranked.map((candidate) => toOutput(candidate, config.agent)),
+    findings: ranked.map((candidate) => {
+      const output = toOutput(candidate, config.agent);
+      return config.mode === "agent" ? { ...output, message: label(candidate) + output.message } : output;
+    }),
     ranked, proposed: proposals.length, verified, fit: null, context,
   };
 }

@@ -7,9 +7,10 @@ This prototype tests whether many short reviews by a cheap model can do as well 
 1. The diff is cut into chunks. The hunks of one file that sit within 20 lines of each other form a unit, and units are packed in diff order into at most `RB_CONFIG_SWARM_CHUNKS` chunks. Lockfiles and other generated files are skipped.
 2. Each chunk's agents start with its hunks, the file around them, and every line in the checkout that mentions a name the chunk defines or changes. The mentions come from one `git grep` over the checkout, so a cheap model spends few turns looking for callers.
 3. Each chunk gets one agent for each chunk task, and the whole change gets one agent for each global pass. Every task is a short list of steps, in [`tasks.ts`](tasks.ts). Agents also report what they checked for each step, so the run log shows coverage.
-4. The findings are merged in two steps. The word-based merge of the main review folds findings in nearly the same words. Then the model reads each file's findings, up to 40 at a time in line order, and groups the ones that describe the same problem at the same place. It answers in one call and is offered no read tools, because it decides from the findings alone. A group's findings must sit within 40 lines of each other. Each group keeps its most severe finding, then the most confident, then the most detailed, and the number of agents behind it is kept.
+4. The word-based merge of the main review folds findings in nearly the same words.
 5. Each batch of findings from the same files is checked by `RB_CONFIG_SWARM_VOTES` verifiers, and a finding is dropped when most of them reject it.
-6. The survivors are ranked by severity, then by how many agents reported them, then by confidence, and capped at `RB_CONFIG_MAX_FINDINGS`.
+6. When more findings survive than `RB_CONFIG_MAX_FINDINGS`, the model folds repeats among them. It reads each file's findings, up to 40 at a time in line order, and groups the ones that describe the same problem at the same place. It answers in one call and is offered no read tools, because it decides from the findings alone. A group's findings must sit within 40 lines of each other. Each group keeps its most severe finding, then the most confident, then the most detailed, and the number of agents behind it is kept. The merge comes after verification so that every finding is judged on its own votes, and a review under the cap keeps every finding it found.
+7. The survivors are ranked by severity, then by how many agents reported them, then by confidence, and capped at `RB_CONFIG_MAX_FINDINGS`. With `RB_CONFIG_MODE=agent`, each message starts with the finding's severity and how many verifiers confirmed it, such as `[medium severity, confirmed by 2 of 3 checks]`.
 
 The tasks are:
 
@@ -36,7 +37,7 @@ The tasks are:
 | `RB_CONFIG_SWARM_CHUNKS` | `10` | The most chunks to cut the diff into, from 1 to 40. |
 | `RB_CONFIG_SWARM_VOTES` | `3` | Verifiers for each batch of findings, from 0 to 5. `0` skips verification, and so does `RB_CONFIG_VERIFY=off`. |
 | `RB_CONFIG_SWARM_TASKS` | all | A comma-separated subset of the task names, for leaving tasks out. |
-| `RB_CONFIG_SWARM_MERGE` | `on` | `on` has the model group repeats before verification. `off` uses only the word-based merge. |
+| `RB_CONFIG_SWARM_MERGE` | `on` | `on` has the model group repeats after verification when more findings are left than the cap. `off` uses only the word-based merge. |
 | `RB_CONFIG_SWARM_TARGET` | `0` | Seconds the whole review should take, from 30 to 780. `0` fills the benchmark's time budget. Any other value turns on the fast pace described below. |
 | `RB_CONFIG_SWARM_SORT` | unset | `latency` or `throughput` asks OpenRouter to route every call to the provider that is best by that measure. |
 | `RB_CONFIG_SWARM_EFFORT` | unset | The reasoning effort for the swarm's calls: `none`, `minimal`, `low`, `medium` or `high`. Unset uses `RB_CONFIG_EFFORT`. A call that reasons at length is slow, so a lower effort may speed up a fast review. |
@@ -65,7 +66,7 @@ Most of a normal swarm review is spent waiting. Each agent takes 10 to 40 turns 
 - **A call may run for the whole review window**, because an agent's first answer is one long call. A call still running after 40% of the target is sent again, or after a sixth of it when reasoning is off (`RB_CONFIG_SWARM_EFFORT=none`), because such a call answers in seconds unless it has stalled. The first answer is used. Both calls are paid for, and the trace counts how many were sent again.
 - **A failed agent is not run again on its own**, because there is no time for it. When more than half of the agents fail or hand in no findings, those agents run again at the normal pace, so the review misses its target on that pull request instead of failing or handing in a mostly blind review.
 - **Verifiers decide in one turn** from the diff and the 15 lines above and below each finding, instead of reading files. With `RB_CONFIG_SWARM_CONTEXT=rich` they are also shown where the names each finding mentions are defined or used elsewhere, so a claim about what a constant holds or a function does can be checked.
-- **The merge gets 15% of the target.**
+- **The merge, when it runs, gets up to 15% of the target** from what verification leaves, and is skipped when less than half of that is left.
 
 ## Tracing misses
 

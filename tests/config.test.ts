@@ -34,6 +34,8 @@ test("reads the minimum severity and the fit model", () => {
   assert.equal(config.fitOutPath, "/work/out/fit.json");
   assert.ok(describeSettings(config).includes("min_severity=high fit=vendor/fit"));
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MIN_SEVERITY: "urgent" }), /RB_CONFIG_MIN_SEVERITY/);
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MODE: "robot" }), /RB_CONFIG_MODE/);
+  assert.equal(loadConfig({ ...BASE, RB_CONFIG_MODE: "agent", RB_CONFIG_MAX_FINDINGS: "30" }).maxFindings, 30);
 });
 
 test("retries an empty review unless told not to", () => {

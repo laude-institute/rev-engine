@@ -276,8 +276,8 @@ test("ranks by severity, then by how many agents reported a finding", () => {
   assert.deepEqual(ranked.map((candidate) => candidate.id), ["c", "b"]);
 });
 
-test("folds differently worded repeats into one finding with the model merge", async () => {
-  const { config, trace } = await swarmFixture({ RB_CONFIG_SWARM_VOTES: "0" });
+test("folds differently worded repeats into one finding with the model merge when more are left than the cap", async () => {
+  const { config, trace } = await swarmFixture({ RB_CONFIG_SWARM_VOTES: "0", RB_CONFIG_MAX_FINDINGS: "2" });
   const wordings = new Map([["c1/logic", "retries is never used"], ["c1/callers", "The retries argument is ignored by acquire"], ["global/promise", "Unused parameter"]]);
   const chat: Chat = async (request) => {
     const name = request.tools.at(-1)!.function.name;
@@ -298,6 +298,35 @@ test("folds differently worded repeats into one finding with the model merge", a
   assert.equal(traced.merges[0].groups[0].ids.length, 3);
   assert.equal(traced.final[0].support, 3);
   assert.equal(traced.proposals.filter((proposal: { groupedInto: string | null }) => proposal.groupedInto).length, 2);
+});
+
+test("keeps every finding without the model merge when they fit under the cap", async () => {
+  const { config, trace } = await swarmFixture({ RB_CONFIG_SWARM_VOTES: "0" });
+  const wordings = new Map([["c1/logic", "retries is never used"], ["c1/callers", "The retries argument is ignored by acquire"], ["global/promise", "Unused parameter"]]);
+  let merges = 0;
+  const chat: Chat = async (request) => {
+    const name = request.tools.at(-1)!.function.name;
+    if (name === "submit_groups") merges += 1;
+    const title = wordings.get(request.caller ?? "");
+    const args = { checked: [], findings: title ? [{ file: "src/pool.ts", start_line: 2, end_line: 2, severity: "medium", kind: "defect", title, detail: `${title}.`, confidence: 0.7 }] : [] };
+    return { role: "assistant", tool_calls: [{ id: "1", type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+  };
+  const outcome = await swarmReview(config, chat, () => {});
+  assert.equal(outcome.findings.length, 3);
+  assert.equal(merges, 0);
+  assert.deepEqual(trace().merges, []);
+});
+
+test("agent mode raises the cap and starts each message with the severity and the checks that confirmed it", async () => {
+  const { config } = await swarmFixture({ RB_CONFIG_MODE: "agent" });
+  assert.equal(config.maxFindings, 80);
+  const outcome = await swarmReview(config, async (request) => submitting(request), () => {});
+  assert.equal(outcome.findings.length, 1);
+  assert.match(outcome.findings[0]!.message, /^\[medium severity, confirmed by 3 of 3 checks\] retries is never used: Ignored\./);
+  const human = await swarmFixture();
+  assert.equal(human.config.maxFindings, 25);
+  const plain = await swarmReview(human.config, async (request) => submitting(request), () => {});
+  assert.match(plain.findings[0]!.message, /^retries is never used/);
 });
 
 test("a fast review asks for few findings, needs no checklist, and shows verifiers the code instead of letting them read", async () => {

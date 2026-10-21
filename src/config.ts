@@ -55,11 +55,17 @@ export interface Config {
   transcriptOutPath: string | null;
   contextOutPath: string | null;
   effort: string | null;
+  /** agent writes a thorough review for an agent to triage; human writes a shorter one for people. */
+  mode: ReviewMode;
   maxFindings: number;
   /** Wall-clock budget for the whole run. */
   budgetMs: number;
   maxTurns: number;
 }
+
+export type ReviewMode = "agent" | "human";
+/** The default cap on findings in each mode. An agent can triage a longer list than a person reads. */
+export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, human: 25 };
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 export const DEFAULT_MODEL = "openai/gpt-6-luna";
@@ -121,6 +127,9 @@ export function loadConfig(env: Env): Config {
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
 
+  const mode = (env.RB_CONFIG_MODE?.trim() || "human") as ReviewMode;
+  if (!["agent", "human"].includes(mode)) throw new Error("RB_CONFIG_MODE must be agent or human");
+
   const outPath = required(env, "RB_OUT");
 
   return {
@@ -153,7 +162,8 @@ export function loadConfig(env: Env): Config {
     transcriptOutPath: env.RB_TRANSCRIPT_OUT?.trim() || null,
     contextOutPath: env.RB_CONTEXT_OUT?.trim() || null,
     effort: env.RB_CONFIG_EFFORT?.trim() || null,
-    maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", 25, 1, 100),
+    mode,
+    maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", DEFAULT_MAX_FINDINGS[mode], 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,
     maxTurns: integer(env, "RB_CONFIG_MAX_TURNS", 40, 2, 200),
   };
@@ -161,8 +171,8 @@ export function loadConfig(env: Env): Config {
 
 /** The settings line the benchmark looks for: every configured label value must appear in the output. */
 export function describeSettings(config: Config): string {
-  if (config.naive) return `naive=on model=${config.models[0]} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000}`;
-  if (config.swarm) return `swarm=on model=${config.models[0]} verifier=${config.verifierModel} verify=${config.verify} effort=${config.effort ?? "default"} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} max_turns=${config.maxTurns}`;
+  if (config.naive) return `naive=on model=${config.models[0]} mode=${config.mode} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000}`;
+  if (config.swarm) return `swarm=on model=${config.models[0]} verifier=${config.verifierModel} verify=${config.verify} effort=${config.effort ?? "default"} mode=${config.mode} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} max_turns=${config.maxTurns}`;
   return [
     `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,
@@ -173,6 +183,7 @@ export function describeSettings(config: Config): string {
     `min_severity=${config.minSeverity}`,
     `fit=${config.fitModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,
+    `mode=${config.mode}`,
     `max_findings=${config.maxFindings}`,
     `time_budget=${config.budgetMs / 1000}`,
     `max_turns=${config.maxTurns}`,
