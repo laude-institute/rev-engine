@@ -41,6 +41,8 @@ test("sends a per-call effort, a reasoning cap in its place, and a provider sort
   await chat({ ...request, effort: "low", reasoningTokens: 1500, providerSort: "latency" });
   assert.deepEqual(bodies.map((body) => body.reasoning), [{ effort: "high" }, { effort: "low" }, { max_tokens: 1500 }]);
   assert.deepEqual(bodies[2]!.provider, { sort: "latency" });
+  await chat({ ...request, providers: ["together"] });
+  assert.deepEqual(bodies[3]!.provider, { only: ["together"], allow_fallbacks: false });
 });
 
 test("reads which provider served a call, and never sends it back", async () => {

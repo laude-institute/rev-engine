@@ -100,6 +100,10 @@ test("reads and checks the swarm settings", () => {
   assert.equal(swarmSettings({}).evidence, true);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "off" }).evidence, false);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "maybe" }), /RB_CONFIG_SWARM_EVIDENCE/);
+  assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_PROVIDERS: "together, deepinfra/fp8" }).providers, ["together", "deepinfra/fp8"]);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "90" }).limit, 90);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_LIMIT: "90" }), /RB_CONFIG_SWARM_LIMIT/);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "45" }), /RB_CONFIG_SWARM_LIMIT/);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_VOTES: "9" }), /RB_CONFIG_SWARM_VOTES/);
   assert.doesNotMatch(SWARM_SYSTEM, /ten or more findings/);
   assert.match(SWARM_VERIFIER_SYSTEM, /outside specification or standard says, and nothing in the checkout shows it, mark the finding uncertain/);

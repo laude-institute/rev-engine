@@ -110,6 +110,10 @@ export interface SwarmSettings {
   merge: boolean;
   /** Seconds the review should take; 0 uses the benchmark's budget. */
   target: number;
+  /** Seconds after which the review is cut off; the target when 0. Agents still aim at the target. */
+  limit: number;
+  /** OpenRouter providers allowed to serve the swarm's calls; all when empty. */
+  providers: string[];
   sort: "latency" | "throughput" | null;
   effort: string | null;
   reasoningTokens: number | null;
@@ -139,6 +143,9 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (merge !== "on" && merge !== "off") throw new Error("RB_CONFIG_SWARM_MERGE must be on or off");
   const target = integer(env, "RB_CONFIG_SWARM_TARGET", 0, 0, 780);
   if (target && target < 30) throw new Error("RB_CONFIG_SWARM_TARGET must be 0 or from 30 to 780");
+  const limit = integer(env, "RB_CONFIG_SWARM_LIMIT", 0, 0, 780);
+  if (limit && (!target || limit < target)) throw new Error("RB_CONFIG_SWARM_LIMIT needs RB_CONFIG_SWARM_TARGET and must not be below it");
+  const providers = (env.RB_CONFIG_SWARM_PROVIDERS ?? "").split(",").map((name) => name.trim()).filter(Boolean);
   const sort = env.RB_CONFIG_SWARM_SORT?.trim() || null;
   if (sort !== null && sort !== "latency" && sort !== "throughput") throw new Error("RB_CONFIG_SWARM_SORT must be latency or throughput");
   const effort = env.RB_CONFIG_SWARM_EFFORT?.trim() || null;
@@ -151,6 +158,8 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (evidence !== "on" && evidence !== "off") throw new Error("RB_CONFIG_SWARM_EVIDENCE must be on or off");
   return {
     evidence: evidence === "on",
+    limit,
+    providers,
     target,
     sort,
     effort,
@@ -165,7 +174,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context} swarm_evidence=${settings.evidence ? "on" : "off"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_limit=${settings.limit || "target"} swarm_providers=${settings.providers.join(",") || "any"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context} swarm_evidence=${settings.evidence ? "on" : "off"}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -304,8 +313,12 @@ export async function swarmReview(config: Config, chat: Chat, log: (message: str
 async function swarm(config: Config, baseChat: Chat, log: (message: string) => void, settings: SwarmSettings, trace: Trace, save: () => Promise<void>): Promise<ReviewOutcome> {
   const started = Date.now();
   const target = settings.target ? Math.min(settings.target * 1000, config.budgetMs) : 0;
-  const pace = target ? fastPace(target / 1000, settings.effort !== "none") : NORMAL_PACE;
-  const available = target || config.budgetMs;
+  // With a limit, the deadlines and cut-offs come from the limit, so a slow call is not lost at
+  // the target, while agents are still told the target and slow calls are resent as soon.
+  const limit = settings.limit ? Math.min(settings.limit * 1000, config.budgetMs) : target;
+  const reasoning = settings.effort !== "none";
+  const pace = target ? { ...fastPace(limit / 1000, reasoning), hedgeMs: fastPace(target / 1000, reasoning).hedgeMs } : NORMAL_PACE;
+  const available = limit || config.budgetMs;
   const reviewDeadline = started + available * pace.reviewShare;
   let finishDeadline = started + available * pace.finishShare;
   const model = config.models[0]!;
@@ -318,7 +331,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     trace.calls.push(record);
     try {
       const reply = await baseChat({
-        ...request, ...(settings.sort ? { providerSort: settings.sort } : {}), ...(settings.effort ? { effort: settings.effort } : {}),
+        ...request, ...(settings.sort ? { providerSort: settings.sort } : {}), ...(settings.providers.length ? { providers: settings.providers } : {}), ...(settings.effort ? { effort: settings.effort } : {}),
         ...(settings.reasoningTokens ? { reasoningTokens: settings.reasoningTokens } : {}),
       });
       record.ok = true;
