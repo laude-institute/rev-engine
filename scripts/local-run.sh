@@ -31,8 +31,10 @@ bench="${REVIEWBENCH_DIR:-$here/../ReviewBench}"
 if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
 [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "OPENROUTER_API_KEY is not set" >&2; exit 2; }
 
+# BUILD_DIR builds the image from another checkout, such as a worktree of an older
+# commit, so an earlier version can be run again with this script.
 image="${IMAGE:-rev-engine-prime:dev}"
-docker build --quiet --platform linux/amd64 -t "$image" "$here" >/dev/null
+docker build --quiet --platform linux/amd64 -t "$image" "${BUILD_DIR:-$here}" >/dev/null
 
 run="$here/runs/$name"
 cache="$here/runs/.cache/repos"
