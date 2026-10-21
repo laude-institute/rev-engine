@@ -15,6 +15,10 @@
 # JOBS=<n> runs n pull requests of the test set at a time. The full set shares
 # repository checkouts between pull requests, so it always runs one at a time.
 # PRS=0,3,7 limits a test set run to those indexes.
+#
+# Each run reviews in its own copy of the fetched repositories, so several runs,
+# even of the same pull request, can go at once. On APFS the copy shares storage
+# with runs/.cache/repos and takes about a second.
 set -euo pipefail
 
 [ $# -ge 1 ] || { sed -n '6,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
@@ -31,9 +35,23 @@ image="${IMAGE:-rev-engine-prime:dev}"
 docker build --quiet --platform linux/amd64 -t "$image" "$here" >/dev/null
 
 run="$here/runs/$name"
-mkdir -p "$run/logs" "$here/runs/.cache/repos" "$run/.try-agent"
-# Share fetched repositories between runs; everything else stays per run.
-[ -e "$run/.try-agent/repos" ] || ln -s "$here/runs/.cache/repos" "$run/.try-agent/repos"
+cache="$here/runs/.cache/repos"
+mkdir -p "$run/logs" "$cache" "$run/.try-agent"
+# A review checks out and cleans its repository in place, so two runs sharing one
+# checkout would collide. Each run starts from a copy of the cache instead, and
+# repositories it fetched for the first time go back to the cache when it ends.
+if [ ! -e "$run/.try-agent/repos" ]; then
+  cp -cR "$cache" "$run/.try-agent/repos" 2>/dev/null || cp -R "$cache" "$run/.try-agent/repos"
+fi
+keep_new_repos() {
+  [ -d "$run/.try-agent/repos" ] && [ ! -L "$run/.try-agent/repos" ] || return 0
+  for dir in "$run/.try-agent/repos"/*/; do
+    [ -d "$dir" ] || continue
+    target="$cache/$(basename "$dir")"
+    [ -e "$target" ] || cp -cR "$dir" "$target" 2>/dev/null || cp -R "$dir" "$target" || true
+  done
+}
+trap keep_new_repos EXIT
 cd "$run"
 
 jobs="${JOBS:-1}"
