@@ -1,9 +1,13 @@
 // Sorts every expected finding a swarm run missed by the step that lost it.
 //
-//   node experiments/prototypes/swarm/misses.ts <run>
+//   node experiments/prototypes/swarm/misses.ts <run> [scoring-name...]
 //
 // It reads the judge's scoring, the benchmark's golden files, and each pull request's
-// swarm.json and context.json. A miss falls into the first case that fits:
+// swarm.json, context.json and transcript.json. The scoring names are directories under the
+// run, such as matching and matching2; the default is scoring, or matching when the run has
+// no scoring. With several, a finding counts as missed when any of them missed it, and the
+// report says whether all of them did, because the judge's matching varies from pass to pass.
+// A miss falls into the first case that fits:
 //
 //   reported   a final finding sits on the same lines, but the judge did not match it
 //   cut        a finding on the same lines survived verification and the cap cut it
@@ -16,17 +20,18 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { ReadRecord } from "../../../src/tools.ts";
+import { promptLines, sawLines, type Seen } from "./seen.ts";
 
 const here = resolve(import.meta.dirname, "../../..");
 const bench = process.env.REVIEWBENCH_DIR ?? join(here, "..", "ReviewBench");
-const name = process.argv[2];
+const [name, ...scoringNames] = process.argv.slice(2);
 if (!name) {
-  console.error("usage: node experiments/prototypes/swarm/misses.ts <run>");
+  console.error("usage: node experiments/prototypes/swarm/misses.ts <run> [scoring-name...]");
   process.exit(2);
 }
 const runDir = join(here, "runs", name);
 const outDir = join(runDir, ".try-agent", "out");
-/** Must match WINDOW_LINES in chunks.ts: chunk agents see this many lines around each unit. */
+/** Must match WINDOW_LINES in chunks.ts: chunk agents see this many lines around each unit. Used only for runs without a transcript. */
 const WINDOW = 30;
 const NEAR = 3;
 
@@ -48,27 +53,41 @@ const readJson = async <T>(path: string): Promise<T | null> => {
 };
 const cell = (text: string, max = 160) => text.replace(/\s+/g, " ").replaceAll("|", "\\|").slice(0, max);
 
-const scoring = await readJson<Array<{ pr_key: string; candidate_findings: Array<{ covered_golden_indices?: number[] }> }>>(join(runDir, "scoring", "results.details.json"));
-if (!scoring) {
-  console.error(`no scoring for ${name}; run scripts/score.sh ${name} first`);
-  process.exit(1);
+type Details = Array<{ pr_key: string; candidate_findings: Array<{ covered_golden_indices?: number[] }> }>;
+const names = scoringNames.length ? scoringNames
+  : await readJson<Details>(join(runDir, "scoring", "results.details.json")) ? ["scoring"] : ["matching"];
+const passes: Array<Map<string, Set<number>>> = [];
+for (const scoringName of names) {
+  const scoring = await readJson<Details>(join(runDir, scoringName, "results.details.json"));
+  if (!scoring) {
+    console.error(`no ${scoringName} for ${name}; run scripts/score.sh ${name} first`);
+    process.exit(1);
+  }
+  passes.push(new Map(scoring.map((entry) => [entry.pr_key, new Set(entry.candidate_findings.flatMap((candidate) => candidate.covered_golden_indices ?? []))])));
 }
-const found = new Map(scoring.map((entry) => [entry.pr_key, new Set(entry.candidate_findings.flatMap((candidate) => candidate.covered_golden_indices ?? []))]));
 
-const rows: Array<{ key: string; finding: Golden; reported: boolean; case: Case | null; evidence: string }> = [];
+const rows: Array<{ key: string; index: number; finding: Golden; reported: boolean; missedByAll: boolean; case: Case | null; evidence: string }> = [];
 for (const key of (await readdir(outDir)).sort()) {
   const golden = await readJson<{ findings: Golden[] }>(join(bench, "golden", `${key}.json`));
   const trace = await readJson<Trace>(join(outDir, key, "swarm.json"));
   const context = await readJson<{ readers: Array<{ caller: string; reads: ReadRecord[] }> }>(join(outDir, key, "context.json"));
   if (!golden || !trace) { console.error(`${key}: no golden file or swarm.json, skipped`); continue; }
+  // What each reviewing agent had in its prompt, when the run kept a transcript.
+  const transcript = await readJson<{ conversations: Array<{ caller: string; messages: Array<{ role: string; content?: string | null }> }> }>(join(outDir, key, "transcript.json"));
+  const prompts: Array<{ caller: string; seen: Seen }> | null = transcript
+    ? transcript.conversations.filter((conversation) => !conversation.caller.startsWith("verifier") && !conversation.caller.startsWith("merge"))
+      .map((conversation) => ({ caller: conversation.caller, seen: promptLines(conversation.messages.find((message) => message.role === "user")?.content ?? "") }))
+    : null;
   const finalIds = new Set(trace.final.map((item) => item.findingId));
   const cut = new Set(trace.cutByCap);
   const votes = new Map(trace.verification.map((item) => [item.findingId, item]));
 
   for (const [index, finding] of golden.findings.entries()) {
     if (finding.tp_fp !== "tp") continue;
-    const reported = found.get(key)?.has(index) ?? false;
-    if (reported) { rows.push({ key, finding, reported, case: null, evidence: "" }); continue; }
+    const foundBy = passes.filter((pass) => pass.get(key)?.has(index)).length;
+    const reported = foundBy === passes.length;
+    if (reported) { rows.push({ key, index, finding, reported, missedByAll: false, case: null, evidence: "" }); continue; }
+    const missedByAll = foundBy === 0;
     const overlaps = (first: number, last: number, slack = 0) => first - slack <= finding.end_line && last + slack >= finding.start_line;
 
     const near = trace.proposals.filter((proposal) => proposal.file === finding.file && overlaps(proposal.startLine, proposal.endLine, NEAR));
@@ -99,12 +118,17 @@ for (const key of (await readdir(outDir)).sort()) {
       const readers = (context?.readers ?? []).filter(({ caller, reads }) => !caller.startsWith("verifier") && reads.some((read) =>
         (read.tool === "read_file" && read.path === finding.file && read.lines && overlaps(read.lines[0], read.lines[1]))
         || (read.tool === "search" && (read.hits ?? []).some((hit) => hit.path === finding.file && overlaps(hit.line, hit.line))))).map(({ caller }) => caller);
-      const chunkAgents = trace.agents.filter((agent) => inWindow.some((id) => agent.caller.startsWith(`${id}/`))).map((agent) => agent.caller);
-      const saw = [...new Set([...chunkAgents.map((caller) => `${caller} (prompt)`), ...readers])];
+      const shown = prompts
+        ? prompts.flatMap(({ caller, seen }) => {
+          const sources = sawLines(seen, finding.file, finding.start_line - NEAR, finding.end_line + NEAR);
+          return sources.length ? [`${caller} (prompt: ${sources.join(", ")})`] : [];
+        })
+        : trace.agents.filter((agent) => inWindow.some((id) => agent.caller.startsWith(`${id}/`))).map((agent) => `${agent.caller} (prompt)`);
+      const saw = [...new Set([...shown, ...readers.map((caller) => `${caller} (read)`)])];
       missCase = saw.length ? "read" : "unseen";
       evidence = saw.length ? saw.join(", ") : "no chunk window or read covered these lines";
     }
-    rows.push({ key, finding, reported, case: missCase, evidence });
+    rows.push({ key, index, finding, reported, missedByAll, case: missCase, evidence });
   }
 }
 
@@ -112,7 +136,8 @@ const missed = rows.filter((row) => !row.reported);
 const summary = [
   `# Misses in ${name}`,
   "",
-  `${rows.length} expected findings, ${rows.length - missed.length} reported, ${missed.length} missed.`,
+  `${rows.length} expected findings, ${rows.length - missed.length} reported, ${missed.length} missed`
+    + (passes.length > 1 ? `, of which ${missed.filter((row) => row.missedByAll).length} were missed in all ${passes.length} matchings (${names.join(", ")}).` : "."),
   "",
   "| Case | Missed | High | Medium | Low |",
   "|---|---|---|---|---|",
@@ -125,12 +150,15 @@ const summary = [
 const details = [
   "## Missed findings",
   "",
-  "| Case | Pull request | Where | Severity | Expected finding | Evidence |",
-  "|---|---|---|---|---|---|",
+  "| Case | Pull request | Where | Severity | Missed in every matching | Expected finding | Evidence |",
+  "|---|---|---|---|---|---|---|",
   ...missed.sort((a, b) => CASES.indexOf(a.case!) - CASES.indexOf(b.case!) || a.key.localeCompare(b.key)).map((row) =>
-    `| ${row.case} | ${row.key} | ${row.finding.file}:${row.finding.start_line}-${row.finding.end_line} | ${row.finding.severity} | ${cell(row.finding.message)} | ${cell(row.evidence, 400)} |`),
+    `| ${row.case} | ${row.key} | ${row.finding.file}:${row.finding.start_line}-${row.finding.end_line} | ${row.finding.severity} | ${row.missedByAll ? "yes" : "no"} | ${cell(row.finding.message)} | ${cell(row.evidence, 400)} |`),
 ].join("\n");
 
 await writeFile(join(runDir, "misses.md"), `${summary}\n\n${details}\n`);
+// The same rows in full, for tools that build on them.
+await writeFile(join(runDir, "misses.json"), `${JSON.stringify(missed.map(({ key, index, finding, missedByAll, case: missCase, evidence }) =>
+  ({ pr_key: key, golden_index: index, file: finding.file, start_line: finding.start_line, end_line: finding.end_line, severity: finding.severity, message: finding.message, missed_by_all: missedByAll, case: missCase, evidence })), null, 2)}\n`);
 console.log(summary);
 console.log(`\nEach miss is listed in runs/${name}/misses.md`);

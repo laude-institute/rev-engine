@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { chunk, chunkContext, chunkSymbols, findMentions, splitDiff, units } from "../experiments/prototypes/swarm/chunks.ts";
 import { SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM, submitFastReview, submitSwarmReview } from "../experiments/prototypes/swarm/prompts.ts";
 import { cleanGroups, representative } from "../experiments/prototypes/swarm/merge.ts";
+import { promptLines, sawLines } from "../experiments/prototypes/swarm/seen.ts";
 import { FAST_SECOND_LOOK, fastPace, hedge, rankBySupport, swarmReview, swarmSettings, tally } from "../experiments/prototypes/swarm/review.ts";
 import type { Candidate } from "../src/findings.ts";
 import { loadConfig } from "../src/config.ts";
@@ -441,4 +442,23 @@ test("a fast verifier is shown where the names a finding mentions are used", asy
   );
   assert.match(text, /<uses finding="f1" name="LANGUAGE_LABEL" path="src\/labels\.ts">\n16: x[\s\S]*21: export const LANGUAGE_LABEL = "Cymraeg - CY";/);
   assert.doesNotMatch(text, /labels\.test\.ts/, "the finding's own lines are already shown");
+});
+
+test("reads which lines of which files a prompt showed", () => {
+  const prompt = [
+    "<diff>\ndiff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -10,3 +10,4 @@ export\n x\n+y\n</diff>",
+    "<file_after_change path=\"src/b.ts\" lines=\"5-7\">\n5: one\n6: two\n7: three\n</file_after_change>",
+    "<test path=\"test/b.test.ts\">\n1: a\n2: b\n...\n40: c\n</test>",
+    "<before path=\"src/b.ts\">\n100: old\n</before>",
+    "- helper\n  src/c.ts:12: helper()",
+  ].join("\n\n");
+  const seen = promptLines(prompt);
+  assert.deepEqual(sawLines(seen, "src/a.ts", 13, 13), ["diff"]);
+  assert.deepEqual(sawLines(seen, "src/a.ts", 14, 20), []);
+  assert.deepEqual(sawLines(seen, "src/b.ts", 7, 9), ["file_after_change"]);
+  // Lines of the file before the change are numbered differently, so they do not count.
+  assert.deepEqual(sawLines(seen, "src/b.ts", 100, 100), []);
+  assert.deepEqual(sawLines(seen, "test/b.test.ts", 3, 39), []);
+  assert.deepEqual(sawLines(seen, "test/b.test.ts", 40, 40), ["test"]);
+  assert.deepEqual(sawLines(seen, "src/c.ts", 10, 14), ["mention"]);
 });

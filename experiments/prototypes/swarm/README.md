@@ -90,6 +90,10 @@ With these files, each expected finding the run missed falls into one of these c
 - It survived and the cap cut it. Check `cutByCap`.
 - It was in the findings file and the judge did not match it.
 
-`node experiments/prototypes/swarm/misses.ts <run>` sorts a scored run's misses into these cases and writes `runs/<run>/misses.md`. Use it only on the 25 pull request test set.
+`node experiments/prototypes/swarm/misses.ts <run> [scoring-name...]` sorts a scored run's misses into these cases and writes `runs/<run>/misses.md` and `misses.json`. It works out what each agent had in its prompt from `transcript.json`, so code shown through rich context counts as read. The judge's matching varies from pass to pass, so a run can be matched twice (`SCORING_NAME=matching2 JUDGE_MODE=match scripts/score.sh <run>`) and both names given; the report then says which misses every matching agreed on.
+
+`node experiments/prototypes/swarm/false-positives.ts <run> [scoring-name...]` lists every reported finding the judge matched only to expected findings marked wrong, with the agents and tasks that proposed it, the verifiers' votes and reasons, and the benchmark's reason the claim is wrong. It writes `runs/<run>/false-positives.md` and `false-positives.json`.
+
+Use both only on the 25 pull request test set.
 
 `node experiments/prototypes/swarm/replay-merge.ts <run> <new-run>` runs the merge again on a recorded run's proposals and rebuilds its findings from the recorded votes, so a change to the merge can be scored with `JUDGE_MODE=match scripts/score.sh <new-run>` without reviewing again. With `--original` it reuses the recorded groups, which should reproduce the recorded findings exactly.
