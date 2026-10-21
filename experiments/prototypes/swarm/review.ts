@@ -472,8 +472,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const mergeDeadline = Math.min(Date.now() + pace.mergeMs, finishDeadline - pace.minVerifyMs);
     if (mergeDeadline - Date.now() >= Math.min(30_000, pace.mergeMs / 2)) {
       const result = await mergeRepeats(survivors, {
-        chat, model, deadline: mergeDeadline, attemptTimeoutMs: pace.callTimeoutMs, run, log, ...wrapUp,
-        workspace: () => new Workspace(config.repoDir, config.diffPath, config.base),
+        chat, model, deadline: mergeDeadline, attemptTimeoutMs: pace.callTimeoutMs, run, log,
       });
       trace.merges = result.batches;
       for (const proposal of trace.proposals) {

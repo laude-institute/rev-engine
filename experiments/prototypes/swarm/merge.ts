@@ -2,17 +2,15 @@
 // the word-based merge cannot see, so a model groups the findings of each file by the
 // problem they describe. Each group keeps one finding, and the number of agents behind
 // it is kept as a measure of how sure the swarm is.
-import { runAgent } from "../../../src/agent.ts";
 import type { Candidate, Severity } from "../../../src/findings.ts";
-import type { Chat } from "../../../src/llm.ts";
+import { ModelError, type Chat, type ChatMessage } from "../../../src/llm.ts";
 import { UNTRUSTED } from "../../../src/prompts.ts";
-import type { ToolDefinition, Workspace } from "../../../src/tools.ts";
+import type { ToolDefinition } from "../../../src/tools.ts";
 
 /** Findings shown to the model at once. A file with more is split in line order, where repeats sit together. */
 const MERGE_BATCH = 40;
 /** Findings in one group must sit within this many lines of each other; the same problem far apart is two problems. */
 const MAX_GROUP_SPAN = 40;
-const MERGE_TURNS = 3;
 
 export const MERGE_SYSTEM = `Several reviewers checked one pull request independently, and their findings in one file are listed below. Reviewers often report the same problem in different words. Your job is to group the findings that are repeats.
 
@@ -108,10 +106,48 @@ export interface MergeOptions {
   model: string;
   deadline: number;
   attemptTimeoutMs: number;
-  wrapUpMs?: number;
   run: <T>(job: () => Promise<T>) => Promise<T>;
-  workspace: () => Workspace;
   log: (message: string) => void;
+}
+
+/** The groups from a reply, whether the model called submit_groups or wrote the JSON as text. */
+function groupsFrom(reply: ChatMessage): unknown {
+  const call = reply.tool_calls?.find((item) => item.function.name === submitGroups.function.name);
+  const text = call ? call.function.arguments : (reply.content ?? "").slice((reply.content ?? "").indexOf("{"), (reply.content ?? "").lastIndexOf("}") + 1);
+  const value: unknown = JSON.parse(text);
+  if (!value || typeof value !== "object" || !Array.isArray((value as { groups?: unknown }).groups)) throw new Error("the reply held no groups");
+  return (value as { groups: unknown[] }).groups;
+}
+
+/**
+ * Asks for the groups in one call. The merge decides from the findings alone, so the model is
+ * offered only submit_groups and made to call it; a tool loop with read tools let it spend its
+ * few seconds reading files and be cut off before it submitted.
+ */
+async function askForGroups(batch: Candidate[], caller: string, options: MergeOptions): Promise<unknown> {
+  const findings = batch.map((candidate) => ({
+    id: candidate.id, start_line: candidate.startLine, end_line: candidate.endLine, severity: candidate.severity,
+    kind: candidate.kind, title: candidate.title, detail: candidate.detail,
+  }));
+  const request = {
+    model: options.model, tools: [submitGroups], caller, attemptTimeoutMs: options.attemptTimeoutMs,
+    messages: [
+      { role: "system" as const, content: MERGE_SYSTEM },
+      { role: "user" as const, content: `Findings in ${batch[0]!.file}:\n\n<findings>\n${JSON.stringify(findings, null, 2)}\n</findings>` },
+    ],
+  };
+  const timeoutMs = (): number => {
+    const remaining = options.deadline - Date.now();
+    if (remaining <= 0) throw new Error("ran out of time before grouping");
+    return remaining;
+  };
+  try {
+    return groupsFrom(await options.chat({ ...request, forceTool: submitGroups.function.name, timeoutMs: timeoutMs() }));
+  } catch (error) {
+    // Not every provider accepts a forced tool choice. Ask again and let the model choose.
+    if (!(error instanceof ModelError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429)) throw error;
+    return groupsFrom(await options.chat({ ...request, timeoutMs: timeoutMs() }));
+  }
 }
 
 export interface MergeResult {
@@ -130,22 +166,12 @@ export async function mergeRepeats(candidates: Candidate[], options: MergeOption
     const caller = `merge/b${index + 1}`;
     const entry: MergeResult["batches"][number] = { caller, ids: batch.map((candidate) => candidate.id), groups: [] };
     try {
-      const findings = batch.map((candidate) => ({
-        id: candidate.id, start_line: candidate.startLine, end_line: candidate.endLine, severity: candidate.severity,
-        kind: candidate.kind, title: candidate.title, detail: candidate.detail,
-      }));
-      const submission = await runAgent({
-        chat: options.chat, model: options.model, system: MERGE_SYSTEM,
-        prompt: `Findings in ${batch[0]!.file}:\n\n<findings>\n${JSON.stringify(findings, null, 2)}\n</findings>`,
-        workspace: options.workspace(), submit: submitGroups, deadline: options.deadline, maxTurns: MERGE_TURNS,
-        log: options.log, caller, attemptTimeoutMs: options.attemptTimeoutMs,
-        ...(options.wrapUpMs === undefined ? {} : { wrapUpMs: options.wrapUpMs }),
-      });
+      const groups = await askForGroups(batch, caller, options);
       const problems = new Map<string, string>();
-      for (const item of Array.isArray(submission.groups) ? submission.groups : []) {
+      for (const item of Array.isArray(groups) ? groups : []) {
         if (item && Array.isArray(item.ids) && typeof item.problem === "string") for (const id of item.ids) problems.set(String(id), item.problem);
       }
-      for (const group of cleanGroups(submission.groups, batch)) {
+      for (const group of cleanGroups(groups, batch)) {
         const kept = representative(group);
         for (const member of group) if (member.id !== kept.id) into.set(member.id, kept.id);
         entry.groups.push({ ids: group.map((member) => member.id), problem: problems.get(kept.id) ?? "" });

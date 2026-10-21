@@ -7,7 +7,7 @@ This prototype tests whether many short reviews by a cheap model can do as well 
 1. The diff is cut into chunks. The hunks of one file that sit within 20 lines of each other form a unit, and units are packed in diff order into at most `RB_CONFIG_SWARM_CHUNKS` chunks. Lockfiles and other generated files are skipped.
 2. Each chunk's agents start with its hunks, the file around them, and every line in the checkout that mentions a name the chunk defines or changes. The mentions come from one `git grep` over the checkout, so a cheap model spends few turns looking for callers.
 3. Each chunk gets one agent for each chunk task, and the whole change gets one agent for each global pass. Every task is a short list of steps, in [`tasks.ts`](tasks.ts). Agents also report what they checked for each step, so the run log shows coverage.
-4. The findings are merged in two steps. The word-based merge of the main review folds findings in nearly the same words. Then the model reads each file's findings, up to 40 at a time in line order, and groups the ones that describe the same problem at the same place. A group's findings must sit within 40 lines of each other. Each group keeps its most severe finding, then the most confident, then the most detailed, and the number of agents behind it is kept.
+4. The findings are merged in two steps. The word-based merge of the main review folds findings in nearly the same words. Then the model reads each file's findings, up to 40 at a time in line order, and groups the ones that describe the same problem at the same place. It answers in one call and is offered no read tools, because it decides from the findings alone. A group's findings must sit within 40 lines of each other. Each group keeps its most severe finding, then the most confident, then the most detailed, and the number of agents behind it is kept.
 5. Each batch of findings from the same files is checked by `RB_CONFIG_SWARM_VOTES` verifiers, and a finding is dropped when most of them reject it.
 6. The survivors are ranked by severity, then by how many agents reported them, then by confidence, and capped at `RB_CONFIG_MAX_FINDINGS`.
 
@@ -91,3 +91,5 @@ With these files, each expected finding the run missed falls into one of these c
 - It was in the findings file and the judge did not match it.
 
 `node experiments/prototypes/swarm/misses.ts <run>` sorts a scored run's misses into these cases and writes `runs/<run>/misses.md`. Use it only on the 25 pull request test set.
+
+`node experiments/prototypes/swarm/replay-merge.ts <run> <new-run>` runs the merge again on a recorded run's proposals and rebuilds its findings from the recorded votes, so a change to the merge can be scored with `JUDGE_MODE=match scripts/score.sh <new-run>` without reviewing again. With `--original` it reuses the recorded groups, which should reproduce the recorded findings exactly.
