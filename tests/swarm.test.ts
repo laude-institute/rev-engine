@@ -101,6 +101,9 @@ test("reads and checks the swarm settings", () => {
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "off" }).evidence, false);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "maybe" }), /RB_CONFIG_SWARM_EVIDENCE/);
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_PROVIDERS: "together, deepinfra/fp8" }).providers, ["together", "deepinfra/fp8"]);
+  assert.equal(swarmSettings({}).copies, 1);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_COPIES: "2" }).copies, 2);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_COPIES: "9" }), /RB_CONFIG_SWARM_COPIES/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "90" }).limit, 90);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_LIMIT: "90" }), /RB_CONFIG_SWARM_LIMIT/);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "45" }), /RB_CONFIG_SWARM_LIMIT/);
@@ -305,6 +308,24 @@ test("folds differently worded repeats into one finding with the model merge whe
   assert.equal(traced.merges[0].groups[0].ids.length, 3);
   assert.equal(traced.final[0].support, 3);
   assert.equal(traced.proposals.filter((proposal: { groupedInto: string | null }) => proposal.groupedInto).length, 2);
+});
+
+test("copies run every agent again, independently", async () => {
+  const one = await swarmFixture();
+  await swarmReview(one.config, async (request) => submitting(request), () => {});
+  const two = await swarmFixture();
+  process.env.RB_CONFIG_SWARM_COPIES = "2";
+  let outcome;
+  try {
+    outcome = await swarmReview(two.config, async (request) => submitting(request), () => {});
+  } finally {
+    delete process.env.RB_CONFIG_SWARM_COPIES;
+  }
+  const single = one.trace().agents.map((agent: { caller: string }) => agent.caller);
+  const doubled = two.trace().agents.map((agent: { caller: string }) => agent.caller);
+  assert.equal(doubled.length, 2 * single.length);
+  assert.ok(single.every((caller: string) => doubled.includes(caller) && doubled.includes(`${caller}/2`)));
+  assert.equal(outcome.findings.length, 1, "the copies' repeats fold into one finding");
 });
 
 test("keeps every finding without the model merge when they fit under the cap", async () => {

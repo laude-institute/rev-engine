@@ -114,6 +114,8 @@ export interface SwarmSettings {
   limit: number;
   /** OpenRouter providers allowed to serve the swarm's calls; all when empty. */
   providers: string[];
+  /** How many independent agents run each job. Two runs find different problems, so copies raise recall. */
+  copies: number;
   sort: "latency" | "throughput" | null;
   effort: string | null;
   reasoningTokens: number | null;
@@ -157,6 +159,7 @@ export function swarmSettings(env: Env): SwarmSettings {
   const evidence = env.RB_CONFIG_SWARM_EVIDENCE?.trim() || "on";
   if (evidence !== "on" && evidence !== "off") throw new Error("RB_CONFIG_SWARM_EVIDENCE must be on or off");
   return {
+    copies: integer(env, "RB_CONFIG_SWARM_COPIES", 1, 1, 4),
     evidence: evidence === "on",
     limit,
     providers,
@@ -174,7 +177,7 @@ export function swarmSettings(env: Env): SwarmSettings {
 }
 
 export function describeSwarm(settings: SwarmSettings): string {
-  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_limit=${settings.limit || "target"} swarm_providers=${settings.providers.join(",") || "any"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context} swarm_evidence=${settings.evidence ? "on" : "off"}`;
+  return `swarm_split=${settings.split} swarm_chunks=${settings.chunks} swarm_votes=${settings.votes} swarm_tasks=${settings.tasks.join(",")} swarm_merge=${settings.merge ? "on" : "off"} swarm_target=${settings.target || "budget"} swarm_limit=${settings.limit || "target"} swarm_providers=${settings.providers.join(",") || "any"} swarm_sort=${settings.sort ?? "default"} swarm_effort=${settings.effort ?? "default"} swarm_reasoning_tokens=${settings.reasoningTokens ?? "default"} swarm_context=${settings.context} swarm_evidence=${settings.evidence ? "on" : "off"} swarm_copies=${settings.copies}`;
 }
 
 /** Runs at most `size` of the given jobs at a time. */
@@ -386,6 +389,9 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const turns = (fast: boolean) => Math.min(config.maxTurns, fast ? fastPace(fastSeconds).globalTurns : NORMAL_PACE.globalTurns);
     jobs.push({ caller: `global/${task.name}`, tasks: [task], turns, prompt: async (fast) => globalPrompt(shared, task, turns(fast), diff, fast ? fastSeconds : 0) });
   }
+  // Copies get the same prompt and run independently; the merge folds what they agree on.
+  const originals = [...jobs];
+  for (let copy = 2; copy <= settings.copies; copy += 1) jobs.push(...originals.map((job) => ({ ...job, caller: `${job.caller}/${copy}` })));
   trace.timing.setupMs = Date.now() - started;
   log(`swarm: ${chunks.length} chunk(s), ${jobs.length} agent(s) with ${model}, set up in ${Math.round(trace.timing.setupMs / 1000)}s`);
 
