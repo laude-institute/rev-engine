@@ -25,6 +25,11 @@ The tasks are:
 | `together` | global | Siblings that had to change too: other implementations, switch statements, schemas, registration |
 | `docs` | global | Documentation, examples and messages the change made wrong |
 | `risk` | global | Security, data exposure, deployment and failure handling, performance |
+| `types` | each chunk, on trial | Every way out of a changed function returns the same type and shape, and annotations say so |
+| `compat` | global, on trial | New syntax and library calls against the oldest versions the project declares |
+| `claims` | global, on trial | Changelogs, docs, comments and messages the change edits match what its code does |
+
+The tasks on trial run only when `RB_CONFIG_SWARM_TASKS` names them.
 
 ## Settings
 

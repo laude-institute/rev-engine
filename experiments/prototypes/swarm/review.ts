@@ -33,7 +33,7 @@ import { mergeRepeats, type MergeResult } from "./merge.ts";
 import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, numbered, splitDiff, units } from "./chunks.ts";
 import { chunkPrompt, globalPrompt, sharedSection, snippetsSection, submitFastReview, submitSwarmReview, SWARM_SYSTEM, SWARM_VERIFIER_SYSTEM } from "./prompts.ts";
 import { calledNames, findDefinitions, findingEvidence, namesInFinding, richContext } from "./context.ts";
-import { CHUNK_TASKS, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
+import { CHUNK_TASKS, DEFAULT_TASK_NAMES, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
 
 const VERIFY_BATCH = 12;
 /** The most checkout files listed when looking for tests that match the changed files. */
@@ -135,7 +135,7 @@ function integer(env: Env, name: string, fallback: number, min: number, max: num
 export function swarmSettings(env: Env): SwarmSettings {
   const split = env.RB_CONFIG_SWARM_SPLIT?.trim() || "task";
   if (split !== "task" && split !== "chunk") throw new Error("RB_CONFIG_SWARM_SPLIT must be task or chunk");
-  const tasks = env.RB_CONFIG_SWARM_TASKS?.trim() ? env.RB_CONFIG_SWARM_TASKS.split(",").map((name) => name.trim()).filter(Boolean) : TASK_NAMES;
+  const tasks = env.RB_CONFIG_SWARM_TASKS?.trim() ? env.RB_CONFIG_SWARM_TASKS.split(",").map((name) => name.trim()).filter(Boolean) : DEFAULT_TASK_NAMES;
   for (const name of tasks) {
     if (!TASK_NAMES.includes(name)) throw new Error(`RB_CONFIG_SWARM_TASKS names an unknown task "${name}"; the choices are ${TASK_NAMES.join(", ")}`);
   }

@@ -65,6 +65,17 @@ export const CHUNK_TASKS: SwarmTask[] = [
       "Report comments, docstrings and nearby documentation that the chunk has made wrong, including text it did not edit.",
     ],
   },
+  {
+    name: "types",
+    goal: "Check that each value the chunk returns or stores has one type and shape on every path.",
+    steps: [
+      "List each function the chunk adds or changes, and every way each one can end: each return statement, an implicit return at the end, an early exit, a value yielded or passed to a callback.",
+      "For each way out, write down the type and shape of the value: integer or float, string or symbol, one value or a list, a pair or a single value, null, empty, or nothing.",
+      "Report a function whose ways out give different types or shapes for the same meaning, at the line of the one that differs, and say what each path gives.",
+      "Do the same for values the chunk stores where other code reads them, such as fields, maps, caches and files, and for sibling functions that produce the same kind of value, such as two parsers of the same field.",
+      "Check that type annotations, docstrings and documentation describe what the code returns on every path, including when it can be null or empty.",
+    ],
+  },
 ];
 
 export const GLOBAL_TASKS: SwarmTask[] = [
@@ -126,4 +137,30 @@ export const GLOBAL_TASKS: SwarmTask[] = [
   },
 ];
 
+GLOBAL_TASKS.push(
+  {
+    name: "compat",
+    goal: "Check the change against the oldest language, runtime and library versions the project says it supports.",
+    steps: [
+      "Find the oldest versions the project declares: the package manifest, such as a gemspec, package.json engines, python_requires, a go directive or a rust-version, then the CI matrix and the README. If it declares none, report nothing.",
+      "Read every added line of the diff for syntax, operators, standard library calls and dependency features that the oldest declared version does not have.",
+      "Check each new or upgraded dependency against those versions.",
+      "Report each use at its own line. Name the feature, the version that added it, and where the project declares the older version.",
+    ],
+  },
+  {
+    name: "claims",
+    goal: "Check that what the change says in text matches what its code does.",
+    steps: [
+      "List each statement about behavior in the changelog entries, documentation, comments, docstrings, help text and messages that the change adds or edits.",
+      "For each statement, find the code that should deliver it. Check that the code does exactly that, including names, defaults, file names, aliases, commands and output.",
+      "Report each statement the code does not deliver, at the statement's own lines, and say what the code does instead.",
+    ],
+  },
+);
+
 export const TASK_NAMES = [...CHUNK_TASKS, ...GLOBAL_TASKS].map((task) => task.name);
+/** Narrow tasks that are being tried and run only when RB_CONFIG_SWARM_TASKS names them. */
+export const TRIAL_TASK_NAMES = ["types", "compat", "claims"];
+/** The tasks a swarm runs when RB_CONFIG_SWARM_TASKS is unset. */
+export const DEFAULT_TASK_NAMES = TASK_NAMES.filter((name) => !TRIAL_TASK_NAMES.includes(name));
