@@ -273,7 +273,7 @@ interface Trace {
   /** Model calls sent a second time because the first was slow. */
   hedged: number;
   /** Every model call: who made it, when it started and how long it took, and how much it reasoned and wrote. */
-  calls: Array<{ caller: string; startMs: number; ms: number; ok: boolean; reasoningChars: number; outputChars: number; forced: boolean }>;
+  calls: Array<{ caller: string; startMs: number; ms: number; ok: boolean; reasoningChars: number; outputChars: number; forced: boolean; provider: string | null }>;
 }
 
 function describe(error: unknown): string {
@@ -314,7 +314,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   // Each call is timed for the trace, so a slow review shows which calls were slow and why.
   const timed: Chat = async (request) => {
     const callStarted = Date.now();
-    const record = { caller: request.caller ?? "", startMs: callStarted - started, ms: 0, ok: false, reasoningChars: 0, outputChars: 0, forced: Boolean(request.forceTool) };
+    const record = { caller: request.caller ?? "", startMs: callStarted - started, ms: 0, ok: false, reasoningChars: 0, outputChars: 0, forced: Boolean(request.forceTool), provider: null as string | null };
     trace.calls.push(record);
     try {
       const reply = await baseChat({
@@ -322,6 +322,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
         ...(settings.reasoningTokens ? { reasoningTokens: settings.reasoningTokens } : {}),
       });
       record.ok = true;
+      record.provider = reply.provider ?? null;
       record.reasoningChars = Array.isArray(reply.reasoning_details)
         ? reply.reasoning_details.reduce((sum: number, item: { text?: unknown }) => sum + (typeof item?.text === "string" ? item.text.length : 0), 0) : 0;
       record.outputChars = (reply.content?.length ?? 0) + (reply.tool_calls ?? []).reduce((sum, call) => sum + call.function.arguments.length, 0);

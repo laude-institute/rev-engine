@@ -42,3 +42,11 @@ test("sends a per-call effort, a reasoning cap in its place, and a provider sort
   assert.deepEqual(bodies.map((body) => body.reasoning), [{ effort: "high" }, { effort: "low" }, { max_tokens: 1500 }]);
   assert.deepEqual(bodies[2]!.provider, { sort: "latency" });
 });
+
+test("reads which provider served a call, and never sends it back", async () => {
+  const fetchImpl = (async () => new Response(JSON.stringify({ provider: "Example", choices: [{ message: { role: "assistant", content: "ok" } }] }))) as unknown as typeof fetch;
+  const chat = createChat({ apiKey: "key", baseUrl: "https://openrouter.ai/api/v1", effort: null, usage: emptyUsage(), fetchImpl });
+  const reply = await chat({ model: "test/model", messages: [], tools: [], timeoutMs: 5_000 });
+  assert.equal(reply.provider, "Example");
+  assert.ok(!JSON.stringify(reply).includes("Example"));
+});

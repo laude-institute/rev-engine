@@ -14,6 +14,11 @@ export interface ChatMessage {
   tool_call_id?: string;
   /** Provider reasoning blocks, which some models need returned unchanged on the next turn. */
   reasoning_details?: unknown;
+  /**
+   * The upstream provider OpenRouter routed the call to. It is not enumerable, so it is never
+   * sent back to the API with the conversation.
+   */
+  provider?: string;
 }
 
 export interface ChatRequest {
@@ -148,6 +153,7 @@ export function createChat(options: ClientOptions): Chat {
       }));
     }
     if (message.reasoning_details) result.reasoning_details = message.reasoning_details;
+    if (typeof payload.provider === "string") Object.defineProperty(result, "provider", { value: payload.provider, enumerable: false });
     return result;
   }
 
