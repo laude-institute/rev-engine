@@ -3,13 +3,14 @@
 // the same word merge, then the merge under test, then the verifiers' recorded votes, then
 // the ranking and the cap. Only the merge calls a model.
 //
-//   node experiments/prototypes/swarm/replay-merge.ts <source-run> <new-run> [--original | --skip-under-cap | --after-verify]
+//   node experiments/prototypes/swarm/replay-merge.ts <source-run> <new-run> [--original | --skip-under-cap | --after-verify] [--cap N]
 //
 // --original reuses the recorded groups instead of asking the model, which should reproduce
 // the source run's findings exactly; it checks the replay itself. --skip-under-cap asks the
 // model only when more findings than the cap are left after the word merge. --after-verify
 // keeps the recorded merge, applies the recorded votes, and asks the model to merge only
-// the findings the verifiers kept, and only when there are more of them than the cap. A finding the recorded run
+// the findings the verifiers kept, and only when there are more of them than the cap.
+// --cap sets the most findings written, 40 by default, or none for no cap. A finding the recorded run
 // grouped away was never verified, so when it is kept now it takes its group's most common vote.
 // Score the new run with JUDGE_MODE=match scripts/score.sh <new-run>.
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -27,7 +28,13 @@ if (!source || !target) {
 const original = flags.includes("--original");
 const skipUnderCap = flags.includes("--skip-under-cap");
 const afterVerify = flags.includes("--after-verify");
-const MAX_FINDINGS = 40;
+const capFlag = flags.indexOf("--cap");
+const capText = capFlag === -1 ? "40" : flags[capFlag + 1] ?? "";
+const MAX_FINDINGS = capText === "none" ? Infinity : Number(capText);
+if (!(MAX_FINDINGS > 0)) {
+  console.error("--cap takes a positive number or none");
+  process.exit(2);
+}
 const MERGE_SECONDS = 9;
 
 interface Proposal extends Candidate { caller: string }
@@ -140,7 +147,7 @@ for (const key of keys) {
   }
   const ranked = rankBySupport(verifiedKept, support, MAX_FINDINGS);
   const findings = ranked.map((candidate) => toOutput(candidate, recorded.agent));
-  if (original && JSON.stringify(findings) !== JSON.stringify(recorded.findings)) {
+  if (original && MAX_FINDINGS === 40 && JSON.stringify(findings) !== JSON.stringify(recorded.findings)) {
     mismatches += 1;
     console.log(`  ${key}: the replay does not match the recorded findings`);
   }
