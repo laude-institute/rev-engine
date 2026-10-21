@@ -17,7 +17,7 @@ If you use the GitHub Action, set its inputs instead. They are listed in [INSTAL
 | `RB_CONFIG_MIN_SEVERITY` | `low` | Drop findings less severe than this before verification. One of `high`, `medium` or `low`. |
 | `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It runs after the review and is told the findings, writes `fit.json` beside the findings file, and never changes the findings. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
-| `RB_CONFIG_MODE` | `human` | Who reads the review. `agent` writes a thorough review for an agent that manages the pull request: the cap defaults to 80, and with `RB_CONFIG_SWARM=on` each message starts with the finding's severity and how many verifiers confirmed it. `human` writes a shorter review for people to read. The benchmark runs `agent`. |
+| `RB_CONFIG_MODE` | `human` | Who reads the review. `agent` writes a thorough review for an agent that manages the pull request: the cap defaults to 80, and with `RB_CONFIG_SWARM=on` each message starts with the finding's severity and how many verifiers confirmed it, and every swarm agent runs twice. `human` writes a shorter review for people to read. The benchmark runs `agent`. |
 | `RB_CONFIG_MAX_FINDINGS` | `25`, or `80` in agent mode | Cap on findings per pull request. |
 | `RB_CONFIG_TIME_BUDGET` | `780` | Seconds allowed for the whole run. |
 | `RB_CONFIG_MAX_TURNS` | `40` | Model turns allowed per review or verification pass. |

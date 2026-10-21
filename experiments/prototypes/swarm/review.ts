@@ -159,7 +159,8 @@ export function swarmSettings(env: Env): SwarmSettings {
   const evidence = env.RB_CONFIG_SWARM_EVIDENCE?.trim() || "on";
   if (evidence !== "on" && evidence !== "off") throw new Error("RB_CONFIG_SWARM_EVIDENCE must be on or off");
   return {
-    copies: integer(env, "RB_CONFIG_SWARM_COPIES", 1, 1, 4),
+    // Agent mode values recall, and a second copy of every agent raised it without costing precision.
+    copies: integer(env, "RB_CONFIG_SWARM_COPIES", env.RB_CONFIG_MODE?.trim() === "agent" ? 2 : 1, 1, 4),
     evidence: evidence === "on",
     limit,
     providers,

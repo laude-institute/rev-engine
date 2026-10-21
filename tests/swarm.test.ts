@@ -103,6 +103,8 @@ test("reads and checks the swarm settings", () => {
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_PROVIDERS: "together, deepinfra/fp8" }).providers, ["together", "deepinfra/fp8"]);
   assert.equal(swarmSettings({}).copies, 1);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_COPIES: "2" }).copies, 2);
+  assert.equal(swarmSettings({ RB_CONFIG_MODE: "agent" }).copies, 2);
+  assert.equal(swarmSettings({ RB_CONFIG_MODE: "agent", RB_CONFIG_SWARM_COPIES: "1" }).copies, 1);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_COPIES: "9" }), /RB_CONFIG_SWARM_COPIES/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "90" }).limit, 90);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_LIMIT: "90" }), /RB_CONFIG_SWARM_LIMIT/);
