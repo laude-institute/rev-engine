@@ -13,6 +13,12 @@ import type { Candidate } from "../src/findings.ts";
 import { loadConfig } from "../src/config.ts";
 import { ModelError, type Chat, type ChatRequest } from "../src/llm.ts";
 
+// The swarm's defaults are the fast benchmark settings. Most tests here run the normal pace with
+// basic context, and the tests of the fast pace set a target of their own.
+process.env.RB_CONFIG_SWARM_TARGET = "0";
+process.env.RB_CONFIG_SWARM_CONTEXT = "basic";
+process.env.RB_CONFIG_SWARM_EVIDENCE = "on";
+
 const DIFF = `diff --git a/src/pool.ts b/src/pool.ts
 index 1111111..2222222 100644
 --- a/src/pool.ts
@@ -109,8 +115,9 @@ test("reads and checks the swarm settings", () => {
   assert.deepEqual(swarmSettings({}).split, "task");
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_TASKS: "callers, tests" }).tasks, ["callers", "tests"]);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TASKS: "vibes" }), /unknown task/);
-  assert.equal(swarmSettings({}).evidence, true);
-  assert.equal(swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "off" }).evidence, false);
+  assert.equal(swarmSettings({}).evidence, false);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "on" }).evidence, true);
+  assert.equal(swarmSettings({}).context, "rich");
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "maybe" }), /RB_CONFIG_SWARM_EVIDENCE/);
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_PROVIDERS: "together, deepinfra/fp8" }).providers, ["together", "deepinfra/fp8"]);
   assert.equal(swarmSettings({}).copies, 1);
@@ -119,14 +126,17 @@ test("reads and checks the swarm settings", () => {
   assert.equal(swarmSettings({ RB_CONFIG_MODE: "agent", RB_CONFIG_SWARM_COPIES: "1" }).copies, 1);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_COPIES: "9" }), /RB_CONFIG_SWARM_COPIES/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "90" }).limit, 90);
-  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_LIMIT: "90" }), /RB_CONFIG_SWARM_LIMIT/);
+  assert.equal(swarmSettings({}).limit, 90);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "120" }).limit, 0);
+  assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "0", RB_CONFIG_SWARM_LIMIT: "90" }), /RB_CONFIG_SWARM_LIMIT/);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "60", RB_CONFIG_SWARM_LIMIT: "45" }), /RB_CONFIG_SWARM_LIMIT/);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_VOTES: "9" }), /RB_CONFIG_SWARM_VOTES/);
   assert.doesNotMatch(SWARM_SYSTEM, /ten or more findings/);
   assert.match(SWARM_VERIFIER_SYSTEM, /outside specification or standard says, and nothing in the checkout shows it, mark the finding uncertain/);
   assert.ok((submitSwarmReview.function.parameters.required as string[]).includes("checked"));
   assert.ok(!(submitFastReview.function.parameters.required as string[]).includes("checked"));
-  assert.equal(swarmSettings({}).target, 0);
+  assert.equal(swarmSettings({}).target, 60);
+  assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "0" }).target, 0);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_TARGET: "60" }).target, 60);
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_TARGET: "10" }), /RB_CONFIG_SWARM_TARGET/);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_SORT: "latency" }).sort, "latency");

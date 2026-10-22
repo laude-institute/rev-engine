@@ -8,12 +8,13 @@
 //   RB_CONFIG_SWARM_VOTES  verifiers per batch of findings, 0 to 5, default 3; 0 skips verification
 //   RB_CONFIG_SWARM_TASKS  a comma-separated subset of the task names, default all
 //   RB_CONFIG_SWARM_MERGE  on (a model groups repeats before verification, the default) or off (the word-based merge only)
-//   RB_CONFIG_SWARM_TARGET seconds the whole review should take, 30 to 780, or 0 (the default) to use the benchmark's budget
-//                          as before. A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
+//   RB_CONFIG_SWARM_TARGET seconds the whole review should take, 30 to 780, default 60, or 0 to use the benchmark's budget.
+//                          A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
+//   RB_CONFIG_SWARM_LIMIT  seconds after which a fast review is cut off, default 90 with the default target, else the target
 //   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
 //   RB_CONFIG_SWARM_EFFORT reasoning effort for the swarm's calls, such as low; unset uses RB_CONFIG_EFFORT
 //   RB_CONFIG_SWARM_REASONING_TOKENS the most tokens a swarm call may reason for, 100 to 32000; replaces the effort
-//   RB_CONFIG_SWARM_CONTEXT basic (the default) or rich: chunk agents also get the code around each use of a changed
+//   RB_CONFIG_SWARM_CONTEXT rich (the default) or basic: rich chunk agents also get the code around each use of a changed
 //                          name, the definitions of what the chunk calls, matching tests, and the code before the change
 //
 // Every run writes swarm.json beside the findings file: the chunks, each agent's
@@ -144,9 +145,10 @@ export function swarmSettings(env: Env): SwarmSettings {
   }
   const merge = env.RB_CONFIG_SWARM_MERGE?.trim() || "on";
   if (merge !== "on" && merge !== "off") throw new Error("RB_CONFIG_SWARM_MERGE must be on or off");
-  const target = integer(env, "RB_CONFIG_SWARM_TARGET", 0, 0, 780);
+  // The defaults are the settings that scored best, so a benchmark configuration needs few labels.
+  const target = integer(env, "RB_CONFIG_SWARM_TARGET", 60, 0, 780);
   if (target && target < 30) throw new Error("RB_CONFIG_SWARM_TARGET must be 0 or from 30 to 780");
-  const limit = integer(env, "RB_CONFIG_SWARM_LIMIT", 0, 0, 780);
+  const limit = integer(env, "RB_CONFIG_SWARM_LIMIT", env.RB_CONFIG_SWARM_TARGET?.trim() ? 0 : 90, 0, 780);
   if (limit && (!target || limit < target)) throw new Error("RB_CONFIG_SWARM_LIMIT needs RB_CONFIG_SWARM_TARGET and must not be below it");
   const providers = (env.RB_CONFIG_SWARM_PROVIDERS ?? "").split(",").map((name) => name.trim()).filter(Boolean);
   const sort = env.RB_CONFIG_SWARM_SORT?.trim() || null;
@@ -155,9 +157,9 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (effort !== null && !["none", "minimal", "low", "medium", "high"].includes(effort)) throw new Error("RB_CONFIG_SWARM_EFFORT must be none, minimal, low, medium or high");
   const reasoningTokens = integer(env, "RB_CONFIG_SWARM_REASONING_TOKENS", 0, 0, 32_000) || null;
   if (reasoningTokens !== null && reasoningTokens < 100) throw new Error("RB_CONFIG_SWARM_REASONING_TOKENS must be from 100 to 32000");
-  const context = env.RB_CONFIG_SWARM_CONTEXT?.trim() || "basic";
+  const context = env.RB_CONFIG_SWARM_CONTEXT?.trim() || "rich";
   if (context !== "basic" && context !== "rich") throw new Error("RB_CONFIG_SWARM_CONTEXT must be basic or rich");
-  const evidence = env.RB_CONFIG_SWARM_EVIDENCE?.trim() || "on";
+  const evidence = env.RB_CONFIG_SWARM_EVIDENCE?.trim() || "off";
   if (evidence !== "on" && evidence !== "off") throw new Error("RB_CONFIG_SWARM_EVIDENCE must be on or off");
   return {
     // Agent mode values recall, and a second copy of every agent raised it without costing precision.
