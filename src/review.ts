@@ -160,6 +160,8 @@ export interface ReviewOutcome {
   context: ReviewContext;
   /** Findings the verifier left out because they repeat an earlier finding the maintainer decided. */
   decided?: DecidedRepeat[];
+  /** For each ranked finding, how many verifier votes were cast and how many confirmed it; null when it was not checked. */
+  checks?: Array<{ confirmed: number; cast: number } | null>;
 }
 
 export interface DecidedRepeat {

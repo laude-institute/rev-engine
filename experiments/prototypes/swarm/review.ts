@@ -623,5 +623,9 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
       return config.mode === "agent" ? { ...output, message: label(candidate) + output.message } : output;
     }),
     ranked, proposed: proposals.length, verified, fit: null, context,
+    checks: ranked.map((candidate) => {
+      const cast = checks.get(candidate.id) ?? [];
+      return cast.length ? { confirmed: cast.filter((ballot) => ballot.verdict === "confirmed").length, cast: cast.length } : null;
+    }),
   };
 }

@@ -12,8 +12,14 @@ inputs:
     description: Pull request to review. Leave empty when the workflow is started by a comment on a pull request.
     default: ""
   command:
-    description: A comment starts a review only when it is this text, or this text followed by a space.
+    description: A comment starts a review only when it is this text, or this text followed by a space. "/review agent" asks for an agent review and "/review human" for a human one.
     default: /review
+  mode:
+    description: The review to run when the comment does not say, or when the workflow is started by hand. "human" reviews with the model below and comments on the most severe findings. "agent" reviews with a fast swarm and lists every finding in one comment, for an agent that manages the pull request.
+    default: human
+  agent-model:
+    description: OpenRouter model the swarm of an agent review uses.
+    default: deepseek/deepseek-v4.1-flash-1017
   model:
     description: OpenRouter model that reviews and verifies.
     default: anthropic/claude-opus-5.5
@@ -51,6 +57,7 @@ runs:
         EVENT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
         INPUT_NUMBER: ${{ inputs.pr-number }}
         COMMAND: ${{ inputs.command }}
+        MODE: ${{ inputs.mode }}
         ALLOW_FORKS: ${{ inputs.allow-forks }}
       run: |
         set -euo pipefail
@@ -61,7 +68,11 @@ runs:
           [ -n "$COMMENT_ON_PR" ] || skip "the comment is not on a pull request"
           case "$COMMENT" in "$COMMAND"|"$COMMAND "*) ;; *) skip "the comment is not $COMMAND" ;; esac
           number="$EVENT_NUMBER"
+          # The first word after the command picks the review; any other text keeps the default.
+          word=$(printf '%s' "${COMMENT#"$COMMAND"}" | head -n 1 | awk '{print tolower($1)}')
+          case "$word" in agent|human) MODE="$word" ;; esac
         fi
+        case "$MODE" in agent|human) ;; *) echo "::error::mode must be agent or human"; exit 1 ;; esac
         case "$number" in ''|*[!0-9]*) echo "::error::No pull request number. Set pr-number."; exit 1 ;; esac
 
         # Only people who can push to the repository may start a review, because each one costs money.
@@ -76,6 +87,7 @@ runs:
         fi
         {
           echo "run=true"
+          echo "mode=$MODE"
           echo "number=$number"
           echo "base=$(jq -r .base.sha "$RUNNER_TEMP/rev-engine-prime/pull.json")"
           echo "head=$(jq -r .head.sha "$RUNNER_TEMP/rev-engine-prime/pull.json")"
@@ -143,9 +155,20 @@ runs:
         RB_CONFIG_MODEL: ${{ inputs.model }}
         RB_CONFIG_TIME_BUDGET: ${{ inputs.time-budget }}
         RB_CONFIG_FIT: ${{ inputs.fit == 'on' && inputs.model || '' }}
+        MODE: ${{ steps.ask.outputs.mode }}
+        AGENT_MODEL: ${{ inputs.agent-model }}
       run: |
         set -euo pipefail
-        docker run --rm \
+        # An agent review runs the fast swarm in agent mode, which keeps every finding the
+        # verifiers did not reject. It has no fit assessment.
+        agent=()
+        if [ "$MODE" = agent ]; then
+          export RB_CONFIG_MODEL="$AGENT_MODEL" RB_CONFIG_MODE=agent RB_CONFIG_SWARM=on RB_CONFIG_SWARM_PROVIDERS=together \
+            RB_CONFIG_SWARM_TARGET=60 RB_CONFIG_SWARM_LIMIT=90 RB_CONFIG_SWARM_EFFORT=none RB_CONFIG_SWARM_CONTEXT=rich RB_CONFIG_SWARM_EVIDENCE=off
+          agent=(-e RB_CONFIG_MODE -e RB_CONFIG_SWARM -e RB_CONFIG_SWARM_PROVIDERS -e RB_CONFIG_SWARM_TARGET -e RB_CONFIG_SWARM_LIMIT
+            -e RB_CONFIG_SWARM_EFFORT -e RB_CONFIG_SWARM_CONTEXT -e RB_CONFIG_SWARM_EVIDENCE)
+        fi
+        docker run --rm "${agent[@]}" \
           -v "$GITHUB_WORKSPACE/rev-engine-prime-checkout:/work/repo:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
@@ -177,7 +200,8 @@ runs:
         RB_NWO: ${{ github.repository }}
         RB_PR_NUMBER: ${{ steps.ask.outputs.number }}
         RB_HEAD: ${{ steps.ask.outputs.head }}
-        REVIEW_MODEL: ${{ inputs.model }}
+        REVIEW_MODEL: ${{ steps.ask.outputs.mode == 'agent' && format('a swarm of {0} agents', inputs.agent-model) || inputs.model }}
+        REVIEW_MODE: ${{ steps.ask.outputs.mode }}
         MIN_SEVERITY: ${{ inputs.min-severity }}
         MAX_COMMENTS: ${{ inputs.max-findings }}
       run: |
@@ -185,6 +209,6 @@ runs:
         docker run --rm --entrypoint node \
           -v "$GITHUB_ACTION_PATH/action:/agent/action:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime:/work:ro" \
-          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_GRAPHQL_URL -e RB_NWO -e RB_PR_NUMBER -e RB_HEAD -e REVIEW_MODEL -e MIN_SEVERITY -e MAX_COMMENTS \
+          -e GITHUB_TOKEN -e GITHUB_API_URL -e GITHUB_GRAPHQL_URL -e RB_NWO -e RB_PR_NUMBER -e RB_HEAD -e REVIEW_MODEL -e REVIEW_MODE -e MIN_SEVERITY -e MAX_COMMENTS \
           -e FINDINGS_PATH=/work/out/details.json -e FIT_PATH=/work/out/fit.json -e DIFF_PATH=/work/pr/diff.patch \
           rev-engine-prime:action /agent/action/post.ts

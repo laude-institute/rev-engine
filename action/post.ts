@@ -1,6 +1,6 @@
 // Posts the findings of one run to the pull request as a single review.
 import { readFile } from "node:fs/promises";
-import { buildReview, MARKER, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewInput, type ReviewParts, type Severity } from "./comments.ts";
+import { buildAgentReview, buildReview, MARKER, parseHunks, withoutLineComments, type ExistingComment, type Finding, type Fit, type ReviewInput, type ReviewParts, type Severity } from "./comments.ts";
 import { isDecisionReply } from "./decisions.ts";
 
 const log = (message: string): void => console.error(`post: ${message}`);
@@ -128,12 +128,20 @@ try {
   const maxComments = Number(process.env.MAX_COMMENTS?.trim() || "10");
   if (!Number.isInteger(maxComments) || maxComments < 0) throw new Error("max-findings must be a whole number");
   const output = JSON.parse(await readFile(required("FINDINGS_PATH"), "utf8")) as { findings: Finding[]; decided?: Array<{ repeat_of?: unknown }> };
+  const decided = (output.decided ?? []).flatMap((repeat) => typeof repeat.repeat_of === "string" ? [repeat.repeat_of] : []);
+  const model = process.env.REVIEW_MODEL?.trim() || "a model";
+  if (process.env.REVIEW_MODE?.trim() === "agent") {
+    // An agent review is one summary with every finding and no line comments.
+    const response = await submit(buildAgentReview({ findings: output.findings, head, model, decided }));
+    if (!response.ok) throw new Error(`posting the review failed with status ${response.status}: ${(await response.text()).slice(0, 500)}`);
+    log(`posted an agent review with ${output.findings.length} finding(s) on ${nwo}#${number}`);
+    process.exit(0);
+  }
   const fit = await optionalJson<Fit>(process.env.FIT_PATH);
   const diff = await readFile(required("DIFF_PATH"), "utf8");
   const input = {
     findings: output.findings, fit, hunks: parseHunks(diff), existing: await existingComments(), settled: await settledComments(), head,
-    model: process.env.REVIEW_MODEL?.trim() || "a model", minSeverity, maxComments,
-    decided: (output.decided ?? []).flatMap((repeat) => typeof repeat.repeat_of === "string" ? [repeat.repeat_of] : []),
+    model, minSeverity, maxComments, decided,
   };
   const parts = buildReview(input);
 

@@ -15,6 +15,8 @@
 2. Comment `/review` on a pull request.
 3. The findings come back as one review, with comments on the changed lines and a short summary that opens with merge advice.
 
+Comment `/review agent` instead for a review meant for an agent that manages the pull request: a fast swarm of cheap model reviews, with every finding listed in one comment. See [Agent reviews](docs/INSTALL.md#agent-reviews).
+
 With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens.
 
 ## How it reviews

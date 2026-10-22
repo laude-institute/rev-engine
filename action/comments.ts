@@ -11,6 +11,9 @@ export interface Finding {
   kind?: string;
   title: string;
   detail: string;
+  /** Verifier votes that confirmed the finding, and votes cast, when the reviewer records them. */
+  confirmed?: number;
+  checks?: number;
 }
 
 export interface Fit {
@@ -313,4 +316,50 @@ export function withoutLineComments(parts: ReviewParts): ReviewParts {
   if (!parts.comments.length) return parts;
   const moved = parts.comments.map((comment) => `- \`${comment.path}:${comment.start_line ? `${comment.start_line}-` : ""}${comment.line}\` ${comment.body.replace(MARKER, "").trim().replace(/\n+/g, " ")}`).join("\n");
   return { body: `${parts.body.replace(MARKER, "").trim()}\n\nGitHub did not accept the comments on lines, so they are listed here:\n\n${moved}\n\n${MARKER}`, comments: [] };
+}
+
+/** Room under GitHub's limit of 65,536 characters for a review body. */
+const MAX_BODY_CHARS = 60_000;
+
+export interface AgentReviewInput {
+  findings: Finding[];
+  head: string;
+  model: string;
+  /** Ids of earlier decided findings that this review's verifier found repeated, one per finding left out. */
+  decided?: string[];
+}
+
+function votes(finding: Finding): string {
+  return finding.checks ? `, confirmed by ${finding.confirmed ?? 0} of ${finding.checks} checks` : "";
+}
+
+/**
+ * The review for an agent that manages the pull request. Every finding is in the summary,
+ * most severe first, with its severity and votes, and there are no line comments, so people
+ * see one comment and the agent gets the whole list. Findings past GitHub's size limit are counted.
+ */
+export function buildAgentReview(input: AgentReviewInput): ReviewParts {
+  const intro = `### Automated review for agents\n\n${recommendation(input.findings, null)}\n\nReviewed commit ${input.head.slice(0, 7)} with ${input.model}, by reading the code. It did not run the code or look at the checks. Every finding the verifiers did not reject is listed, most severe first, so an agent can work through the list and decide what to fix.`;
+  const items: string[] = [];
+  let size = intro.length + 1_000;
+  let left = 0;
+  input.findings.forEach((finding, index) => {
+    const text = titled(finding);
+    const cut = text.length > MAX_LISTED_DETAIL_CHARS ? `${text.slice(0, MAX_LISTED_DETAIL_CHARS)}...` : text;
+    const item = `${index + 1}. ${rating(finding)}${votes(finding)}, \`${location(finding)}\`. ${cut.replace(/\s*\n+\s*/g, " ")}`;
+    if (size + item.length > MAX_BODY_CHARS) {
+      left += 1;
+      return;
+    }
+    items.push(item);
+    size += item.length + 1;
+  });
+  const severities = (["high", "medium", "low"] as Severity[])
+    .map((severity) => [severity, input.findings.filter((finding) => finding.severity === severity).length] as const)
+    .filter(([, n]) => n > 0).map(([severity, n]) => `${n} ${severity}`).join(", ");
+  const lines = [input.findings.length ? `${count(input.findings.length, "finding")} (${severities}):\n\n${items.join("\n")}` : "No findings."];
+  if (left) lines.push(`${count(left, "more finding")} did not fit in one review. The run's saved review has all of them.`);
+  const decided = input.decided ?? [];
+  if (decided.length) lines.push(`${count(decided.length, "finding")} ${decided.length === 1 ? "was" : "were"} left out as already decided by the maintainer in an earlier round (${[...new Set(decided)].join(", ")}).`);
+  return { body: `${intro}\n\n#### Findings\n\n${lines.join("\n\n")}\n\n${MARKER}`, comments: [] };
 }

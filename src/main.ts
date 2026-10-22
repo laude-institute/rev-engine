@@ -73,10 +73,14 @@ try {
   const outcome = await (swarmReview ?? (config.naive ? naiveReview : review))(config, chat, log);
   await write(outcome.findings);
   if (config.detailsOutPath) {
-    const details = outcome.ranked.map((candidate) => ({
-      file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
-      severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
-    }));
+    const details = outcome.ranked.map((candidate, index) => {
+      const checked = outcome.checks?.[index];
+      return {
+        file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
+        severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
+        ...(checked ? { confirmed: checked.confirmed, checks: checked.cast } : {}),
+      };
+    });
     const decided = (outcome.decided ?? []).map((repeat) => ({ file: repeat.file, title: repeat.title, repeat_of: repeat.repeatOf }));
     await writeFile(config.detailsOutPath, `${JSON.stringify({ findings: details, ...(decided.length ? { decided } : {}) }, null, 2)}\n`);
   }

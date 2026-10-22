@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { textSimilarity } from "../src/findings.ts";
-import { buildReview, earlierComment, textSimilarity as actionSimilarity, recommendation, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
+import { buildAgentReview, buildReview, earlierComment, textSimilarity as actionSimilarity, recommendation, commentBody, MARKER, parseHunks, place, withoutLineComments, type Finding, type Severity } from "../action/comments.ts";
 
 const DIFF = `diff --git a/src/a.ts b/src/a.ts
 index 1111111..2222222 100644
@@ -179,3 +179,26 @@ test("the fit section keeps two sentences of the summary in view and collapses t
   const bare = buildReview({ ...base, findings: [], fit: { verdict: "fits", summary: "A bug fix. It fits.", reasons: [] } });
   assert.doesNotMatch(bare.body, /<details>/);
 });
+
+test("an agent review lists every finding with its votes and has no line comments", () => {
+  const findings = [
+    { ...finding("src/a.ts", 11, 12, "high", "Breaks the parser"), confirmed: 3, checks: 3 },
+    finding("src/b.ts", 4, 4, "low", "Unused import"),
+  ];
+  const parts = buildAgentReview({ findings, head: "abcdef0123456789", model: "a swarm of vendor/model agents", decided: ["F1"] });
+  assert.deepEqual(parts.comments, []);
+  assert.match(parts.body, /Recommendation: fix, then merge/);
+  assert.match(parts.body, /2 findings \(1 high, 1 low\)/);
+  assert.match(parts.body, /1\. High severity, confirmed by 3 of 3 checks, `src\/a\.ts:11-12`\. \*\*Breaks the parser\.\*\* Detail text\./);
+  assert.match(parts.body, /2\. Low severity, `src\/b\.ts:4`\./);
+  assert.match(parts.body, /already decided by the maintainer in an earlier round \(F1\)/);
+  assert.ok(parts.body.endsWith(MARKER));
+});
+
+test("an agent review stays under GitHub's size limit and counts what it left out", () => {
+  const findings = Array.from({ length: 80 }, (_, index) => finding("src/a.ts", index + 1, index + 1, "medium", `Finding ${index}`, "x".repeat(1_400)));
+  const parts = buildAgentReview({ findings, head: "abcdef0123456789", model: "m" });
+  assert.ok(parts.body.length < 65_536);
+  assert.match(parts.body, /\d+ more findings? did not fit in one review/);
+});
+
