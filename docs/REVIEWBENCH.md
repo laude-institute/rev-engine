@@ -16,6 +16,18 @@ The registered image was built from commit [`b7d795c`](https://github.com/laude-
 
 Prompts and settings were tuned only on the benchmark's 25 pull request test set. The other 194 were checked only as part of the full run's total.
 
+## Register a configuration
+
+A configuration is one image and a set of labels on the registered reviewer, and the portal at [review-bench.ai](https://review-bench.ai) adds one without another approval. The portal has these limits:
+
+- **The image is pinned by digest**, as `ghcr.io/laude-institute/rev-engine-prime@sha256:...`. The `Build and push` workflow prints the digest of each commit on main in its build step.
+- **Each label is one setting.** The benchmark passes `key=value` to the container as `RB_CONFIG_<KEY>=value`, with the key upper-cased and dashes turned into underscores, and it checks that every label value appears in the reviewer's output. The settings line the reviewer logs at the start covers this.
+- **A configuration has at most 6 labels.**
+- **The row id is at most 64 characters.** The portal builds it from the reviewer id and every label value, lower-cased, with each run of other characters turned into a dash and the parts joined by dashes. `laude-revengine-prime-` uses 22 characters, so the label values and the dashes between them have 42 left. A model id such as `deepseek/deepseek-v4.1-flash-1017` uses 33 of them.
+- **Credentials are stored for each configuration.** Check that a new configuration says "credentials stored" before a test run.
+
+Because of the limits, settings that suit a model are defaults rather than labels. The swarm's best settings are its defaults, and `MODEL_DEFAULTS` in [`experiments/prototypes/swarm/review.ts`](../experiments/prototypes/swarm/review.ts) holds the provider and reasoning effort that suit each listed model. The fast swarm needs only `model=deepseek/deepseek-v4.1-flash-1017`, `swarm=on` and `mode=agent`, which make a row id of exactly 64 characters. Before registering, run the pushed image by its digest on one test pull request with only those labels, and check its settings line.
+
 ## Run it locally
 
 You need Docker, Node 24, `git`, `jq`, a clone of ReviewBench beside this repository, and an OpenRouter key.

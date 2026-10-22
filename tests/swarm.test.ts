@@ -120,6 +120,13 @@ test("reads and checks the swarm settings", () => {
   assert.equal(swarmSettings({}).context, "rich");
   assert.throws(() => swarmSettings({ RB_CONFIG_SWARM_EVIDENCE: "maybe" }), /RB_CONFIG_SWARM_EVIDENCE/);
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_PROVIDERS: "together, deepinfra/fp8" }).providers, ["together", "deepinfra/fp8"]);
+  const flash = { RB_CONFIG_MODEL: "deepseek/deepseek-v4.1-flash-1017" };
+  assert.deepEqual(swarmSettings(flash).providers, ["together"]);
+  assert.equal(swarmSettings(flash).effort, "none");
+  assert.deepEqual(swarmSettings({ ...flash, RB_CONFIG_SWARM_PROVIDERS: "" }).providers, []);
+  assert.equal(swarmSettings({ ...flash, RB_CONFIG_SWARM_EFFORT: "low" }).effort, "low");
+  assert.deepEqual(swarmSettings({ RB_CONFIG_MODEL: "openai/gpt-6-mini" }).providers, []);
+  assert.equal(swarmSettings({ RB_CONFIG_MODEL: "openai/gpt-6-mini" }).effort, null);
   assert.equal(swarmSettings({}).copies, 1);
   assert.equal(swarmSettings({ RB_CONFIG_SWARM_COPIES: "2" }).copies, 2);
   assert.equal(swarmSettings({ RB_CONFIG_MODE: "agent" }).copies, 2);

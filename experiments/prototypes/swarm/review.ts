@@ -11,6 +11,7 @@
 //   RB_CONFIG_SWARM_TARGET seconds the whole review should take, 30 to 780, default 60, or 0 to use the benchmark's budget.
 //                          A target turns on the fast pace: short agents, slow calls duplicated, one-turn verifiers.
 //   RB_CONFIG_SWARM_LIMIT  seconds after which a fast review is cut off, default 90 with the default target, else the target
+//   RB_CONFIG_SWARM_PROVIDERS and RB_CONFIG_SWARM_EFFORT default to MODEL_DEFAULTS for the model, if it is listed there
 //   RB_CONFIG_SWARM_SORT   latency or throughput asks OpenRouter to route every call by it; unset leaves routing alone
 //   RB_CONFIG_SWARM_EFFORT reasoning effort for the swarm's calls, such as low; unset uses RB_CONFIG_EFFORT
 //   RB_CONFIG_SWARM_REASONING_TOKENS the most tokens a swarm call may reason for, 100 to 32000; replaces the effort
@@ -38,6 +39,14 @@ import { calledNames, findDefinitions, findingEvidence, namesInFinding, richCont
 import { CHUNK_TASKS, DEFAULT_TASK_NAMES, GLOBAL_TASKS, TASK_NAMES, type SwarmTask } from "./tasks.ts";
 
 const VERIFY_BATCH = 12;
+/**
+ * Swarm settings that scored best with a given model. They are defaults rather than labels because
+ * ReviewBench builds a configuration's row id from its label values and allows at most 64 characters.
+ */
+const MODEL_DEFAULTS: Record<string, { providers: string[]; effort: string }> = {
+  // Together served it fastest and lost the fewest agents. Reasoning off kept calls to a few seconds.
+  "deepseek/deepseek-v4.1-flash-1017": { providers: ["together"], effort: "none" },
+};
 /** The most checkout files listed when looking for tests that match the changed files. */
 const MAX_INDEXED_FILES = 20_000;
 /** Lines of code shown above and below a finding to a verifier that has no time to read files. */
@@ -150,10 +159,11 @@ export function swarmSettings(env: Env): SwarmSettings {
   if (target && target < 30) throw new Error("RB_CONFIG_SWARM_TARGET must be 0 or from 30 to 780");
   const limit = integer(env, "RB_CONFIG_SWARM_LIMIT", env.RB_CONFIG_SWARM_TARGET?.trim() ? 0 : 90, 0, 780);
   if (limit && (!target || limit < target)) throw new Error("RB_CONFIG_SWARM_LIMIT needs RB_CONFIG_SWARM_TARGET and must not be below it");
-  const providers = (env.RB_CONFIG_SWARM_PROVIDERS ?? "").split(",").map((name) => name.trim()).filter(Boolean);
+  const known = MODEL_DEFAULTS[env.RB_CONFIG_MODEL?.trim() ?? ""];
+  const providers = (env.RB_CONFIG_SWARM_PROVIDERS ?? known?.providers.join(",") ?? "").split(",").map((name) => name.trim()).filter(Boolean);
   const sort = env.RB_CONFIG_SWARM_SORT?.trim() || null;
   if (sort !== null && sort !== "latency" && sort !== "throughput") throw new Error("RB_CONFIG_SWARM_SORT must be latency or throughput");
-  const effort = env.RB_CONFIG_SWARM_EFFORT?.trim() || null;
+  const effort = env.RB_CONFIG_SWARM_EFFORT?.trim() || known?.effort || null;
   if (effort !== null && !["none", "minimal", "low", "medium", "high"].includes(effort)) throw new Error("RB_CONFIG_SWARM_EFFORT must be none, minimal, low, medium or high");
   const reasoningTokens = integer(env, "RB_CONFIG_SWARM_REASONING_TOKENS", 0, 0, 32_000) || null;
   if (reasoningTokens !== null && reasoningTokens < 100) throw new Error("RB_CONFIG_SWARM_REASONING_TOKENS must be from 100 to 32000");
