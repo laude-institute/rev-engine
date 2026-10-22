@@ -49,9 +49,9 @@ test("leads a comment with the severity and the title, and marks it", () => {
   assert.equal(commentBody(finding("a", 1, 1, "medium", "Only a title.", "")), `**Medium severity. Only a title.**\n\n${MARKER}`);
 });
 
-test("names the kind of a finding that is not a defect in the code", () => {
+test("names the kind of every finding that has one", () => {
   assert.match(commentBody({ ...finding("a", 1, 1, "medium"), kind: "test" }), /^\*\*Medium severity, test coverage\. Title\.\*\*/);
-  assert.match(commentBody({ ...finding("a", 1, 1, "medium"), kind: "defect" }), /^\*\*Medium severity\. Title\.\*\*/);
+  assert.match(commentBody({ ...finding("a", 1, 1, "medium"), kind: "defect" }), /^\*\*Medium severity, bug\. Title\.\*\*/);
   const parts = buildReview({ ...base, findings: [{ ...finding("src/a.ts", 42, 42, "low"), kind: "documentation" }] });
   assert.match(parts.body, /- Low severity, documentation, `src\/a\.ts:42`\./);
 });
@@ -202,3 +202,10 @@ test("an agent review stays under GitHub's size limit and counts what it left ou
   assert.match(parts.body, /\d+ more findings? did not fit in one review/);
 });
 
+
+test("names the maintainer's decision in the recommendation when the fit check asks one", () => {
+  const fit = { verdict: "fits_with_concerns", summary: "S.", question: "Should a feature in src/vibes/ ship its own migration?", reasons: [] };
+  assert.equal(recommendation([], fit), "**Recommendation: needs a maintainer's decision.** Should a feature in src/vibes/ ship its own migration?");
+  assert.match(recommendation([finding("a", 1, 1)], fit), /migration\? Separately, 1 high severity finding should be fixed in any case\.$/);
+  assert.match(recommendation([], { ...fit, question: undefined }), /part of it needs a maintainer's call\.$/);
+});

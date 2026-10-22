@@ -155,7 +155,7 @@ const FIT_STATED: Record<FitAnswer["verdict"], string> = {
  */
 export function priorFitSection(prior: PriorDecisions | null | undefined): string | null {
   if (!prior?.fit?.length) return null;
-  const answers = prior.fit.map((answer) => `<fit_answer round="${answer.round}">\n${FIT_STATED[answer.verdict]}\n\n${answer.text}\n</fit_answer>`);
+  const answers = prior.fit.map((answer) => `<fit_answer round="${answer.round}"${answer.source ? ` link="${answer.source}"` : ""}>\n${FIT_STATED[answer.verdict]}\n\n${answer.text}\n</fit_answer>`);
   return `The maintainer already answered whether this change belongs, on earlier reviews of this pull request. Their answers are below, the latest last.
 
 - The maintainer's latest verdict stands, unless the change has moved since in a way their answer does not cover. Then give your own verdict and say in your reasons what moved.

@@ -29,6 +29,8 @@ export interface FitReason {
 export interface FitAssessment {
   verdict: FitVerdict;
   summary: string;
+  /** For any verdict but fits, the decision the maintainer has to make, as one question. */
+  question?: string;
   reasons: FitReason[];
   model: string;
 }
@@ -63,6 +65,10 @@ Rules for your answer
 
 Rest every reason on something the project states or on how its existing code is organized, and name the file that shows it. Do not present your own taste as the project's goals. When the project says little about its goals, say so, judge by the structure of the existing code alone, and prefer "unclear" over a guess. A bug fix, a test or documentation for behavior the project already has nearly always fits; say so in a sentence and give no concerns you cannot support. Give at most ${MAX_REASONS} reasons, the most important first. People skim the review, so keep the summary to one or two short sentences and each point to one; put the evidence in the point's detail.
 
+For any verdict but fits, give the question: the decision the maintainer has to make, asked so they can answer it, and naming the part of the change it concerns. "Part of it needs a decision" is not a question.
+
+When your verdict rests on an answer the maintainer gave on an earlier review, say so in the summary, and give the round, what they decided and the link to it.
+
 When you have decided, call submit_fit.`;
 
 export const submitFit: ToolDefinition = {
@@ -77,6 +83,7 @@ export const submitFit: ToolDefinition = {
       properties: {
         verdict: { type: "string", enum: [...FIT_VERDICTS] },
         summary: { type: "string", description: "The decision and the main reason for it, in one or two short sentences that a maintainer skimming the review can take in at once." },
+        question: { type: "string", description: "For any verdict but fits: the decision the maintainer has to make, as one question that names the part of the change, such as \"Should a feature in src/vibes/ ship its own database migration?\". If the maintainer already put the decision off, add when, with the link. Leave it out for fits." },
         reasons: {
           type: "array",
           items: {
@@ -146,7 +153,8 @@ export function parseFit(submission: Record<string, unknown>, model: string): Fi
     })
     .filter((reason) => reason.point)
     .slice(0, MAX_REASONS);
-  return { verdict, summary, reasons, model };
+  const question = verdict === "fits" ? "" : text(submission.question);
+  return { verdict, summary, ...(question ? { question } : {}), reasons, model };
 }
 
 export interface FitOptions {

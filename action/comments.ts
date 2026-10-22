@@ -19,6 +19,7 @@ export interface Finding {
 export interface Fit {
   verdict: string;
   summary: string;
+  question?: string;
   reasons: Array<{ point: string; source: string; detail?: string }>;
 }
 
@@ -103,9 +104,9 @@ export function place(finding: Finding, hunks: Hunks): { line: number; startLine
 
 const SEVERITY_RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const SEVERITY_LABEL: Record<Severity, string> = { high: "High", medium: "Medium", low: "Low" };
-const KIND_LABEL: Record<string, string> = { test: "test coverage", documentation: "documentation", maintainability: "maintainability" };
+const KIND_LABEL: Record<string, string> = { defect: "bug", test: "test coverage", documentation: "documentation", maintainability: "maintainability" };
 
-/** "Medium severity", with the kind added when the finding is something other than a defect in the code. */
+/** "Medium severity, bug", with the kind when the reviewer gave one. */
 function rating(finding: Finding): string {
   const kind = KIND_LABEL[finding.kind ?? ""];
   return `${SEVERITY_LABEL[finding.severity]} severity${kind ? `, ${kind}` : ""}`;
@@ -233,8 +234,14 @@ export function recommendation(findings: Finding[], fit: Fit | null): string {
   const medium = findings.filter((finding) => finding.severity === "medium").length;
   let advice: string;
   if (fit && fit.verdict !== "fits") {
-    const why = FIT_QUESTION[fit.verdict] ?? "The assessment below questions whether the change belongs in the project";
-    advice = `**Recommendation: needs a maintainer's decision.** ${why}${high ? `, and ${count(high, "high severity finding")} should be fixed in any case` : ""}.`;
+    const fixFirst = high ? `${count(high, "high severity finding")} should be fixed in any case.` : "";
+    if (fit.question) {
+      // The fit check's question names the decision, so the maintainer is not left to find it.
+      advice = `**Recommendation: needs a maintainer's decision.** ${fit.question.trim()}${fixFirst ? ` Separately, ${fixFirst}` : ""}`;
+    } else {
+      const why = FIT_QUESTION[fit.verdict] ?? "The assessment below questions whether the change belongs in the project";
+      advice = `**Recommendation: needs a maintainer's decision.** ${why}${high ? `, and ${count(high, "high severity finding")} should be fixed in any case` : ""}.`;
+    }
   } else if (high) {
     advice = `**Recommendation: fix, then merge.** ${count(high, "high severity finding")} should be fixed first.`;
   } else if (medium) {

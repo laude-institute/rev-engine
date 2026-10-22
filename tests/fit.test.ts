@@ -46,5 +46,5 @@ test("the fit prompt carries the maintainer's earlier fit answers, and is unchan
   assert.equal(prompt({ entries: [], omitted: 0 }), plain);
   const answered = prompt({ entries: [], omitted: 0, fit: [{ round: 1, verdict: "fits", text: "The folder layout is intended.", source: "x" }] });
   assert.match(answered, /The maintainer's latest verdict stands, unless the change has moved since/);
-  assert.match(answered, /<fit_answer round="1">\nThe maintainer's verdict: the change fits\.\n\nThe folder layout is intended\.\n<\/fit_answer>/);
+  assert.match(answered, /<fit_answer round="1" link="x">\nThe maintainer's verdict: the change fits\.\n\nThe folder layout is intended\.\n<\/fit_answer>/);
 });
