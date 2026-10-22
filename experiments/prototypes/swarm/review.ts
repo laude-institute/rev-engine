@@ -24,10 +24,11 @@ import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { runAgent, type SecondLook } from "../../../src/agent.ts";
 import type { Config } from "../../../src/config.ts";
-import { applyVerdicts, dedupe, normalizeCandidates, parseDiff, parseVerdicts, toOutput, type Candidate, type Verdict } from "../../../src/findings.ts";
+import { applyVerdicts, dedupe, normalizeCandidates, parseDiff, parseVerdicts, repeatsDecided, toOutput, type Candidate, type Verdict } from "../../../src/findings.ts";
 import type { Chat } from "../../../src/llm.ts";
-import { diffInPrompt, submitVerdicts, verifierPrompt } from "../../../src/prompts.ts";
-import { loadPullRequest, loadRules, type ReviewContext, type ReviewOutcome } from "../../../src/review.ts";
+import { loadPrior } from "../../../src/prior.ts";
+import { diffInPrompt, submitVerdicts, submitVerdictsWithPrior, verifierPrompt } from "../../../src/prompts.ts";
+import { loadPullRequest, loadRules, type DecidedRepeat, type ReviewContext, type ReviewOutcome } from "../../../src/review.ts";
 import { Workspace } from "../../../src/tools.ts";
 import { mergeRepeats, type MergeResult } from "./merge.ts";
 import { chunk, chunkContext, chunkSymbols, describeChunk, findMentions, numbered, splitDiff, units } from "./chunks.ts";
@@ -236,7 +237,11 @@ export function tally(ids: string[], ballots: Verdict[][]): Verdict[] {
     const targets = new Map<string, number>();
     for (const vote of votes) if (vote.duplicateOf) targets.set(vote.duplicateOf, (targets.get(vote.duplicateOf) ?? 0) + 1);
     const duplicateOf = [...targets].find(([, count]) => count * 2 > votes.length)?.[0] ?? null;
-    return { id, verdict: rejected ? "rejected" : "confirmed", duplicateOf };
+    // A finding repeats an earlier decided one when most votes name the same one with no reason to raise it again.
+    const earlier = new Map<string, number>();
+    for (const vote of votes) if (vote.repeatOf && vote.exceptionHolds !== true) earlier.set(vote.repeatOf, (earlier.get(vote.repeatOf) ?? 0) + 1);
+    const repeatOf = [...earlier].find(([, count]) => count * 2 > votes.length)?.[0] ?? null;
+    return { id, verdict: rejected ? "rejected" : "confirmed", duplicateOf, ...(repeatOf ? { repeatOf, exceptionHolds: false } : {}) };
   });
 }
 
@@ -353,7 +358,10 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   const wrapUp = pace.wrapUpMs === null ? {} : { wrapUpMs: pace.wrapUpMs };
 
   const workspace = new Workspace(config.repoDir, config.diffPath, config.base);
-  const [pr, diff, rules] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace)]);
+  const [pr, diff, rules, prior] = await Promise.all([loadPullRequest(config), workspace.diff(), loadRules(workspace), loadPrior(config.priorJsonPath, log)]);
+  // The maintainer's decisions on earlier reviews go to the verifiers, which drop a finding
+  // that repeats a decided one unless the code gives a reason to raise it again.
+  const decisions = prior?.entries.length ? prior : null;
   const changed = parseDiff(diff);
   const chunks = chunk(units(splitDiff(diff)), settings.chunks);
   const mentions = await findMentions(config.repoDir, [...new Set(chunks.flatMap(chunkSymbols))]);
@@ -494,6 +502,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
   log(`word merge kept ${survivors.length} of ${proposals.length} finding(s)`);
 
   let verified = false;
+  const decided: DecidedRepeat[] = [];
   const verifyStarted = Date.now();
   if (config.verify !== "off" && settings.votes > 0 && survivors.length && finishDeadline - Date.now() >= pace.minVerifyMs) {
     const groups = batches(survivors);
@@ -503,7 +512,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
       ? await findMentions(config.repoDir, [...new Set(survivors.flatMap((candidate) => namesInFinding(`${candidate.title} ${candidate.detail}`)))])
       : null;
     const prompts = await Promise.all(groups.map(async (group) => {
-      const base = verifierPrompt(pr, changed, diff, group);
+      const base = verifierPrompt(pr, changed, diff, group, decisions);
       if (pace.verifyTurns > 1) return base;
       const snippets = await Promise.all(group.map(async (candidate) => {
         const text = await headFile(candidate.file);
@@ -530,7 +539,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
         try {
           const submission = await runAgent({
             chat, model: config.verifierModel, system: SWARM_VERIFIER_SYSTEM, prompt: prompts[batch]!,
-            workspace: verifierWorkspace, submit: submitVerdicts, deadline: finishDeadline, maxTurns: Math.min(config.maxTurns, pace.verifyTurns), log, caller: voter,
+            workspace: verifierWorkspace, submit: decisions ? submitVerdictsWithPrior : submitVerdicts, deadline: finishDeadline, maxTurns: Math.min(config.maxTurns, pace.verifyTurns), log, caller: voter,
             attemptTimeoutMs: pace.callTimeoutMs, ...wrapUp,
           });
           const reasons = new Map<string, string>();
@@ -547,6 +556,10 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const verdicts = groups.flatMap((group, batch) => tally(group.map((candidate) => candidate.id), ballots[batch]!.map((ballot) => ballot.verdicts)));
     const before = survivors;
     survivors = applyVerdicts(survivors, verdicts, config.verify === "strict");
+    for (const candidate of before) {
+      const verdict = verdicts.find((item) => item.id === candidate.id);
+      if (verdict?.verdict !== "rejected" && repeatsDecided(verdict)) decided.push({ file: candidate.file, title: candidate.title, repeatOf: verdict!.repeatOf! });
+    }
     const keptIds = new Set(survivors.map((candidate) => candidate.id));
     const results = new Map(verdicts.map((verdict) => [verdict.id, verdict]));
     groups.forEach((group, batch) => {
@@ -622,7 +635,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
       const output = toOutput(candidate, config.agent);
       return config.mode === "agent" ? { ...output, message: label(candidate) + output.message } : output;
     }),
-    ranked, proposed: proposals.length, verified, fit: null, context,
+    ranked, proposed: proposals.length, verified, fit: null, context, decided,
     checks: ranked.map((candidate) => {
       const cast = checks.get(candidate.id) ?? [];
       return cast.length ? { confirmed: cast.filter((ballot) => ballot.verdict === "confirmed").length, cast: cast.length } : null;

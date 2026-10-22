@@ -93,6 +93,18 @@ test("tallies verifier votes by majority", () => {
   ]);
 });
 
+test("a finding repeats an earlier decided one when most votes say so without an exception", () => {
+  const verdicts = tally(["a", "b"], [
+    [{ id: "a", verdict: "confirmed", duplicateOf: null, repeatOf: "P1", exceptionHolds: false }, { id: "b", verdict: "confirmed", duplicateOf: null, repeatOf: "P2", exceptionHolds: true }],
+    [{ id: "a", verdict: "confirmed", duplicateOf: null, repeatOf: "P1" }, { id: "b", verdict: "confirmed", duplicateOf: null, repeatOf: "P2", exceptionHolds: true }],
+    [{ id: "a", verdict: "confirmed", duplicateOf: null }, { id: "b", verdict: "confirmed", duplicateOf: null, repeatOf: "P2" }],
+  ]);
+  assert.deepEqual(verdicts, [
+    { id: "a", verdict: "confirmed", duplicateOf: null, repeatOf: "P1", exceptionHolds: false },
+    { id: "b", verdict: "confirmed", duplicateOf: null },
+  ]);
+});
+
 test("reads and checks the swarm settings", () => {
   assert.deepEqual(swarmSettings({}).split, "task");
   assert.deepEqual(swarmSettings({ RB_CONFIG_SWARM_TASKS: "callers, tests" }).tasks, ["callers", "tests"]);
