@@ -66,10 +66,13 @@ runs:
         number="${INPUT_NUMBER:-$EVENT_NUMBER}"
         if [ "$EVENT_NAME" = issue_comment ]; then
           [ -n "$COMMENT_ON_PR" ] || skip "the comment is not on a pull request"
-          case "$COMMENT" in "$COMMAND"|"$COMMAND "*) ;; *) skip "the comment is not $COMMAND" ;; esac
+          # Only the first line counts, without the carriage return and trailing spaces that
+          # some browsers and the mobile app add.
+          first=$(printf '%s\n' "$COMMENT" | head -n 1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+          case "$first" in "$COMMAND"|"$COMMAND "*|"$COMMAND	"*) ;; *) skip "the comment is not $COMMAND" ;; esac
           number="$EVENT_NUMBER"
           # The first word after the command picks the review; any other text keeps the default.
-          word=$(printf '%s' "${COMMENT#"$COMMAND"}" | head -n 1 | awk '{print tolower($1)}')
+          word=$(printf '%s' "${first#"$COMMAND"}" | awk '{print tolower($1)}')
           case "$word" in agent|human) MODE="$word" ;; esac
         fi
         case "$MODE" in agent|human) ;; *) echo "::error::mode must be agent or human"; exit 1 ;; esac
