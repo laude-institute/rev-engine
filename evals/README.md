@@ -65,13 +65,13 @@ A case file looks like this:
 | Field | Values |
 |---|---|
 | `found_by[].type` | `rev-engine-prime`, `other-reviewer`, `human-review`, `author-fix`, `tool`, `person` |
-| `judged_by.type` | `maintainer`, `author`, `teammate`, `second-review` |
+| `judged_by.type` | `maintainer`, `author`, `teammate`, `second-review`, `agent` |
 | `severity`, `min_severity` | `high`, `medium`, `low` |
 | `category` | ReviewBench's: `correctness`, `security`, `reliability`, `maintainability`, `testing`, `documentation`, `performance`, `api-architecture`, `accessibility`, `other` |
 
 The stored description is what the reviewer reads. Replace the names of people and deployments in it with general words, and change nothing else.
 
-Only label from a person's judgment. A finding that looks right to you but that nobody has confirmed stays `unlabeled`.
+A coding agent may label a case from its own triage, after checking each finding against the code. Record that as `judged_by.type: "agent"` with the agent in `producer`, and add `confirmed_by` only when a person looked at the labels and agreed. A finding nobody has judged, person or agent, stays `unlabeled`.
 
 ## Keep some cases for checking only
 
