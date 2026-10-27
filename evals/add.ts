@@ -40,7 +40,7 @@ async function actionReview(repo: string, pr: number, id?: string): Promise<Acti
     if (id) throw new Error(`review ${id} is not a review by the action on ${repo}#${pr}`);
     return null;
   }
-  const named = /Reviewed commit ([0-9a-f]{7,40}) with ([^\s]+?)\.?(?:\s|$)/.exec(review.body);
+  const named = /Reviewed commit ([0-9a-f]{7,40}) with ([^\s,]+?)[.,]?(?:\s|$)/.exec(review.body);
   const commit = named ? (await gh("api", `repos/${repo}/commits/${named[1]}`, "--jq", ".sha")).trim() : "";
   return { id: review.id, url: review.html_url, submittedAt: review.submitted_at, commit, ...(named?.[2] ? { model: named[2] } : {}) };
 }
