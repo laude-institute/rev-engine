@@ -1,0 +1,223 @@
+{
+  "id": "headlong-160",
+  "repo": "laude-institute/headlong",
+  "pr": 160,
+  "base": "04c4044c468b91c0de78e9df4f0c7264d6f26723",
+  "head": "e3c86e29cb849c9b7f0581a9e02ea3413fa1f743",
+  "title": "mem: warn on flag-leading piped text",
+  "body": "## Summary\nWarn on stderr when memory text opens with a command-flag-shaped word, including a first nonblank line indented with whitespace. This catches accidentally piped `--until` / `--slug` flags without rejecting deliberate dash-leading content or changing stdout, memory bodies, or summary derivation.\n\nThis is the separate small PR requested by the maintainer. The warning was removed from #157 with ordinary revert commits, leaving that PR's tree identical to its original blank-summary fix. This branch is independently based on main and does not require #157; the diagnostic reads the first nonblank line without changing how the summary is stored.\n\n## Tests\nAll tests ran with an empty inherited environment and a temporary memory store, no live identity or model calls.\n* Flag warning: 18 passed\n* Add flags: 13 passed\n* Edit flags: 13 passed\n* Original #157 after separation: summary derivation 17 passed\n* LOC: 11512 / 12500\n",
+  "source": "Codex (GPT-6) triage on 2026-10-23, delegated by the maintainer. Source review is human-mode review 5625920868 at the recorded head. Labels are agent judgments, not individually maintainer-confirmed. No additional independent findings. Eval split, expected fit and advice are not maintainer-confirmed. Published evaluation: https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987.",
+  "reviews": [
+    {
+      "producer": "rev-engine-prime",
+      "model": "anthropic/claude-opus-5.5",
+      "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+      "commit": "e3c86e29cb849c9b7f0581a9e02ea3413fa1f743",
+      "date": "2026-10-23",
+      "fit": "fits",
+      "advice": "merge and fast-follow"
+    }
+  ],
+  "findings": [
+    {
+      "id": "ordinary-dash-warning",
+      "label": "valid",
+      "what": "Ordinary openers such as ---, -- note and --> trigger a misleading command-flag warning.",
+      "file": "bin/mem",
+      "start_line": 55,
+      "end_line": 57,
+      "kind": "defect",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "medium",
+          "text": "`--*` pattern warns on ordinary Markdown and prose openers such as `---` and `-- note`. The case pattern `--*` matches any word that starts with two dashes. That includes a Markdown horizontal rule or front-matter fence `---`, ASCII em-dash prose like `-- note to self`, and arrows like `-->`. A piped body opening with any of these gets the warning that the first line looks like a command flag, even though it is not flag-shaped. The PR says it avoids flagging deliberate dash-leading content, and it tests that `- a list item` stays silent, yet these equally ordinary openers warn. Requiring a letter after the dashes (`--[A-Za-z]*`) would limit the warning to real flag shapes.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. Require a letter after two dashes. Confirmed in add/edit regression tests. Warning only, so low severity; a useful cheap fix, not a merge blocker.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      },
+      "severity": "low",
+      "fixed_in": "e783b949e2d62098dc6b0652434938912c6649af"
+    },
+    {
+      "id": "duplicate-summary-scan",
+      "label": "valid",
+      "what": "The warning helper repeats the full-body summary pipeline immediately before each caller computes the same summary.",
+      "file": "bin/mem",
+      "start_line": 52,
+      "end_line": 52,
+      "kind": "maintainability",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "warn_flag_summary repeats the summary pipeline that the caller runs on the next line. warn_flag_summary runs `printf | sed '/^[[:space:]]*$/d' | sed -n '1p' | cut -c1-80` on the whole body. Both callers then run exactly the same pipeline to build `summary` (lines 160 and 522). So every add and edit pushes the full body through three extra processes, which matters for the megabyte bodies the test exercises. It also leaves two copies of the derivation that must be kept in step, even though the comment's promise that \"what warns is what stores\" depends on them matching. Compute `summary` first and pass it to the helper, or have the helper take the summary instead of the body.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. Compute the summary once and pass its bounded value to the helper. Avoids three duplicate processes and repeated scanning on each write.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      },
+      "severity": "low",
+      "fixed_in": "e783b949e2d62098dc6b0652434938912c6649af"
+    },
+    {
+      "id": "stdin-comment-scope",
+      "label": "invalid",
+      "what": "The helper comment is misleading because it motivates the warning using stdin although the callers also warn on argument text.",
+      "file": "bin/mem",
+      "start_line": 45,
+      "end_line": 45,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Comment says the helper is for stdin, but it also runs on command-line text. The comment above warn_flag_summary says it exists because stdin accepts dash-leading text. action_add and action_edit call it unconditionally, so it also checks text given as arguments, for example `mem add \" -h foo\"`, where the leading-dash guard does not fire because of the whitespace. The comment should describe what the helper actually covers.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. The comment explains why dash-leading content remains accepted. It does not claim stdin-only coverage, so this wording complaint does not identify a defect.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      }
+    },
+    {
+      "id": "large-body-size-label",
+      "label": "valid",
+      "what": "The large-body test says 2MB although its fixture contains about 1 MiB of text.",
+      "file": "tests/test_mem_flag_summary_warning.sh",
+      "start_line": 121,
+      "end_line": 125,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Large-body case is labelled 2MB but the body is about 1MB. The Python block builds `big = \"x\" * 1048576` plus a few short lines, so the body is about 1 MiB. Both the failure message and the ok/bad label call it \"2MB\". A maintainer reading a failure, or tuning the size later, will be misled about what was tested.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. Correct the label to 1 MiB; no fixture size change.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      },
+      "severity": "low",
+      "fixed_in": "e783b949e2d62098dc6b0652434938912c6649af"
+    },
+    {
+      "id": "extra-tab-edit-assertions",
+      "label": "invalid",
+      "what": "The tab-indented edit warning test must repeat body, summary and id preservation assertions.",
+      "file": "tests/test_mem_flag_summary_warning.sh",
+      "start_line": 77,
+      "end_line": 80,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "Tab-indented edit case checks the warning but not that the body and summary are unchanged. The indented add case checks that the stored body keeps its leading spaces. The tab-indented edit case only greps stderr for the warning. It does not check that the edited body keeps its tab, or that the summary and id are intact after the edit. The PR's stated invariant is that the warning never rewrites the body, so the edit path needs the same assertions as the add path.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. The same edit path already checks body, summary and id preservation; the whitespace cases check warning recognition and retained indentation. Additional per-case duplication is not worth raising without a distinct defect.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      }
+    },
+    {
+      "id": "test-executable-mode",
+      "label": "valid",
+      "what": "The new shell test is not executable even though tests/README.md documents direct execution of test scripts.",
+      "file": "tests/test_mem_flag_summary_warning.sh",
+      "start_line": 91,
+      "end_line": 91,
+      "kind": "test",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "New test needs Python 3 but tests/README.md does not say so, and the file is not executable. The new test calls `python3` for its large-body case. tests/README.md lists which tests need Python 3 (test_deploy_update.sh, test_traj_redaction.sh), but this one is not added. On a machine without python3 this case fails as an opaque FAIL instead of being a documented requirement. The file is also added with mode 100644, while tests/README.md says each `test_*.sh` is a self-contained executable to run directly. run-all.sh still runs it through `bash`, but `tests/test_mem_flag_summary_warning.sh` cannot be run on its own as the README describes.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. Accepted executable-mode half of the combined source finding; chmod +x restores direct execution.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      },
+      "severity": "low",
+      "fixed_in": "e783b949e2d62098dc6b0652434938912c6649af"
+    },
+    {
+      "id": "python-dependency-listing",
+      "label": "invalid",
+      "what": "The new test must be added to the Python dependency list in tests/README.md.",
+      "file": "tests/test_mem_flag_summary_warning.sh",
+      "start_line": 91,
+      "end_line": 91,
+      "kind": "documentation",
+      "found_by": [
+        {
+          "type": "rev-engine-prime",
+          "ref": "https://github.com/laude-institute/headlong/pull/160#pullrequestreview-5625920868",
+          "producer": "anthropic/claude-opus-5.5",
+          "severity": "low",
+          "text": "New test needs Python 3 but tests/README.md does not say so, and the file is not executable. The new test calls `python3` for its large-body case. tests/README.md lists which tests need Python 3 (test_deploy_update.sh, test_traj_redaction.sh), but this one is not added. On a machine without python3 this case fails as an opaque FAIL instead of being a documented requirement. The file is also added with mode 100644, while tests/README.md says each `test_*.sh` is a self-contained executable to run directly. run-all.sh still runs it through `bash`, but `tests/test_mem_flag_summary_warning.sh` cannot be run on its own as the README describes.",
+          "date": "2026-10-23"
+        }
+      ],
+      "note": "Delegated Codex triage, 2026-10-23. Rejected documentation half of the combined source finding. The README does not promise an exhaustive per-test dependency inventory; Python is already a test dependency. This housekeeping is not worth raising.",
+      "judged_by": {
+        "type": "agent",
+        "producer": "Codex (GPT-6)",
+        "date": "2026-10-23",
+        "quote": "The maintainer delegated triage.",
+        "ref": "https://github.com/laude-institute/headlong/pull/160#issuecomment-6361515987"
+      }
+    }
+  ],
+  "fixes": [
+    "e783b949e2d62098dc6b0652434938912c6649af"
+  ]
+}

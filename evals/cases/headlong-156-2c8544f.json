@@ -6,7 +6,7 @@
   "head": "2c8544fdf63308b719408b5b1cf5bcff264a3fc8",
   "title": "skill-compiler: compile skills into validated cached adapters, with pool-attested pass verification",
   "body": "Port of fork PR 12 (the contributor's fork) onto current upstream/main. Rebuilt in a worktree by cherry-picking only the branch's own commits, so it carries none of the fork main's history. Own test suites run locally and pass on the branch. Companion upstream PRs replace the fifteen fork PRs that were opened in the wrong place.",
-  "source": "The review evaluation posted on the pull request on 2026-10-17 at the maintainer's request, written by the maintainer's review agent from focused offline reproductions of each claim. The description is copied from the earlier case of this pull request, where names were replaced.",
+  "source": "The review evaluation posted on the pull request on 2026-10-17 at the maintainer's request, written by the maintainer's review agent from focused offline reproductions of each claim. The description is copied from the earlier case of this pull request, where names were replaced. On 2026-10-22 the maintainer delegated the repair and review loop to Codex, including judging findings. Codex preserved the existing labels, recorded the tested fixes and posted https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296. These remain agent judgments; the maintainer did not individually confirm these labels.",
   "reviews": [
     {
       "producer": "rev-engine-prime",
@@ -54,14 +54,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Reproduced: replacing the shared pool file between synthesis and reporting changed POOL-DROPPED to INVENTED. Wrong provenance, not a false VERIFIED.",
+      "note": "Reproduced: replacing the shared pool file between synthesis and reporting changed POOL-DROPPED to INVENTED. Wrong provenance, not a false VERIFIED. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "medium"
+      "severity": "medium",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "identity-selectors",
@@ -81,14 +82,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "A full stubbed compile kept all four selectors, and the real skills loader sourced a synthetic .skillsrc. The CHATRC explanation needs narrowing. The evaluation adds the caller's .skillsrc fallback as an extension of this finding.",
+      "note": "A full stubbed compile kept all four selectors, and the real skills loader sourced a synthetic .skillsrc. The CHATRC explanation needs narrowing. The evaluation adds the caller's .skillsrc fallback as an extension of this finding. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "medium"
+      "severity": "medium",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "blank-literals",
@@ -108,14 +110,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Reproduced for an empty string and a single space. The claim that every whitespace-only literal always matches is wrong; see whitespace-always.",
+      "note": "Reproduced for an empty string and a single space. The claim that every whitespace-only literal always matches is wrong; see whitespace-always. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "medium"
+      "severity": "medium",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "whitespace-always",
@@ -136,11 +139,11 @@
       ],
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "note": "Wrong: a tab failed against space-only output, and a space still needs a space in the evidence."
+      "note": "Wrong: a tab failed against space-only output, and a space still needs a space in the evidence. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342."
     },
     {
       "id": "first-bracket-json",
@@ -160,14 +163,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Reproduced. A robustness improvement for a teacher that breaks the JSON-only format; not a blocker.",
+      "note": "Reproduced. A robustness improvement for a teacher that breaks the JSON-only format; not a blocker. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "f5",
@@ -225,14 +229,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "A plausible load-sensitive test; no CI flake reproduced. Removing the time check is an incomplete fix.",
+      "note": "A plausible load-sensitive test; no CI flake reproduced. Removing the time check is an incomplete fix. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "medium"
+      "severity": "medium",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "retained-run-location",
@@ -252,14 +257,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Confirmed, though the run directories are discoverable through the runs manifest.",
+      "note": "Confirmed, though the run directories are discoverable through the runs manifest. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "duplicated-parsing",
@@ -279,12 +285,12 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "The frontmatter parsing inconsistency is concrete; extracting every duplicate is optional.",
+      "note": "The frontmatter parsing inconsistency is concrete; extracting every duplicate is optional. Frontmatter delimiter consistency was fixed in 48279d39be468bb4fc2fe85ca65e6d2205f393e2; broader helper extraction remains deferred. This is only a partial fix. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
       "severity": "low"
     },
@@ -306,14 +312,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Small documentation fixes.",
+      "note": "Small documentation fixes. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "missing-requires-bins",
@@ -333,14 +340,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "The loader supports filtering on that metadata, so the declaration is worth adding.",
+      "note": "The loader supports filtering on that metadata, so the declaration is worth adding. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "stale-test-name",
@@ -360,14 +368,15 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Rename the test; its checks remain useful.",
+      "note": "Rename the test; its checks remain useful. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     },
     {
       "id": "tests-isolation-gaps",
@@ -387,14 +396,18 @@
           "date": "2026-10-16"
         }
       ],
-      "note": "Coverage for the selector, blank-literal and bracketed-prose findings, not three more defects.",
+      "note": "Coverage for the selector, blank-literal and bracketed-prose findings, not three more defects. Fixed on 2026-10-22 in 48279d39be468bb4fc2fe85ca65e6d2205f393e2. Branch and current-main integration each pass 31 outer checks and 59 regression groups on macOS Bash 3.2 and Linux Bash 5.2. Prior judgment: https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342.",
       "judged_by": {
         "type": "agent",
-        "producer": "the maintainer's review evaluation agent",
-        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6229162342",
-        "date": "2026-10-17"
+        "producer": "Codex review-loop coordinator",
+        "ref": "https://github.com/laude-institute/headlong/pull/156#issuecomment-6338194296",
+        "date": "2026-10-22"
       },
-      "severity": "low"
+      "severity": "low",
+      "fixed_in": "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
     }
+  ],
+  "fixes": [
+    "48279d39be468bb4fc2fe85ca65e6d2205f393e2"
   ]
 }
