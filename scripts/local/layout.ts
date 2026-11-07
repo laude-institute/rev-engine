@@ -17,7 +17,6 @@ export interface LocalOptions {
   number: number | null;
   repo: string;
   base: string | null;
-  engine: "auto" | "claude-code" | "api";
   settings: Settings;
   prNumber: number;
   json: boolean;
@@ -30,29 +29,17 @@ export interface LocalOptions {
 
 /** The container setting each command-line flag sets, in the same spelling the benchmark uses as a label. */
 export const SETTING_NAMES = [
-  "engine", "model", "verifier", "verify", "second_look", "min_severity",
+  "model", "verifier", "verify", "second_look", "min_severity",
   "max_findings", "mode", "time_budget", "max_turns", "effort", "fit",
   "follow_up", "retry_empty",
 ] as const;
 
 type SettingName = (typeof SETTING_NAMES)[number];
 
-export const ENV_OF_SETTING: Record<SettingName, string> = {
-  engine: "RB_CONFIG_ENGINE",
-  model: "RB_CONFIG_MODEL",
-  verifier: "RB_CONFIG_VERIFIER",
-  verify: "RB_CONFIG_VERIFY",
-  second_look: "RB_CONFIG_SECOND_LOOK",
-  min_severity: "RB_CONFIG_MIN_SEVERITY",
-  max_findings: "RB_CONFIG_MAX_FINDINGS",
-  mode: "RB_CONFIG_MODE",
-  time_budget: "RB_CONFIG_TIME_BUDGET",
-  max_turns: "RB_CONFIG_MAX_TURNS",
-  effort: "RB_CONFIG_EFFORT",
-  fit: "RB_CONFIG_FIT",
-  follow_up: "RB_CONFIG_FOLLOW_UP",
-  retry_empty: "RB_CONFIG_RETRY_EMPTY",
-};
+/** The contract's name for a setting: `min_severity` becomes `RB_CONFIG_MIN_SEVERITY`. */
+export function envNameOf(setting: string): string {
+  return `RB_CONFIG_${setting.toUpperCase()}`;
+}
 
 const SEVERITY_CHOICES: Severity[] = ["high", "medium", "low"];
 
@@ -85,7 +72,6 @@ export function parseArgs(args: string[]): LocalOptions {
     number: null,
     repo: ".",
     base: null,
-    engine: "auto",
     settings: {},
     prNumber: 1,
     json: false,
@@ -112,14 +98,6 @@ export function parseArgs(args: string[]): LocalOptions {
       case "--base": options.base = value(rest, index++, flag); break;
       case "--prior": options.prior = value(rest, index++, flag); break;
       case "--pr-number": options.prNumber = integer(value(rest, index++, flag), flag); break;
-      case "--engine": {
-        const engine = value(rest, index++, flag);
-        if (engine !== "auto" && engine !== "claude-code" && engine !== "api") {
-          throw new UsageError("--engine must be auto, claude-code or api");
-        }
-        options.engine = engine;
-        break;
-      }
       case "--fail-on": {
         const threshold = value(rest, index++, flag);
         if (threshold !== "none" && !SEVERITY_CHOICES.includes(threshold as Severity)) {
@@ -129,13 +107,13 @@ export function parseArgs(args: string[]): LocalOptions {
         break;
       }
       case "--set": {
+        // Any plausible name is accepted here: which settings exist is read from
+        // the checkout, so a branch adding one needs no change in this parser.
         const pair = value(rest, index++, flag);
         const split = pair.indexOf("=");
         if (split === -1) throw new UsageError(`--set wants key=value, got ${pair}`);
         const key = pair.slice(0, split);
-        if (!SETTING_NAMES.includes(key as SettingName)) {
-          throw new UsageError(`--set names an unknown setting ${key}; the choices are ${SETTING_NAMES.join(", ")}`);
-        }
+        if (!/^[a-z][a-z0-9_]*$/.test(key)) throw new UsageError(`--set names an unusable setting ${key}`);
         options.settings[key] = pair.slice(split + 1);
         break;
       }
@@ -161,24 +139,22 @@ export function parseArgs(args: string[]): LocalOptions {
 }
 
 /**
- * The settings the reviewer will actually apply. The engine is only named when
- * the caller asks for one, because `RB_CONFIG_ENGINE` exists on branches that
- * added it and rejecting an unknown key would fail the run on the others.
+ * The settings the reviewer will actually apply.
+ *
+ * `available` is the set of settings this checkout reads. The reviewer rejects
+ * an `RB_CONFIG_*` name it does not know, so a setting the checkout does not
+ * define has to be refused here, where the message can say why, instead of
+ * starting a run that fails a moment later with a less useful error.
  */
 export function effectiveSettings(options: LocalOptions, available: Set<string>): Settings {
   const settings: Settings = { ...options.settings };
-  const asked = options.engine;
-  if (asked === "auto") {
-    // Nothing to decide: leave the engine unset so the branch default applies.
-    delete settings.engine;
-    return settings;
-  }
-  if (!available.has("engine")) {
+  for (const name of Object.keys(settings)) {
+    if (available.has(name)) continue;
+    const supported = [...available].sort().join(", ") || "none";
     throw new UsageError(
-      "--engine needs a branch that carries an engine setting (for example claude-code-engine); this checkout has none",
+      `this checkout does not define the ${name} setting; it knows ${supported}`,
     );
   }
-  settings.engine = asked;
   return settings;
 }
 
@@ -214,9 +190,10 @@ export function buildReviewEnv(input: ReviewEnvInput): Record<string, string> {
     RB_CONTEXT_OUT: `${input.runDir}/out/context.json`,
     RB_ATTEMPT: "1",
   };
-  for (const name of SETTING_NAMES) {
-    const configured = input.settings[name];
-    if (configured !== undefined && configured !== "") env[ENV_OF_SETTING[name]] = configured;
+  // Every configured setting is passed, not only the names this file knows, so a
+  // setting added to the reviewer reaches it without a change here.
+  for (const [name, configured] of Object.entries(input.settings)) {
+    if (configured !== undefined && configured !== "") env[envNameOf(name)] = configured;
   }
   return env;
 }

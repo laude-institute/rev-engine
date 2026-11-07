@@ -11,8 +11,8 @@ node scripts/local.ts pr 1938                # a pull request at its head
 node scripts/local.ts doctor                 # node, git, gh, settings and the key
 ```
 
-Both modes need Node 24 or newer and an OpenRouter key in `OPENROUTER_API_KEY`,
-unless the branch you are on gives the reviewer another way to reach a model.
+Both modes need Node 24 or newer and whatever credential the reviewer itself
+needs to reach a model, which by default is `OPENROUTER_API_KEY`.
 
 ## Modes
 
@@ -49,11 +49,11 @@ the rest, and the names are the ones in [SETTINGS.md](SETTINGS.md).
 | `--max-turns` | `RB_CONFIG_MAX_TURNS` |
 | `--effort` | `RB_CONFIG_EFFORT` |
 | `--fit` | `RB_CONFIG_FIT` |
-| `--engine` | `RB_CONFIG_ENGINE`, only on a branch that defines it |
 
-A setting the checkout does not define is not passed at all: the reviewer would
-reject an unknown `RB_CONFIG_*` name, so `--engine` fails with an explanation on
-a branch without an engine setting rather than starting a run that cannot work.
+The runner reads which settings the checkout supports from `src/config.ts`, so a
+flag for a setting that checkout does not define is refused before the run starts
+instead of failing a moment later inside the reviewer. Adding a setting to the
+reviewer therefore needs no change here.
 
 Other flags: `--repo <path>` (default `.`), `--base <ref>`, `--json` for machine
 readable output, `--fail-on high|medium|low` to exit 2 on findings at or above

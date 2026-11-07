@@ -3,11 +3,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
+  UsageError, buildReviewEnv, effectiveSettings, envNameOf, parseArgs, reaches,
   repoName, summarize,
 } from "../scripts/local/layout.ts";
 
-const ALL = new Set(["engine", "model", "mode", "min_severity"]);
+const ALL = new Set(["model", "mode", "min_severity"]);
 
 test("a setting flag sets the container setting of the same name", () => {
   const options = parseArgs(["branch", "--min-severity", "high", "--max-turns", "12"]);
@@ -21,11 +21,18 @@ test("pr mode requires a pull request number", () => {
   assert.equal(parseArgs(["pr", "1938"]).number, 1938);
 });
 
-test("unknown flags and settings are rejected rather than ignored", () => {
+test("unknown flags are rejected rather than ignored", () => {
   assert.throws(() => parseArgs(["branch", "--nonsense", "1"]), UsageError);
-  assert.throws(() => parseArgs(["branch", "--set", "nonsense=1"]), UsageError);
   assert.throws(() => parseArgs(["branch", "--set", "noequals"]), UsageError);
   assert.throws(() => parseArgs(["branch", "--base"]), UsageError);
+});
+
+test("--set carries a setting the runner has never heard of, for a branch that defines it", () => {
+  // Which settings exist is read from the checkout, not from a list kept here,
+  // so a setting added to the reviewer later needs no change to the parser.
+  const options = parseArgs(["branch", "--set", "engine=claude-code"]);
+  assert.equal(options.settings.engine, "claude-code");
+  assert.equal(effectiveSettings(options, new Set(["engine"])).engine, "claude-code");
 });
 
 test("a setting can be set through --set as well as its own flag", () => {
@@ -33,18 +40,18 @@ test("a setting can be set through --set as well as its own flag", () => {
   assert.equal(parseArgs(["branch", "--set", "second_look=sweep"]).settings.second_look, "sweep");
 });
 
-test("--engine auto leaves the engine unset so the branch default applies", () => {
+test("no setting is passed unless it was asked for", () => {
   const settings = effectiveSettings(parseArgs(["branch"]), ALL);
-  assert.equal("engine" in settings, false);
+  assert.deepEqual(settings, {});
 });
 
-test("--engine is refused when the checkout has no engine setting", () => {
-  const options = parseArgs(["branch", "--engine", "claude-code"]);
-  assert.throws(() => effectiveSettings(options, new Set(["model"])), UsageError);
+test("a setting this checkout does not define is refused before the run starts", () => {
+  const options = parseArgs(["branch", "--min-severity", "high"]);
+  assert.throws(() => effectiveSettings(options, new Set(["model", "mode"])), UsageError);
 });
 
-test("--engine is passed through when the branch carries it", () => {
-  assert.equal(effectiveSettings(parseArgs(["branch", "--engine", "api"]), ALL).engine, "api");
+test("a setting the checkout defines is passed through", () => {
+  assert.equal(effectiveSettings(parseArgs(["branch", "--min-severity", "high"]), ALL).min_severity, "high");
 });
 
 test("the reviewer environment names local paths and nothing else", () => {
@@ -57,8 +64,22 @@ test("the reviewer environment names local paths and nothing else", () => {
   assert.equal(env.RB_OUT, "/tmp/run/out/findings.json");
   assert.equal(env.RB_PR_NUMBER, "7");
   assert.equal(env.RB_CONFIG_MODEL, "haiku");
-  assert.equal(env.RB_CONFIG_ENGINE, undefined);
+  assert.equal(env.RB_CONFIG_MODE, undefined);
   for (const key of Object.keys(env)) assert.match(key, /^RB_/, `${key} is not an RB_ variable`);
+});
+
+test("a setting this file has never heard of still reaches the reviewer", () => {
+  const env = buildReviewEnv({
+    nwo: "o/r", number: 1, base: "a", head: "b", repoDir: "/c", runDir: "/r",
+    settings: { engine: "claude-code", a_future_setting: "on" },
+  });
+  assert.equal(env.RB_CONFIG_ENGINE, "claude-code");
+  assert.equal(env.RB_CONFIG_A_FUTURE_SETTING, "on");
+});
+
+test("a setting name maps to the contract's variable name", () => {
+  assert.equal(envNameOf("min_severity"), "RB_CONFIG_MIN_SEVERITY");
+  assert.equal(envNameOf("model"), "RB_CONFIG_MODEL");
 });
 
 test("empty settings are omitted rather than sent blank", () => {

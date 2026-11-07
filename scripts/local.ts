@@ -69,21 +69,19 @@ function mergeBase(repo: string, base: string, head: string): string {
   return value;
 }
 
-/** Which settings the checkout actually accepts, so an absent engine is reported plainly. */
+/**
+ * Which settings this checkout reads, taken from its own config source rather
+ * than a list kept here, so the runner does not have to know about a setting
+ * before the reviewer does.
+ */
 function availableSettings(repo: string): Set<string> {
   const source = readFileSync(join(repo, "src", "config.ts"), "utf8");
-  const found = new Set<string>();
-  for (const match of source.matchAll(/env\.(RB_CONFIG_[A-Z_]+)/g)) found.add(match[1]!.toLowerCase());
   const available = new Set<string>();
-  const map: Record<string, string> = {
-    engine: "rb_config_engine", model: "rb_config_model", verifier: "rb_config_verifier",
-    verify: "rb_config_verify", second_look: "rb_config_second_look",
-    min_severity: "rb_config_min_severity", max_findings: "rb_config_max_findings",
-    mode: "rb_config_mode", time_budget: "rb_config_time_budget", max_turns: "rb_config_max_turns",
-    effort: "rb_config_effort", fit: "rb_config_fit", follow_up: "rb_config_follow_up",
-    retry_empty: "rb_config_retry_empty",
-  };
-  for (const [setting, env] of Object.entries(map)) if (found.has(env)) available.add(setting);
+  // A setting is read either as env.RB_CONFIG_X or by name through a helper,
+  // such as integer(env, "RB_CONFIG_X", ...), so both spellings are collected.
+  for (const match of source.matchAll(/RB_CONFIG_([A-Z0-9_]+)/g)) {
+    available.add(match[1]!.toLowerCase());
+  }
   return available;
 }
 
