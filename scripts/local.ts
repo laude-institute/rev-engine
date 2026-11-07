@@ -13,7 +13,7 @@
 // A setting flag sets the container setting of the same name: `--min-severity
 // high` is `RB_CONFIG_MIN_SEVERITY=high`, `--set KEY=VALUE` covers the rest.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,26 +101,30 @@ function prepareRun(label: string, pr: Record<string, unknown>, diff: string): R
   return { dir, prJson: pr };
 }
 
-/** Starts the reviewer and streams its progress, which it writes to stderr. */
+/**
+ * Starts the reviewer and streams its progress, which it writes to stderr.
+ *
+ * The log is appended as it arrives rather than collected and written at the
+ * end: a run that hangs or is interrupted is exactly when the log matters, and
+ * a buffer that only lands on exit leaves nothing to read.
+ */
 function runReviewer(env: Record<string, string>, quiet: boolean): Promise<number> {
+  const run = env.RB_OUT!.replace(/\/out\/findings\.json$/, "");
+  const logPath = join(run, "reviewer.log");
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, [join(root, "src", "main.ts")], {
       cwd: root,
       env: { ...process.env, ...env },
       stdio: ["ignore", "pipe", "pipe"],
     });
-    let forwarded = "";
+    const log = createWriteStream(logPath);
     child.stderr.on("data", (chunk: Buffer) => {
-      forwarded += chunk.toString();
+      log.write(chunk);
       if (!quiet) process.stderr.write(chunk);
     });
-    child.stdout.on("data", (chunk: Buffer) => { forwarded += chunk.toString(); });
-    child.on("error", fail);
-    child.on("close", (code) => {
-      const run = env.RB_OUT!.replace(/\/out\/findings\.json$/, "");
-      writeFileSync(join(run, "reviewer.log"), forwarded);
-      done(code ?? 1);
-    });
+    child.stdout.on("data", (chunk: Buffer) => { log.write(chunk); });
+    child.on("error", (error) => { log.end(); fail(error); });
+    child.on("close", (code) => { log.end(); done(code ?? 1); });
   });
 }
 
