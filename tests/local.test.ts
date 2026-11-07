@@ -27,12 +27,12 @@ test("unknown flags are rejected rather than ignored", () => {
   assert.throws(() => parseArgs(["branch", "--base"]), UsageError);
 });
 
-test("--set carries a setting the runner has never heard of, for a branch that defines it", () => {
+test("--set carries a setting the runner has never heard of, for a checkout that defines it", () => {
   // Which settings exist is read from the checkout, not from a list kept here,
   // so a setting added to the reviewer later needs no change to the parser.
-  const options = parseArgs(["branch", "--set", "engine=claude-code"]);
-  assert.equal(options.settings.engine, "claude-code");
-  assert.equal(effectiveSettings(options, new Set(["engine"])).engine, "claude-code");
+  const options = parseArgs(["branch", "--set", "hypothetical_switch=on"]);
+  assert.equal(options.settings.hypothetical_switch, "on");
+  assert.equal(effectiveSettings(options, new Set(["hypothetical_switch"])).hypothetical_switch, "on");
 });
 
 test("a setting can be set through --set as well as its own flag", () => {
@@ -71,10 +71,9 @@ test("the reviewer environment names local paths and nothing else", () => {
 test("a setting this file has never heard of still reaches the reviewer", () => {
   const env = buildReviewEnv({
     nwo: "o/r", number: 1, base: "a", head: "b", repoDir: "/c", runDir: "/r",
-    settings: { engine: "claude-code", a_future_setting: "on" },
+    settings: { hypothetical_switch: "on" },
   });
-  assert.equal(env.RB_CONFIG_ENGINE, "claude-code");
-  assert.equal(env.RB_CONFIG_A_FUTURE_SETTING, "on");
+  assert.equal(env.RB_CONFIG_HYPOTHETICAL_SWITCH, "on");
 });
 
 test("a setting name maps to the contract's variable name", () => {
