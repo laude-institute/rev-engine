@@ -3,6 +3,7 @@
 //
 // Using a tool for the final answer works with any model that can call tools,
 // and the arguments are checked as JSON before the loop accepts them.
+import { claudeCodeSettings, runClaudeCode } from "./claude-code.ts";
 import { ModelError, type Chat, type ChatMessage } from "./llm.ts";
 import { readTools, type ToolDefinition, type Workspace } from "./tools.ts";
 
@@ -10,9 +11,9 @@ import { readTools, type ToolDefinition, type Workspace } from "./tools.ts";
  * Time kept back at the end for the model to write its submission. Ordinary
  * turns may not run into it, so one slow call cannot use up the whole deadline.
  */
-const WRAP_UP_MS = 100_000;
+export const WRAP_UP_MS = 100_000;
 /** Conversation size, in characters, past which the model is told to submit. Bounds the cost of every later turn. */
-const MAX_CONTEXT_CHARS = 800_000;
+export const MAX_CONTEXT_CHARS = 800_000;
 
 /**
  * Requests to look again after the first submission, one per round, and how to join
@@ -102,7 +103,7 @@ function describe(error: unknown): string {
 }
 
 /** A short label for a tool call in the log, such as "read_file src/pool.ts". */
-function label(name: string, rawArguments: string): string {
+export function label(name: string, rawArguments: string): string {
   const args = parseObject(rawArguments);
   const target = typeof args?.path === "string" ? args.path : typeof args?.query === "string" ? JSON.stringify(args.query) : "";
   return `${name} ${target}`.trim().slice(0, 80);
@@ -115,6 +116,8 @@ interface Held {
 }
 
 export async function runAgent(options: AgentOptions): Promise<Record<string, unknown>> {
+  const claudeCode = claudeCodeSettings(options.chat);
+  if (claudeCode) return runClaudeCode(options, claudeCode);
   // What was handed in is kept, so a failure later on still returns that work.
   const held: Held = { submissions: [], partial: null };
   try {

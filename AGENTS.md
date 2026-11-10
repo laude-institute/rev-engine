@@ -18,7 +18,7 @@ The reviewer gives one or more models read-only tools over the checkout, has eac
 
 ## Decisions made so far
 
-- **Model provider:** OpenRouter, through its chat completions API. One host and one key reach models from several vendors, which the benchmark's network allowlist requires.
+- **Model provider:** OpenRouter, through its chat completions API. One host and one key reach models from several vendors, which the benchmark's network allowlist requires. An optional engine, `RB_CONFIG_ENGINE=claude-code`, runs the same passes with Claude Code and its login instead. Claude Code is left out of the image unless the build names a version, so the default image keeps no runtime dependency.
 - **Cheap models first.** Smoke tests use a cheap model to prove the pipeline. Stronger models are for scored runs.
 - **Two review modes, one for agents and one for people.** Agent mode writes a review for an agent that manages the pull request. It keeps every finding the verifiers did not reject, with no cap, and starts each message with the finding's severity and how sure the reviewer is, so the agent can choose what to act on. Human mode writes a review for people to read. It keeps only the findings the verifiers confirmed, under a cap. Neither mode reports a claim the verifiers rejected. The benchmark runs agent mode, because ReviewBench's scoring is tuned to reward a more thorough review. Our own pull requests use human mode for now, and will move to agent mode as agents take over more of our code work.
 - **Local until an official score is wanted.** The benchmark's `scripts/try-agent.sh` and judge both run on a laptop. Registering with the benchmark, which opens a public pull request there, is the last step and needs the maintainer's decision.
@@ -47,6 +47,7 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `src/findings.ts` | Path and line checks, duplicate merging, verdicts, ranking. |
 | `src/prompts.ts` | Reviewer and verifier prompts and their submit tools. |
 | `src/llm.ts` | The model API client. |
+| `src/claude-code.ts` | The optional engine that runs each pass with `claude -p` in place of the chat API. |
 | `src/prior.ts` | Reads those earlier decisions and writes the prompt sections that carry them. |
 | `src/fit.ts` | The optional assessment of whether a change belongs in the project. |
 | `action.yml` | The GitHub Action that reviews a pull request when a maintainer asks. |
