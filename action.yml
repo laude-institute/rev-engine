@@ -97,13 +97,12 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     # The token is not kept in the checkout, because the model can read files there.
-    # Only the head commit is fetched here; the next step fetches the two others the review needs.
     - name: Check out the pull request
       if: steps.ask.outputs.run == 'true'
       uses: actions/checkout@v4
       with:
         ref: ${{ steps.ask.outputs.head }}
-        fetch-depth: 1
+        fetch-depth: 0
         path: rev-engine-prime-checkout
         persist-credentials: false
         token: ${{ inputs.github-token }}
@@ -113,26 +112,14 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        REPO: ${{ github.repository }}
         BASE: ${{ steps.ask.outputs.base }}
         HEAD: ${{ steps.ask.outputs.head }}
       run: |
         set -euo pipefail
         repo="$GITHUB_WORKSPACE/rev-engine-prime-checkout"
         auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')
-        fetch() { git -C "$repo" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --no-tags "$@"; }
-        # The diff is taken from the merge base, like GitHub's, and read_base_file reads the base.
-        # Fetching just those two commits is much faster than the whole history. If GitHub does not
-        # name the merge base, fetch the whole history and let git find it.
-        merge_base=$(gh api "repos/$REPO/compare/$BASE...$HEAD?per_page=1" --jq .merge_base_commit.sha 2>/dev/null || true)
-        if [ -n "$merge_base" ] && fetch --depth=1 origin "$BASE" "$merge_base"; then
-          git -C "$repo" diff "$merge_base" "$HEAD" > "$RUNNER_TEMP/rev-engine-prime/pr/diff.patch"
-        else
-          echo "::notice::Merge base not found from the API; fetching the whole history."
-          fetch --unshallow origin
-          fetch origin "$BASE"
-          git -C "$repo" diff "$BASE...$HEAD" > "$RUNNER_TEMP/rev-engine-prime/pr/diff.patch"
-        fi
+        git -C "$repo" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --no-tags origin "$BASE"
+        git -C "$repo" diff "$BASE...$HEAD" > "$RUNNER_TEMP/rev-engine-prime/pr/diff.patch"
 
     # Main publishes an image for each commit (.github/workflows/build.yml), tagged with a hash of
     # what it was built from. Pulling it takes seconds; building takes about half a minute, so build
