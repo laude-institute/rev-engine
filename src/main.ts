@@ -95,10 +95,12 @@ try {
   if (config.detailsOutPath) {
     const details = outcome.ranked.map((candidate, index) => {
       const checked = outcome.checks?.[index];
+      const fix = outcome.fixes?.[index];
       return {
         file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
         severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
         ...(checked ? { confirmed: checked.confirmed, checks: checked.cast } : {}),
+        ...(fix ? { fix: { start_line: fix.startLine, end_line: fix.endLine, replacement: fix.replacement } } : {}),
       };
     });
     const decided = (outcome.decided ?? []).map((repeat) => ({ file: repeat.file, title: repeat.title, repeat_of: repeat.repeatOf }));

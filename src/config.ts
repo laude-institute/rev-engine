@@ -49,6 +49,8 @@ export interface Config {
   minSeverity: Severity;
   /** A model that judges whether the change belongs in the project. Null for none. */
   fitModel: string | null;
+  /** The model that writes fixes for the final findings, or null to write none. */
+  fixModel: string | null;
   /** Where the fit assessment is written. */
   fitOutPath: string;
   /** When set, the findings are also written here with their severity, title and detail kept apart. */
@@ -134,6 +136,7 @@ export function loadConfig(env: Env): Config {
   const verifierModel = env.RB_CONFIG_VERIFIER?.trim() || models[0]!;
   const followUpModel = env.RB_CONFIG_FOLLOW_UP?.trim() || null;
   const fitModel = env.RB_CONFIG_FIT?.trim() || null;
+  const fixModel = env.RB_CONFIG_FIXES?.trim() || null;
   const effort = env.RB_CONFIG_EFFORT?.trim() || null;
   const transcriptOutPath = env.RB_TRANSCRIPT_OUT?.trim() || null;
   if (engine === "claude-code") {
@@ -141,7 +144,7 @@ export function loadConfig(env: Env): Config {
     const only = "RB_CONFIG_ENGINE=claude-code";
     if (swarm === "on") throw new Error(`${only} does not support RB_CONFIG_SWARM`);
     if (!env.RB_CONFIG_MODEL?.trim()) throw new Error(`${only} needs RB_CONFIG_MODEL set to a Claude model, such as anthropic/claude-opus-5.5 or opus`);
-    const other = [...models, verifierModel, followUpModel, fitModel].find((model) => model?.includes("/") && !model.startsWith("anthropic/"));
+    const other = [...models, verifierModel, followUpModel, fitModel, fixModel].find((model) => model?.includes("/") && !model.startsWith("anthropic/"));
     if (other) throw new Error(`${only} runs Claude models only, not ${other}`);
     if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) throw new Error(`${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`);
     if (!env.CLAUDE_CODE_OAUTH_TOKEN?.trim() && !env.ANTHROPIC_API_KEY?.trim()) throw new Error(`${only} needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY`);
@@ -181,6 +184,7 @@ export function loadConfig(env: Env): Config {
     swarm: swarm === "on",
     minSeverity,
     fitModel,
+    fixModel,
     fitOutPath: join(dirname(outPath), "fit.json"),
     detailsOutPath: env.RB_DETAILS_OUT?.trim() || null,
     transcriptOutPath,
@@ -207,6 +211,7 @@ export function describeSettings(config: Config): string {
     `retry_empty=${config.retryEmpty ? "on" : "off"}`,
     `min_severity=${config.minSeverity}`,
     `fit=${config.fitModel ?? "off"}`,
+    `fixes=${config.fixModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,
     `mode=${config.mode}`,
     `max_findings=${config.maxFindings}`,

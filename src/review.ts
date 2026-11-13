@@ -36,6 +36,7 @@ import {
   type ProjectRule,
   type PullRequestInfo,
 } from "./prompts.ts";
+import { proposeFixes, type Fix } from "./fixes.ts";
 import { loadPrior, repeatNote } from "./prior.ts";
 import { Workspace, type ReadRecord } from "./tools.ts";
 
@@ -52,6 +53,8 @@ const MIN_VERIFY_MS = 60_000;
 const MIN_FOLLOW_UP_MS = 150_000;
 /** The fit assessment needs time to read the project's documents and to write its answer. */
 const MIN_FIT_MS = 150_000;
+/** Writing fixes needs time to read the code around each finding. */
+const MIN_FIX_MS = 90_000;
 const MAX_INDEXED_FILES = 20_000;
 
 const MAX_FILES_LISTED = 25;
@@ -156,6 +159,8 @@ export interface ReviewOutcome {
   ranked: Candidate[];
   /** Whether the change belongs in the project, when that was asked for and answered. */
   fit: FitAssessment | null;
+  /** For each ranked finding, the fix that was written for it, or null. Absent when no fixes were asked for. */
+  fixes?: Array<Fix | null>;
   /** What each model read, so a run can show whether the review had enough context. */
   context: ReviewContext;
   /** Findings the verifier left out because they repeat an earlier finding the maintainer decided. */
@@ -343,6 +348,18 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   logDropped("cap", survivors, ranked, log, () => `beyond the cap of ${config.maxFindings}`);
   const findings = ranked.map((candidate) => toOutput(candidate, config.agent));
 
+  // Fixes are written for the final findings, in the time the review left over. They never touch the findings.
+  let fixes: Array<Fix | null> | undefined;
+  const fixDeadline = started + config.budgetMs;
+  if (config.fixModel && ranked.length && fixDeadline - Date.now() >= MIN_FIX_MS) {
+    fixes = await proposeFixes({
+      chat, model: config.fixModel, pr, findings: ranked, deadline: fixDeadline, maxTurns: config.maxTurns, log,
+      workspace: track(`fixes (${config.fixModel})`, new Workspace(config.repoDir, config.diffPath, config.base)),
+    });
+  } else if (config.fixModel && ranked.length) {
+    log("fixes skipped: too little time is left");
+  }
+
   // The fit assessment comes last, so it knows what the review found. It may use the
   // time the review left over, and it never touches the findings.
   let fit: FitAssessment | null = null;
@@ -355,5 +372,5 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
   } else if (config.fitModel) {
     log("fit skipped: too little time is left");
   }
-  return { findings, ranked, proposed: proposals.length, verified, fit, context, decided };
+  return { findings, ranked, proposed: proposals.length, verified, fit, context, decided, ...(fixes ? { fixes } : {}) };
 }

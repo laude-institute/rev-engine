@@ -112,11 +112,16 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   const { RB_CONFIG_MODEL: _model, ...noModel } = CLAUDE;
   assert.throws(() => loadConfig(noModel), /needs RB_CONFIG_MODEL set to a Claude model/);
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_MODEL: "opus,openai/gpt-6-luna" }), /Claude models only, not openai\/gpt-6-luna/);
-  for (const name of ["RB_CONFIG_VERIFIER", "RB_CONFIG_FOLLOW_UP", "RB_CONFIG_FIT"]) {
+  for (const name of ["RB_CONFIG_VERIFIER", "RB_CONFIG_FOLLOW_UP", "RB_CONFIG_FIT", "RB_CONFIG_FIXES"]) {
     assert.throws(() => loadConfig({ ...CLAUDE, [name]: "vendor/other" }), /Claude models only, not vendor\/other/, name);
   }
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "minimal" }), /RB_CONFIG_EFFORT to be one of low, medium, high, xhigh, max/);
   assert.equal(loadConfig({ ...CLAUDE, RB_TRANSCRIPT_OUT: "/work/out/transcript.json" }).transcriptOutPath, "/work/out/transcript.json");
   assert.equal(describeSettings(loadConfig({ ...CLAUDE, RB_CONFIG_NAIVE: "on" })), "naive=on model=anthropic/claude-opus-5.5 mode=human max_findings=25 time_budget=780 engine=claude-code");
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);
+});
+
+test("fixes are written only when a model is named for them", () => {
+  assert.equal(loadConfig(BASE).fixModel, null);
+  assert.equal(loadConfig({ ...BASE, RB_CONFIG_FIXES: " vendor/fixer " }).fixModel, "vendor/fixer");
 });
