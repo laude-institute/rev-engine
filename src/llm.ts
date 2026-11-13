@@ -88,7 +88,86 @@ export function createChat(options: ClientOptions): Chat {
   const fetchImpl = options.fetchImpl ?? fetch;
   const openRouter = new URL(options.baseUrl).hostname.endsWith("openrouter.ai");
 
+  // OpenAI accepts function tools together with reasoning only on /v1/responses, so a
+  // conversation sent there directly is translated to that API and back.
+  const openAiResponses = new URL(options.baseUrl).hostname === "api.openai.com";
+
+  async function responsesOnce(request: ChatRequest, timeoutMs: number, effort: string | null | undefined): Promise<ChatMessage> {
+    const input: unknown[] = [];
+    for (const message of request.messages) {
+      if (message.role === "tool") {
+        input.push({ type: "function_call_output", call_id: message.tool_call_id, output: message.content ?? "" });
+        continue;
+      }
+      if (message.role === "assistant") {
+        if (Array.isArray(message.reasoning_details)) input.push(...message.reasoning_details);
+        if (message.content) input.push({ role: "assistant", content: message.content });
+        for (const call of message.tool_calls ?? []) {
+          input.push({ type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments });
+        }
+        continue;
+      }
+      input.push({ role: message.role, content: message.content ?? "" });
+    }
+    const body: Record<string, unknown> = {
+      model: request.model,
+      input,
+      tools: request.tools.map((tool: any) => ({ type: "function", name: tool.function.name, description: tool.function.description, parameters: tool.function.parameters, strict: false })),
+      // With "auto" these models end a turn in plain text after their first submission, which
+      // skips the second look. Every loop that offers tools ends in a tool call.
+      tool_choice: request.forceTool ? { type: "function", name: request.forceTool } : (request.tools.length ? "required" : "auto"),
+      max_output_tokens: MAX_OUTPUT_TOKENS,
+      store: false,
+      include: ["reasoning.encrypted_content"],
+    };
+    if (effort) body.reasoning = { effort };
+    const response = await fetchImpl(`${options.baseUrl}/responses`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await response.text();
+    if (!response.ok) throw new ModelError(response.status, `model API returned ${response.status}: ${text.slice(0, 300)}`);
+    let payload: any;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new ModelError(502, "model API returned a body that is not JSON");
+    }
+    if (payload?.error) throw new ModelError(502, `model API error: ${String(payload.error.message).slice(0, 300)}`);
+    if (!Array.isArray(payload?.output)) throw new ModelError(502, "model API returned no message");
+
+    const totals = [options.usage];
+    if (request.caller && options.usageByCaller) {
+      if (!options.usageByCaller.has(request.caller)) options.usageByCaller.set(request.caller, emptyUsage());
+      totals.push(options.usageByCaller.get(request.caller)!);
+    }
+    for (const usage of totals) {
+      usage.calls += 1;
+      usage.promptTokens += Number(payload.usage?.input_tokens) || 0;
+      usage.completionTokens += Number(payload.usage?.output_tokens) || 0;
+      usage.cachedTokens += Number(payload.usage?.input_tokens_details?.cached_tokens) || 0;
+    }
+
+    const texts: string[] = [];
+    const calls: ToolCall[] = [];
+    const reasoning: unknown[] = [];
+    for (const item of payload.output) {
+      if (item.type === "reasoning") reasoning.push({ type: "reasoning", id: item.id, summary: item.summary ?? [], encrypted_content: item.encrypted_content });
+      else if (item.type === "function_call") calls.push({ id: String(item.call_id), type: "function", function: { name: String(item.name ?? ""), arguments: String(item.arguments ?? "") } });
+      else if (item.type === "message") {
+        for (const part of item.content ?? []) if (part.type === "output_text") texts.push(String(part.text ?? ""));
+      }
+    }
+    const result: ChatMessage = { role: "assistant", content: texts.length ? texts.join("\n") : null };
+    if (calls.length) result.tool_calls = calls;
+    if (reasoning.length) result.reasoning_details = reasoning;
+    return result;
+  }
+
   async function once(request: ChatRequest, timeoutMs: number): Promise<ChatMessage> {
+    if (openAiResponses) return responsesOnce(request, timeoutMs, request.effort ?? options.effort);
     const body: Record<string, unknown> = {
       model: request.model,
       messages: request.messages,

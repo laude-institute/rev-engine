@@ -52,3 +52,59 @@ test("reads which provider served a call, and never sends it back", async () => 
   assert.equal(reply.provider, "Example");
   assert.ok(!JSON.stringify(reply).includes("Example"));
 });
+
+test("talks to OpenAI directly through the Responses API", async () => {
+  const sent: Array<{ url: string; body: any }> = [];
+  const fetchImpl = (async (url: string, init: { body: string }) => {
+    sent.push({ url, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({
+      output: [
+        { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "sealed" },
+        { type: "message", content: [{ type: "output_text", text: "looking" }] },
+        { type: "function_call", call_id: "call_2", name: "read_file", arguments: "{\"path\":\"b.ts\"}" },
+      ],
+      usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 60 } },
+    }));
+  }) as unknown as typeof fetch;
+  const usage = emptyUsage();
+  const chat = createChat({ apiKey: "key", baseUrl: "https://api.openai.com/v1", effort: "high", usage, fetchImpl });
+  const tool = { type: "function" as const, function: { name: "read_file", description: "Read a file", parameters: { type: "object", properties: {} } } };
+  const reasoning = [{ type: "reasoning", id: "rs_0", summary: [], encrypted_content: "earlier" }];
+  const reply = await chat({
+    model: "test-model",
+    tools: [tool],
+    timeoutMs: 5_000,
+    messages: [
+      { role: "system", content: "Review the change." },
+      { role: "assistant", content: null, reasoning_details: reasoning, tool_calls: [{ id: "call_1", type: "function", function: { name: "read_file", arguments: "{\"path\":\"a.ts\"}" } }] },
+      { role: "tool", tool_call_id: "call_1", content: "contents" },
+    ],
+  });
+
+  assert.equal(sent[0]!.url, "https://api.openai.com/v1/responses");
+  assert.deepEqual(sent[0]!.body, {
+    model: "test-model",
+    input: [
+      { role: "system", content: "Review the change." },
+      ...reasoning,
+      { type: "function_call", call_id: "call_1", name: "read_file", arguments: "{\"path\":\"a.ts\"}" },
+      { type: "function_call_output", call_id: "call_1", output: "contents" },
+    ],
+    tools: [{ type: "function", name: "read_file", description: "Read a file", parameters: { type: "object", properties: {} }, strict: false }],
+    tool_choice: "required",
+    max_output_tokens: 16_000,
+    store: false,
+    include: ["reasoning.encrypted_content"],
+    reasoning: { effort: "high" },
+  });
+  assert.deepEqual(reply, {
+    role: "assistant",
+    content: "looking",
+    tool_calls: [{ id: "call_2", type: "function", function: { name: "read_file", arguments: "{\"path\":\"b.ts\"}" } }],
+    reasoning_details: [{ type: "reasoning", id: "rs_1", summary: [], encrypted_content: "sealed" }],
+  });
+  assert.deepEqual(usage, { calls: 1, promptTokens: 100, completionTokens: 10, cachedTokens: 60, costUsd: 0 });
+
+  await chat({ model: "test-model", tools: [tool], timeoutMs: 5_000, messages: [], forceTool: "read_file" });
+  assert.deepEqual(sent[1]!.body.tool_choice, { type: "function", name: "read_file" });
+});

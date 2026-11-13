@@ -2,6 +2,8 @@
 
 The reviewer container reads its settings from environment variables. It needs one credential, `OPENROUTER_API_KEY`, and reaches one host, the one in `RB_MODEL_BASE_URL` (`https://openrouter.ai/api/v1` by default). The `RB_` names come from the [ReviewBench agent contract](https://github.com/review-bench/ReviewBench/blob/main/AGENT_CONTRACT.md).
 
+To call OpenAI directly, set `RB_MODEL_BASE_URL=https://api.openai.com/v1` and put the OpenAI key in `OPENROUTER_API_KEY`. Requests then go through OpenAI's Responses API, and `RB_CONFIG_MODEL` takes OpenAI's own model names.
+
 If you use the GitHub Action, set its inputs instead. They are listed in [INSTALL.md](INSTALL.md).
 
 | Variable | Default | Meaning |
