@@ -31,13 +31,14 @@ function git(args: string[], cwd: string, allowFailure = false): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   if (result.status !== 0 && !allowFailure) {
     const detail = result.error?.message ?? ((result.stderr || result.stdout || "").trim().split("\n").pop() || String(result.status));
-    throw new UsageError(`git ${args[0]} failed: ${detail}`);
+    throw new Error(`git ${args[0]} failed: ${detail}`);
   }
   return result.status === 0 ? result.stdout.trim() : "";
 }
 
 function repoRoot(path: string): string {
   const result = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: path, encoding: "utf8" });
+  if (result.error) throw result.error;
   if (result.status !== 0) throw new UsageError(`${path} is not inside a git working tree`);
   return result.stdout.trim();
 }
@@ -49,9 +50,10 @@ function remoteName(repo: string): string {
 
 /** The branch a pull request would target: the remote's HEAD, then the usual names. */
 function defaultBase(repo: string): string {
-  const symbolic = git(["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], repo, true);
+  const remote = remoteName(repo);
+  const symbolic = git(["symbolic-ref", "--quiet", `refs/remotes/${remote}/HEAD`], repo, true);
   if (symbolic) return symbolic.replace(/^refs\/remotes\//, "");
-  for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
+  for (const candidate of [`${remote}/main`, `${remote}/master`, "main", "master"]) {
     if (spawnSync("git", ["rev-parse", "--verify", "--quiet", candidate], { cwd: repo }).status === 0) return candidate;
   }
   throw new UsageError("cannot tell the base branch; pass --base <ref>");
@@ -75,12 +77,15 @@ function mergeBase(repo: string, base: string, head: string): string {
  * before the reviewer does.
  */
 function availableSettings(repo: string): Set<string> {
-  const source = readFileSync(join(repo, "src", "config.ts"), "utf8").replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "");
   const available = new Set<string>();
-  // A setting is read either as env.RB_CONFIG_X or by name through a helper,
-  // such as integer(env, "RB_CONFIG_X", ...), so both spellings are collected.
-  for (const match of source.matchAll(/(?:env\.RB_CONFIG_|(?:integer|required)\(env,\s*["']RB_CONFIG_)([A-Z0-9]+(?:_[A-Z0-9]+)*)/g)) {
-    available.add(match[1]!.toLowerCase());
+  // Include the optional engine's own reads, without importing or executing it.
+  for (const file of ["src/config.ts", "experiments/prototypes/swarm/review.ts"]) {
+    const path = join(repo, file);
+    if (!existsSync(path)) continue;
+    const source = readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "");
+    for (const match of source.matchAll(/(?:env\.RB_CONFIG_|(?:integer|required)\(env,\s*["']RB_CONFIG_)([A-Z0-9]+(?:_[A-Z0-9]+)*)/g)) {
+      available.add(match[1]!.toLowerCase());
+    }
   }
   return available;
 }
@@ -91,30 +96,40 @@ interface Run {
 
 /** Write the exact patch directly to disk instead of buffering or trimming it. */
 function prepareRun(label: string, pr: Record<string, unknown>, repo: string, base: string, head: string, prior: string): Run {
+  let priorText: string | undefined;
+  if (prior !== "none") {
+    if (prior === "auto") throw new UsageError("--prior requires a file path or none; automatic collection is not supported");
+    try {
+      priorText = readFileSync(resolve(prior), "utf8");
+      const parsed = JSON.parse(priorText) as { entries?: unknown };
+      if (!parsed || !Array.isArray(parsed.entries)) throw new Error("expected an entries array");
+    } catch (error) {
+      throw new UsageError(`cannot use --prior file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..*/, "");
   const slug = label.replace(/[^A-Za-z0-9._-]+/g, "-");
   const parent = join(root, "runs", "local");
   mkdirSync(parent, { recursive: true });
   const dir = mkdtempSync(join(parent, `${stamp}-${slug}-`));
-  for (const sub of ["pr", "out"]) mkdirSync(join(dir, sub));
-  const patch = join(dir, "pr", "diff.patch");
-  const fd = openSync(patch, "w");
   try {
-    const result = spawnSync("git", ["diff", "--no-color", "--no-ext-diff", "--no-textconv", `${base}..${head}`], {
-      cwd: repo, encoding: "utf8", stdio: ["ignore", fd, "pipe"],
-    });
-    if (result.status !== 0) throw new Error(`git diff failed: ${result.error?.message ?? result.stderr}`);
-  } finally {
-    closeSync(fd);
-  }
-  if (!statSync(patch).size) throw new UsageError("there are no changes against the merge-base");
-  writeFileSync(join(dir, "pr", "pr.json"), `${JSON.stringify(pr, null, 2)}\n`);
-  if (prior !== "none") {
-    if (prior === "auto") throw new UsageError("--prior requires a file path or none; automatic collection is not supported");
-    const text = readFileSync(resolve(prior), "utf8");
-    const parsed = JSON.parse(text) as { entries?: unknown };
-    if (!parsed || !Array.isArray(parsed.entries)) throw new UsageError("--prior file must contain an entries array");
-    writeFileSync(join(dir, "pr", "prior.json"), text);
+    for (const sub of ["pr", "out"]) mkdirSync(join(dir, sub));
+    const patch = join(dir, "pr", "diff.patch");
+    const fd = openSync(patch, "w");
+    try {
+      const result = spawnSync("git", ["diff", "--no-color", "--no-ext-diff", "--no-textconv", `${base}..${head}`], {
+        cwd: repo, encoding: "utf8", stdio: ["ignore", fd, "pipe"],
+      });
+      if (result.status !== 0) throw new Error(`git diff failed: ${result.error?.message ?? result.stderr}`);
+    } finally {
+      closeSync(fd);
+    }
+    if (!statSync(patch).size) throw new UsageError("there are no changes against the merge-base");
+    writeFileSync(join(dir, "pr", "pr.json"), `${JSON.stringify(pr, null, 2)}\n`);
+    if (priorText !== undefined) writeFileSync(join(dir, "pr", "prior.json"), priorText);
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
   }
   return { dir };
 }
@@ -252,16 +267,18 @@ async function branchMode(options: LocalOptions, settings: Settings): Promise<nu
 async function prMode(options: LocalOptions, settings: Settings): Promise<number> {
   const repo = repoRoot(options.repo);
   const number = options.number!;
-  // Pin gh and git to the same repository, including in clones of forks.
-  const remote = remoteName(repo);
-  const remoteUrl = git(["config", "--get", `remote.${remote}.url`], repo);
-  const nwo = repoName(remoteUrl, "checkout");
-  if (nwo === "local/checkout") throw new UsageError("pr mode requires a GitHub remote");
-  const viewed = spawnSync("gh", ["pr", "view", String(number), "--repo", nwo, "--json", "baseRefOid,headRefOid,title,body"], {
+  // Let gh honor its configured default (often upstream in a fork clone),
+  // then fetch from that same repository rather than an unrelated origin.
+  const viewed = spawnSync("gh", ["pr", "view", String(number), "--json", "url,baseRefOid,headRefOid,title,body"], {
     cwd: repo, encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
   });
-  if (viewed.status !== 0) throw new UsageError(`gh could not read pull request ${number}: ${viewed.error?.message ?? viewed.stderr?.trim()}`);
-  const pr = JSON.parse(viewed.stdout) as { headRefOid: string; baseRefOid: string; title: string; body: string | null };
+  if (viewed.status !== 0) throw new Error(`gh could not read pull request ${number}: ${viewed.error?.message ?? viewed.stderr?.trim()}`);
+  const pr = JSON.parse(viewed.stdout) as { url: string; headRefOid: string; baseRefOid: string; title: string; body: string | null };
+  const nwo = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+$/.exec(pr.url)?.[1];
+  if (!nwo) throw new Error("gh returned a pull request outside github.com");
+  const remote = git(["remote"], repo).split("\n").filter(Boolean).find(name =>
+    repoName(git(["remote", "get-url", name], repo), "checkout") === nwo,
+  ) ?? `https://github.com/${nwo}.git`;
   for (const commit of [pr.headRefOid, pr.baseRefOid]) {
     if (!/^[0-9a-f]{40}$/.test(commit)) throw new UsageError("gh returned an invalid commit");
     if (spawnSync("git", ["cat-file", "-e", `${commit}^{commit}`], { cwd: repo }).status !== 0) {
@@ -336,8 +353,7 @@ async function main(argv: string[]): Promise<number> {
 }
 
 try {
-  const code = await main(process.argv.slice(2));
-  process.exitCode = interrupted === "SIGINT" ? 130 : interrupted === "SIGTERM" ? 143 : code;
+  process.exitCode = await main(process.argv.slice(2));
 } catch (error) {
   if (error instanceof UsageError) {
     log(error.message);
@@ -346,4 +362,8 @@ try {
     log(`failed: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   }
+} finally {
+  // A signal received while spawnSync was running is delivered after it returns.
+  await new Promise<void>(done => setImmediate(done));
+  if (interrupted) process.exitCode = interrupted === "SIGINT" ? 130 : 143;
 }

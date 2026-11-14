@@ -38,8 +38,10 @@ uncommitted work. Git checkout hooks are disabled when creating the worktree.
 `RB_BASE` is the merge base. Branch mode uses `--base`, or a locally available
 default branch; fetch first when you want the latest remote base. PR mode uses
 the exact base commit from GitHub, unless you override it with `--base`. It
-fetches missing PR commits. Both Git and `gh` use the checkout's `origin`
-repository, or the first remote when there is no `origin`.
+fetches missing PR commits. PR mode honors `gh`'s configured default repository,
+including upstream in a fork clone, and fetches from the repository named by the returned PR URL. Branch
+mode uses `origin`, or the first remote when there is no `origin`, for its
+default remote branch.
 
 The worktree is removed after completion, failure, SIGINT or SIGTERM unless
 `--keep` is given. With `--keep`, its path is printed to stderr. A forced kill
@@ -68,9 +70,9 @@ other settings in [SETTINGS.md](SETTINGS.md).
 | `--effort` | `RB_CONFIG_EFFORT` |
 | `--fit` | `RB_CONFIG_FIT` |
 
-Settings come from the runner's own `src/config.ts`, which belongs to the
-reviewer it executes, rather than the repository being reviewed. Unknown
-settings are refused so they cannot be silently ignored. New settings read in
+Settings come from the runner's own `src/config.ts` and the optional swarm
+module, which belong to the reviewer it executes, rather than the repository
+being reviewed. Unknown settings are refused so they cannot be silently ignored. New settings read in
 the same form by that config file can be passed through `--set`.
 
 Exported `RB_CONFIG_*` settings are included and validated, with command-line
@@ -101,5 +103,6 @@ It contains the exact patch, PR metadata, findings, ranked details, context
 records and the reviewer's log. A requested fit assessment is saved and included
 in the terminal or JSON report. Logs are written as the reviewer runs.
 
-Exit codes are 0 when a review was produced, 1 for a failed review, 2 for misuse
-or a reached severity threshold, 130 for SIGINT and 143 for SIGTERM.
+Exit codes are 0 when a review was produced, 1 for a failed review or tool
+invocation, 2 for misuse or a reached severity threshold, 130 for SIGINT and
+143 for SIGTERM.

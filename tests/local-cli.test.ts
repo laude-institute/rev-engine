@@ -36,8 +36,8 @@ function fixture(t: TestContext) {
   const runner = join(dir, "runner");
   const repo = join(dir, "repo");
   const bin = join(dir, "bin");
-  for (const path of [join(runner, "scripts/local"), join(runner, "src"), repo, bin]) mkdirSync(path, { recursive: true });
-  for (const file of ["scripts/local.ts", "scripts/local/layout.ts", "src/config.ts"]) copyFileSync(join(source, file), join(runner, file));
+  for (const path of [join(runner, "scripts/local"), join(runner, "src"), join(runner, "experiments/prototypes/swarm"), repo, bin]) mkdirSync(path, { recursive: true });
+  for (const file of ["scripts/local.ts", "scripts/local/layout.ts", "src/config.ts", "experiments/prototypes/swarm/review.ts"]) copyFileSync(join(source, file), join(runner, file));
   writeFileSync(join(runner, "package.json"), '{"type":"module"}');
   writeFileSync(join(runner, "src/main.ts"), stub);
   const env: Record<string, string> = {
@@ -63,7 +63,7 @@ function fixture(t: TestContext) {
   });
   const runs = () => readdirSync(join(runner, "runs/local")).map(name => join(runner, "runs/local", name));
   const gh = (metadata: object) => {
-    writeFileSync(join(bin, "gh"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(JSON.stringify(metadata))});\n`);
+    writeFileSync(join(bin, "gh"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(JSON.stringify({ url: "https://github.com/fixture/project/pull/1", ...metadata }))});\n`);
     chmodSync(join(bin, "gh"), 0o755);
     git("remote", "add", "origin", "https://github.com/fixture/project.git");
   };
@@ -157,7 +157,7 @@ test("failure waits for the log and never prints a clean review; the severity ga
   assert.equal(high.status, 2); assert.equal(JSON.parse(high.stdout).findings.length, 1);
 });
 
-test("SIGTERM cleans up the child and detached worktree", async t => {
+for (const signal of ["SIGINT", "SIGTERM"] as const) test(`${signal} cleans up the child and detached worktree`, { timeout: 10_000 }, async t => {
   const f = fixture(t);
   const child = spawn(process.execPath, [join(f.runner, "scripts/local.ts"), "branch", "--repo", f.repo, "--base", "main", "--quiet"], {
     cwd: f.dir, env: { ...f.env, FIXTURE_MODE: "hang" }, stdio: "ignore",
@@ -172,9 +172,9 @@ test("SIGTERM cleans up the child and detached worktree", async t => {
     await delay(10);
   }
   assert.ok(observed, "reviewer started");
-  child.kill("SIGTERM");
+  child.kill(signal);
   const [code] = await completed;
-  assert.equal(code, 143);
+  assert.equal(code, signal === "SIGINT" ? 130 : 143);
   assert.equal(existsSync(observed.repo), false);
   assert.doesNotMatch(f.git("worktree", "list", "--porcelain"), /rev-local-/);
 });
@@ -226,4 +226,86 @@ test("--keep retains only the isolated review checkout and reports its location"
   } finally {
     f.git("worktree", "remove", "--force", repo);
   }
+});
+
+test("branch defaults use the selected remote and refuse reviewing the base itself", t => {
+  const f = fixture(t);
+  const local = f.cli(["branch", "--repo", f.repo, "--dry-run"]);
+  assert.equal(local.status, 0, local.stderr);
+  assert.equal(JSON.parse(local.stdout).meta.base, f.base);
+  f.git("remote", "add", "upstream", "https://github.com/fixture/project.git");
+  f.git("update-ref", "refs/remotes/upstream/trunk", f.head);
+  f.git("symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/trunk");
+  const equal = f.cli(["branch", "--repo", f.repo, "--dry-run"]);
+  assert.equal(equal.status, 2); assert.match(equal.stderr, /HEAD is upstream\/trunk/);
+  writeFileSync(join(f.repo, "later.txt"), "later change"); f.git("add", "."); f.git("commit", "-m", "later");
+  const remote = f.cli(["branch", "--repo", f.repo, "--dry-run"]);
+  assert.equal(remote.status, 0, remote.stderr);
+  assert.equal(JSON.parse(remote.stdout).meta.base, f.head);
+});
+
+test("swarm settings are accepted from both flags and the environment", t => {
+  const f = fixture(t);
+  const result = f.cli(["branch", "--repo", f.repo, "--base", "main", "--dry-run", "--set", "swarm_target=60"], { RB_CONFIG_SWARM_EVIDENCE: "on" });
+  assert.equal(result.status, 0, result.stderr);
+  const settings = JSON.parse(result.stdout).meta.settings;
+  assert.equal(settings.swarm_target, "60"); assert.equal(settings.swarm_evidence, "on");
+});
+
+test("PR metadata from gh's upstream default is not overridden by a fork origin", t => {
+  const f = fixture(t);
+  f.gh({ url: "https://github.com/upstream/project/pull/1", headRefOid: f.head, baseRefOid: f.base, title: "Fixture", body: "" });
+  f.git("remote", "add", "upstream", "git@github.com:upstream/project.git");
+  // Have the gh stub reject --repo, which would override its configured default.
+  const ghPath = join(f.bin, "gh");
+  writeFileSync(ghPath, readFileSync(ghPath, "utf8").replace("process.stdout.write", 'if (process.argv.includes("--repo")) process.exit(9); process.stdout.write'));
+  const result = f.cli(["pr", "1", "--repo", f.repo, "--dry-run"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).meta.nwo, "upstream/project");
+});
+
+test("invalid prior input is a usage error and leaves no partial run", t => {
+  const f = fixture(t);
+  writeFileSync(join(f.dir, "bad.json"), "invalid json");
+  writeFileSync(join(f.dir, "shape.json"), "{}");
+  for (const prior of ["absent.json", "bad.json", "shape.json"]) {
+    const result = f.cli(["branch", "--repo", f.repo, "--base", "main", "--prior", prior, "--dry-run"]);
+    assert.equal(result.status, 2); assert.match(result.stderr, /cannot use --prior/);
+  }
+  assert.equal(existsSync(join(f.runner, "runs/local")), false);
+  // A history with commits but no net diff also leaves no run behind.
+  writeFileSync(join(f.repo, "code.txt"), "old\n\n"); f.git("commit", "-am", "revert");
+  const empty = f.cli(["branch", "--repo", f.repo, "--base", "main", "--dry-run"]);
+  assert.equal(empty.status, 2); assert.deepEqual(f.runs(), []);
+});
+
+test("a failed gh invocation is a run failure, not a finding or usage exit", t => {
+  const f = fixture(t);
+  writeFileSync(join(f.bin, "gh"), `#!${process.execPath}\nconsole.error('fixture auth failure');process.exitCode=1;`);
+  chmodSync(join(f.bin, "gh"), 0o755);
+  const result = f.cli(["pr", "1", "--repo", f.repo, "--dry-run"]);
+  assert.equal(result.status, 1); assert.match(result.stderr, /fixture auth failure/);
+  assert.equal(result.stdout, "");
+});
+
+test("an interrupt during synchronous git setup retains the signal exit code", { timeout: 10_000 }, async t => {
+  const f = fixture(t);
+  const realGit = f.env.PATH!.split(":").map(dir => join(dir, "git")).find(existsSync)!;
+  const marker = join(f.dir, "in-diff");
+  const wrapper = `#!${process.execPath}
+import {spawnSync} from 'node:child_process';
+import {writeFileSync} from 'node:fs';
+if (process.argv[2] === 'diff') { writeFileSync(${JSON.stringify(marker)}, 'ready'); setTimeout(()=>{},60000); }
+else { const r=spawnSync(${JSON.stringify(realGit)},process.argv.slice(2),{stdio:'inherit'});process.exitCode=r.status??1; }
+`;
+  writeFileSync(join(f.bin, "git"), wrapper); chmodSync(join(f.bin, "git"), 0o755);
+  const child = spawn(process.execPath, [join(f.runner, "scripts/local.ts"), "branch", "--repo", f.repo, "--base", "main", "--dry-run"], { cwd: f.dir, env: f.env, detached: true, stdio: "ignore" });
+  const completed = once(child, "close");
+  t.after(() => { try { process.kill(-child.pid!, "SIGKILL"); } catch { /* already gone */ } });
+  for (let i=0; i<200 && !existsSync(marker); i++) await delay(10);
+  assert.ok(existsSync(marker), "git diff started");
+  process.kill(-child.pid!, "SIGINT");
+  const [code] = await completed;
+  assert.equal(code, 130);
+  assert.deepEqual(f.runs(), []);
 });
