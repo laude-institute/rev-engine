@@ -11,8 +11,11 @@ inputs:
   model-extra-body:
     description: A JSON object merged into every model request, for what the endpoint accepts beyond the standard API, such as '{"usage":{"include":true}}' for OpenRouter's cost reporting.
     default: ""
+  model-extra-body-by-model:
+    description: A JSON object mapping a model name prefix to fields merged into that model's requests only, such as '{"anthropic/":{"cache_control":{"type":"ephemeral"}}}' for OpenRouter's prompt caching of Anthropic models.
+    default: ""
   openrouter-api-key:
-    description: The older way to pass the key, for OpenRouter only. It implies model-base-url https://openrouter.ai/api/v1 and its cost reporting. Use model-api-key and model-base-url instead.
+    description: The older way to pass the key, for OpenRouter only. It implies model-base-url https://openrouter.ai/api/v1, its cost reporting and prompt caching for Anthropic models. Use model-api-key and model-base-url instead.
     default: ""
   github-token:
     description: Token used to read the pull request and post the review.
@@ -27,8 +30,11 @@ inputs:
     description: The review to run when the comment does not say, or when the workflow is started by hand. "human" reviews with the model below and comments on the most severe findings. "agent" reviews with a fast swarm and lists every finding in one comment, for an agent that manages the pull request.
     default: human
   agent-model:
-    description: Model the swarm of an agent review uses. Its default and its provider routing are tuned on OpenRouter.
+    description: Model the swarm of an agent review uses. Its default is tuned on OpenRouter.
     default: deepseek/deepseek-v4.1-flash-1017
+  agent-providers:
+    description: OpenRouter providers allowed to serve an agent review's swarm, comma-separated. Leave empty for an endpoint other than OpenRouter, which does not take this routing.
+    default: together
   model:
     description: Model that reviews and verifies, as the endpoint at model-base-url names it.
     default: anthropic/claude-opus-5.5
@@ -193,6 +199,8 @@ runs:
         MODEL_API_KEY: ${{ inputs.model-api-key || inputs.openrouter-api-key }}
         RB_MODEL_BASE_URL: ${{ inputs.model-base-url }}
         RB_MODEL_EXTRA_BODY: ${{ inputs.model-extra-body }}
+        RB_MODEL_EXTRA_BODY_BY_MODEL: ${{ inputs.model-extra-body-by-model }}
+        AGENT_PROVIDERS: ${{ inputs.agent-providers }}
         LEGACY_KEY: ${{ inputs.openrouter-api-key != '' && inputs.model-api-key == '' }}
         RB_NWO: ${{ github.repository }}
         RB_PR_NUMBER: ${{ steps.ask.outputs.number }}
@@ -210,7 +218,8 @@ runs:
           echo "::warning::openrouter-api-key is an older input; pass model-api-key and model-base-url instead"
           [ -n "$RB_MODEL_BASE_URL" ] || RB_MODEL_BASE_URL=https://openrouter.ai/api/v1
           [ -n "$RB_MODEL_EXTRA_BODY" ] || RB_MODEL_EXTRA_BODY='{"usage":{"include":true}}'
-          export RB_MODEL_BASE_URL RB_MODEL_EXTRA_BODY
+          [ -n "$RB_MODEL_EXTRA_BODY_BY_MODEL" ] || RB_MODEL_EXTRA_BODY_BY_MODEL='{"anthropic/":{"cache_control":{"type":"ephemeral"}}}'
+          export RB_MODEL_BASE_URL RB_MODEL_EXTRA_BODY RB_MODEL_EXTRA_BODY_BY_MODEL
         fi
         [ -n "$MODEL_API_KEY" ] || { echo "::error::pass model-api-key (and model-base-url)"; exit 1; }
         [ -n "$RB_MODEL_BASE_URL" ] || { echo "::error::pass model-base-url, the OpenAI-compatible API to call"; exit 1; }
@@ -218,7 +227,7 @@ runs:
         # verifiers did not reject. It has no fit assessment.
         agent=()
         if [ "$MODE" = agent ]; then
-          export RB_CONFIG_MODEL="$AGENT_MODEL" RB_CONFIG_MODE=agent RB_CONFIG_SWARM=on RB_CONFIG_SWARM_PROVIDERS=together \
+          export RB_CONFIG_MODEL="$AGENT_MODEL" RB_CONFIG_MODE=agent RB_CONFIG_SWARM=on RB_CONFIG_SWARM_PROVIDERS="$AGENT_PROVIDERS" \
             RB_CONFIG_SWARM_TARGET=60 RB_CONFIG_SWARM_LIMIT=90 RB_CONFIG_SWARM_EFFORT=none RB_CONFIG_SWARM_CONTEXT=rich RB_CONFIG_SWARM_EVIDENCE=off
           agent=(-e RB_CONFIG_MODE -e RB_CONFIG_SWARM -e RB_CONFIG_SWARM_PROVIDERS -e RB_CONFIG_SWARM_TARGET -e RB_CONFIG_SWARM_LIMIT
             -e RB_CONFIG_SWARM_EFFORT -e RB_CONFIG_SWARM_CONTEXT -e RB_CONFIG_SWARM_EVIDENCE)
@@ -227,7 +236,7 @@ runs:
           -v "$GITHUB_WORKSPACE/rev-engine-prime-checkout:/work/repo:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
-          -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_EXTRA_BODY -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
+          -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
           -e RB_CONFIG_MODEL -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT -e RB_DETAILS_OUT=/work/out/details.json \
           -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json -e RB_PRIOR_JSON=/work/pr/prior.json \
           -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \

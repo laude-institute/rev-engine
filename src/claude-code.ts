@@ -240,6 +240,8 @@ interface Run {
   result: Result | null;
   events: StreamEvent[];
   error?: Error;
+  /** The signal that ended a claude this process did not stop, such as an out-of-memory kill. */
+  killedBy?: NodeJS.Signals;
 }
 
 interface RunOptions {
@@ -312,7 +314,7 @@ function runClaude(command: string, args: string[], prompt: string, options: Run
       if (result) return resolve({ result, events });
       if (stopped) return resolve({ result: null, events });
       const error = new Error(signal ? `claude was stopped by ${signal}` : `claude exited with code ${code}: ${(stderr || other).trim().slice(0, 300)}`);
-      resolve({ result: null, events, error });
+      resolve({ result: null, events, error, ...(signal ? { killedBy: signal } : {}) });
     };
     child.on("error", (error) => {
       settle();
@@ -463,13 +465,14 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
           return investigating && contextChars > MAX_CONTEXT_CHARS;
         },
       });
-      const { result, events, error } = run;
+      const { result, events, error, killedBy } = run;
       transcribe(events, submitName, messages);
       record(settings, options.caller, run);
       if (result) turnsLeft -= result.num_turns ?? turns;
-      // A run that failed printed everything it did, so it is charged the turns it was seen to take:
+      // A run that failed on its own printed everything it did, so it is charged the turns it was seen to take:
       // none for one that failed at once, such as a missing saved session or a bad login.
-      else if (error) turnsLeft -= observedUsage(events).num_turns!;
+      // One killed from outside may not have printed its last turns, so it is charged like a stopped run.
+      else if (error && !killedBy) turnsLeft -= observedUsage(events).num_turns!;
       // A run that was stopped has no final totals, so it is charged the whole allowance: unseen turns may have run.
       else turnsLeft -= turns;
       if (error) throw error;

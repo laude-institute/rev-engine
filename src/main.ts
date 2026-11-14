@@ -37,7 +37,13 @@ if (!problem && config.claudeLogin === "cli") {
 if (config.engine === "claude-code" && !problem) log(config.claudeLogin === "cli" ? "claude-code: signed in with the claude CLI login" : `claude-code: using ${config.claudeLogin === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"}`);
 if (problem && !config.fallback) {
   log(problem);
-  process.exit(retry ? 1 : 2);
+  // As for a failed review: the first attempt fails for a retry, and a repeat writes an empty list,
+  // because one pull request that never succeeds fails the whole run.
+  if (!retry) process.exit(2);
+  if (config.attempt < 2) process.exit(1);
+  log(`attempt ${config.attempt} also could not check the claude login; writing an empty findings list`);
+  await write([]);
+  process.exit(0);
 }
 if (problem) {
   log(`${problem}; reviewing with the fallback ${config.fallback!.model} at ${new URL(config.fallback!.baseUrl).host} instead`);

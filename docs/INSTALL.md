@@ -35,11 +35,12 @@ jobs:
           model-api-key: ${{ secrets.MODEL_API_KEY }}
           model-base-url: https://openrouter.ai/api/v1
           model-extra-body: '{"usage":{"include":true}}'
+          model-extra-body-by-model: '{"anthropic/":{"cache_control":{"type":"ephemeral"}}}'
           pr-number: ${{ inputs.pr-number }}
           mode: ${{ inputs.mode || 'human' }}
 ```
 
-`model-extra-body` holds the fields an endpoint accepts beyond the standard API. With OpenRouter, `usage.include` reports what each call cost, and `"cache_control":{"type":"ephemeral"}` turns on prompt caching for Anthropic models, which decides most of a review's cost. The extra body goes with every call, including an agent review's swarm, so add `cache_control` only when every model you use takes it. Leave out the fields your endpoint does not accept.
+`model-extra-body` holds the fields an endpoint accepts beyond the standard API. With OpenRouter, `usage.include` reports what each call cost, and `"cache_control":{"type":"ephemeral"}` turns on prompt caching for Anthropic models, which decides most of a review's cost. `model-extra-body` goes with every call, including an agent review's swarm, so `cache_control` goes in `model-extra-body-by-model`, which sends it to the `anthropic/` models alone. Leave out the fields your endpoint does not accept.
 
 You can also start a review from the Actions tab by running the workflow with a pull request number. A workflow without the `mode` lines still runs agent reviews from comments.
 
@@ -70,7 +71,8 @@ An agent can read the whole list and decide what to fix. There is no assessment 
 | `model-api-key` | none | Key for the model API at `model-base-url`. Pass it from a repository secret. |
 | `model-base-url` | none | The OpenAI-compatible API the reviewer calls, such as `https://openrouter.ai/api/v1`. Required with `model-api-key`. |
 | `model-extra-body` | none | A JSON object merged into every model request, such as `{"usage":{"include":true}}` for OpenRouter's cost reporting. |
-| `openrouter-api-key` | none | The older way to pass the key, for OpenRouter only. It implies `model-base-url` `https://openrouter.ai/api/v1` and its cost reporting. Use `model-api-key` and `model-base-url` instead. |
+| `model-extra-body-by-model` | none | A JSON object mapping a model name prefix to fields merged into that model's requests only, such as `{"anthropic/":{"cache_control":{"type":"ephemeral"}}}`. |
+| `openrouter-api-key` | none | The older way to pass the key, for OpenRouter only. It implies `model-base-url` `https://openrouter.ai/api/v1`, its cost reporting and prompt caching for Anthropic models. Use `model-api-key` and `model-base-url` instead. |
 | `model` | `anthropic/claude-opus-5.5` | Model that reviews and verifies, as the endpoint at `model-base-url` names it. |
 | `min-severity` | `medium` | The least severe findings that get a comment. One of `high`, `medium` or `low`. |
 | `max-findings` | `10` | Cap on findings that get a comment. The rest join the collapsed section. |
@@ -78,7 +80,8 @@ An agent can read the whole list and decide what to fix. There is no assessment 
 | `time-budget` | `780` | Seconds allowed for the review. |
 | `command` | `/review` | A comment starts a review only when it is this text, or this text followed by a space. The word after it, `agent` or `human`, picks the review. |
 | `mode` | `human` | The review to run when the comment names none, or when the workflow is started by hand. |
-| `agent-model` | `deepseek/deepseek-v4.1-flash-1017` | Model the swarm of an agent review uses. Its default and its provider routing are tuned on OpenRouter. |
+| `agent-model` | `deepseek/deepseek-v4.1-flash-1017` | Model the swarm of an agent review uses. Its default is tuned on OpenRouter. |
+| `agent-providers` | `together` | OpenRouter providers allowed to serve an agent review's swarm, comma-separated. Leave it empty for an endpoint other than OpenRouter, which does not take this routing. |
 | `allow-forks` | `false` | Set to `true` to review pull requests from forks. |
 
 ## Security

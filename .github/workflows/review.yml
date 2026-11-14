@@ -23,5 +23,6 @@ jobs:
           model-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           model-base-url: https://openrouter.ai/api/v1
           model-extra-body: '{"usage":{"include":true}}'
+          model-extra-body-by-model: '{"anthropic/":{"cache_control":{"type":"ephemeral"}}}'
           pr-number: ${{ inputs.pr-number }}
           allow-forks: "true"

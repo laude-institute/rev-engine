@@ -24,6 +24,7 @@ export OPENROUTER_API_KEY
 # A queue line can still set RB_MODEL_BASE_URL and the rest for one run.
 export RB_MODEL_BASE_URL="${RB_MODEL_BASE_URL:-https://openrouter.ai/api/v1}"
 export RB_MODEL_EXTRA_BODY="${RB_MODEL_EXTRA_BODY:-{\"usage\":{\"include\":true}}}"
+export RB_MODEL_EXTRA_BODY_BY_MODEL="${RB_MODEL_EXTRA_BODY_BY_MODEL:-{\"anthropic/\":{\"cache_control\":{\"type\":\"ephemeral\"}}}}"
 
 cd "$here"
 while read -r name prs settings <&3; do

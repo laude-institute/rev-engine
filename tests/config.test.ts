@@ -17,7 +17,7 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.prNumber, 1938);
   assert.equal(config.agent, "rev-engine-prime");
   assert.equal(config.repoDir, "/work/repo");
-  assert.deepEqual(config.endpoint, { baseUrl: "https://models.example.test/v1", apiKey: "test-key", api: "chat", extraBody: {} });
+  assert.deepEqual(config.endpoint, { baseUrl: "https://models.example.test/v1", apiKey: "test-key", api: "chat", extraBody: {}, extraBodyByModel: {} });
   assert.deepEqual(config.models, [DEFAULT_MODEL]);
   assert.equal(config.verifierModel, DEFAULT_MODEL);
   assert.equal(config.verify, "lenient");
@@ -150,7 +150,7 @@ test("the claude-code engine falls back to another OpenAI-compatible endpoint", 
   assert.equal(loadConfig(CLAUDE).fallback, null);
   assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "off" }).fallback, null);
   const config = loadConfig({ ...CLAUDE, ...FALLBACK });
-  assert.deepEqual(config.fallback, { model: "vendor/fallback", baseUrl: "https://fallback.example.test/v1", apiKey: "fb", api: "chat", extraBody: {} });
+  assert.deepEqual(config.fallback, { model: "vendor/fallback", baseUrl: "https://fallback.example.test/v1", apiKey: "fb", api: "chat", extraBody: {}, extraBodyByModel: {} });
   assert.match(describeSettings(config), /^engine=claude-code fallback=vendor\/fallback model=opus /);
   const { RB_FALLBACK_BASE_URL: _fallbackUrl, ...noUrl } = FALLBACK;
   assert.throws(() => loadConfig({ ...CLAUDE, ...noUrl }), /RB_CONFIG_FALLBACK: missing RB_FALLBACK_BASE_URL/);

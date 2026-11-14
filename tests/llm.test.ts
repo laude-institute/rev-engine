@@ -50,6 +50,27 @@ test("sends the standard effort, and the extra fields of the client and of each 
   assert.ok(bodies.every((body) => JSON.stringify(body.usage) === '{"include":true}' && body.model === "test/model"));
 });
 
+test("sends a model's own extra fields only to that model, merged one level deep", async () => {
+  const bodies: Array<Record<string, any>> = [];
+  const fetchImpl = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }));
+  }) as unknown as typeof fetch;
+  const chat = createChat({
+    apiKey: "key", baseUrl: "https://example.test/v1", effort: null, usage: emptyUsage(), fetchImpl,
+    extraBody: { provider: { data_collection: "deny" } },
+    extraBodyByModel: { "vendor/": { cache: "vendor" }, "vendor/special": { cache: "special" } },
+  });
+  const request = { messages: [], tools: [], timeoutMs: 5_000 };
+  await chat({ ...request, model: "vendor/special-1" });
+  await chat({ ...request, model: "other/model", extraBody: { provider: { sort: "latency" } } });
+  // The longest matching prefix is laid over the shorter one.
+  assert.equal(bodies[0]!.cache, "special");
+  assert.equal(bodies[1]!.cache, undefined);
+  // A call's object field keeps the operator's fields of the same object.
+  assert.deepEqual(bodies[1]!.provider, { data_collection: "deny", sort: "latency" });
+});
+
 test("reads which provider served a call, and never sends it back", async () => {
   const fetchImpl = (async () => new Response(JSON.stringify({ provider: "Example", choices: [{ message: { role: "assistant", content: "ok" } }] }))) as unknown as typeof fetch;
   const chat = createChat({ apiKey: "key", baseUrl: "https://example.test/v1", effort: null, usage: emptyUsage(), fetchImpl });

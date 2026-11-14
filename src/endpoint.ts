@@ -14,6 +14,11 @@ export interface Endpoint {
   api: "chat" | "responses";
   /** Fields merged into every request body, for what one endpoint accepts and another does not. */
   extraBody: Record<string, unknown>;
+  /**
+   * Fields merged into the request body of a model whose name starts with the key, such as
+   * {"anthropic/": {"cache_control": {"type": "ephemeral"}}}, for what only some models take.
+   */
+  extraBodyByModel: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -41,18 +46,47 @@ export function endpointOf(env: Env, prefix: "MODEL" | "FALLBACK"): Endpoint {
   const api = env[`RB_${prefix}_API`]?.trim() || "chat";
   if (api !== "chat" && api !== "responses") throw new Error(`RB_${prefix}_API must be chat or responses`);
 
-  const extraName = `RB_${prefix}_EXTRA_BODY`;
-  let extraBody: unknown = {};
-  const extra = env[extraName]?.trim();
-  if (extra) {
-    try {
-      extraBody = JSON.parse(extra);
-    } catch {
-      throw new Error(`${extraName} is not JSON`);
-    }
-    if (!extraBody || typeof extraBody !== "object" || Array.isArray(extraBody)) throw new Error(`${extraName} must be a JSON object`);
+  const extraBody = jsonObject(env, `RB_${prefix}_EXTRA_BODY`);
+  const byModelName = `RB_${prefix}_EXTRA_BODY_BY_MODEL`;
+  const extraBodyByModel = jsonObject(env, byModelName);
+  for (const [model, fields] of Object.entries(extraBodyByModel)) {
+    if (!isObject(fields)) throw new Error(`${byModelName} must map each model name prefix to a JSON object, not ${model}`);
   }
-  return { baseUrl, apiKey, api, extraBody: extraBody as Record<string, unknown> };
+  return { baseUrl, apiKey, api, extraBody, extraBodyByModel: extraBodyByModel as Endpoint["extraBodyByModel"] };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** The JSON object a setting holds, or an empty one when it is unset. */
+function jsonObject(env: Env, name: string): Record<string, unknown> {
+  const raw = env[name]?.trim();
+  if (!raw) return {};
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error(`${name} is not JSON`);
+  }
+  if (!isObject(value)) throw new Error(`${name} must be a JSON object`);
+  return value;
+}
+
+/**
+ * Lays each set of fields over the ones before it. A field that is an object in both is
+ * merged one level deep, so a call's {"provider":{"sort":"latency"}} keeps an operator's
+ * {"provider":{"data_collection":"deny"}}.
+ */
+export function mergeBodies(...bodies: Array<Record<string, unknown> | undefined>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const body of bodies) {
+    for (const [name, value] of Object.entries(body ?? {})) {
+      const earlier = merged[name];
+      merged[name] = isObject(earlier) && isObject(value) ? { ...earlier, ...value } : value;
+    }
+  }
+  return merged;
 }
 
 /** The NAME=value lines of an env file, for scripts that read the reviewer's .env. A missing file is empty. */

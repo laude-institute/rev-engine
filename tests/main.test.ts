@@ -19,6 +19,7 @@ function signedOut(t: TestContext) {
   mkdirSync(bin);
   writeFileSync(join(bin, "claude"), `#!${process.execPath}
 if (process.argv.includes("--version")) console.log("2.1.325 (Claude Code)");
+else if (process.argv[2] === "auth" && process.env.FAKE_AUTH_CRASH === "1") process.kill(process.pid, "SIGKILL");
 else if (process.argv[2] === "auth") console.log(JSON.stringify({ loggedIn: process.env.FAKE_SIGNED_IN === "1" }));
 else { process.stderr.write("Invalid API key"); process.exit(1); }
 `);
@@ -129,4 +130,15 @@ test("a token is used without asking the claude CLI whether it is signed in", as
   assert.equal(code, 0, stderr);
   assert.match(stderr, /claude-code: using CLAUDE_CODE_OAUTH_TOKEN/);
   assert.doesNotMatch(stderr, /not signed in/);
+});
+
+test("a login check that crashed fails the first attempt for a retry, and a repeat writes no findings", async (t) => {
+  const { env } = signedOut(t);
+  let { code, stderr } = await run({ ...env, FAKE_AUTH_CRASH: "1" });
+  assert.equal(code, 1);
+  assert.match(stderr, /claude auth status failed/);
+  ({ code, stderr } = await run({ ...env, FAKE_AUTH_CRASH: "1", RB_ATTEMPT: "2" }));
+  assert.equal(code, 0, stderr);
+  assert.match(stderr, /attempt 2 also could not check the claude login/);
+  assert.deepEqual(JSON.parse(readFileSync(env.RB_OUT!, "utf8")).findings, []);
 });

@@ -106,7 +106,7 @@ Exported `RB_CONFIG_*` settings are included and validated, with command-line
 values taking precedence. The effective overrides appear in the run metadata
 and `--dry-run` output. Unset settings use the reviewer's defaults. The exported
 endpoint settings, `RB_MODEL_BASE_URL`, `RB_MODEL_API`, `RB_MODEL_EXTRA_BODY`,
-`RB_FALLBACK_BASE_URL`, `RB_FALLBACK_API` and `RB_FALLBACK_EXTRA_BODY`, are
+`RB_MODEL_EXTRA_BODY_BY_MODEL` and the same four `RB_FALLBACK_*` settings, are
 passed through, and the two base URLs are reported in the run metadata. The keys
 reach the reviewer from the shell and are not printed. Other inherited `RB_*`
 variables are removed; the runner controls the input and output paths and

@@ -335,7 +335,7 @@ async function finish(
 }
 
 /** The RB_* endpoint settings passed through from the shell, though other RB_* variables are not. */
-const ENDPOINT_SETTINGS = ["RB_MODEL_BASE_URL", "RB_MODEL_API", "RB_MODEL_EXTRA_BODY", "RB_FALLBACK_BASE_URL", "RB_FALLBACK_API", "RB_FALLBACK_EXTRA_BODY"];
+const ENDPOINT_SETTINGS = ["MODEL", "FALLBACK"].flatMap((prefix) => ["BASE_URL", "API", "EXTRA_BODY", "EXTRA_BODY_BY_MODEL"].map((name) => `RB_${prefix}_${name}`));
 
 async function doctor(options: LocalOptions): Promise<number> {
   let ok = true;

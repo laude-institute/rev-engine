@@ -34,9 +34,10 @@ if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
 export MODEL_API_KEY="${MODEL_API_KEY:-${OPENROUTER_API_KEY:-}}"
 [ -n "$MODEL_API_KEY" ] || { echo "MODEL_API_KEY is not set" >&2; exit 2; }
 [ -n "${RB_MODEL_BASE_URL:-}" ] || { echo "RB_MODEL_BASE_URL is not set" >&2; exit 2; }
-export RB_MODEL_BASE_URL RB_MODEL_API="${RB_MODEL_API:-chat}" RB_MODEL_EXTRA_BODY="${RB_MODEL_EXTRA_BODY:-}"
+export RB_MODEL_BASE_URL RB_MODEL_API="${RB_MODEL_API:-chat}" RB_MODEL_EXTRA_BODY="${RB_MODEL_EXTRA_BODY:-}" RB_MODEL_EXTRA_BODY_BY_MODEL="${RB_MODEL_EXTRA_BODY_BY_MODEL:-}"
 # The model API reaches the container by name, so the key never appears on a command line.
-endpoint=(-e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY)
+# One list for both ways of running below, so neither drops a variable.
+export endpoint_flags="-e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL"
 
 # BUILD_DIR builds the image from another checkout, such as a worktree of an older
 # commit, so an earlier version can be run again with this script.
@@ -69,7 +70,8 @@ single=0
 case " $* " in *" --pr "*|*" --set full "*) single=1 ;; esac
 
 if [ "$single" -eq 1 ] || { [ "$jobs" -le 1 ] && [ "$prs" = all ]; }; then
-  "$bench/scripts/try-agent.sh" "$image" "${endpoint[@]}" -e RB_CONTEXT_OUT=/work/out/context.json "$@" 2>&1 | tee "logs/run.log"
+  # shellcheck disable=SC2086
+  "$bench/scripts/try-agent.sh" "$image" $endpoint_flags -e RB_CONTEXT_OUT=/work/out/context.json "$@" 2>&1 | tee "logs/run.log"
   exit "${PIPESTATUS[0]}"
 fi
 
@@ -83,7 +85,7 @@ export bench image
 rm -rf findings logs/pr-*.log
 review() {
   xargs -P "$jobs" -I{} sh -c \
-    '"$bench/scripts/try-agent.sh" "$image" -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
+    '"$bench/scripts/try-agent.sh" "$image" $endpoint_flags -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
 }
 review "$@" <<<"$indexes"
 # Docker on an arm64 Mac runs the amd64 image under emulation, and now and then the

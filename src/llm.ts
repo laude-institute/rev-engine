@@ -1,4 +1,5 @@
 // A small client for any OpenAI-compatible chat completions API, or the OpenAI Responses API.
+import { mergeBodies } from "./endpoint.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 export interface ToolCall {
@@ -94,8 +95,10 @@ export interface ClientOptions {
   baseUrl: string;
   /** "responses" calls the OpenAI Responses API; otherwise chat completions. */
   api?: "chat" | "responses";
-  /** Fields merged into every request body, such as an endpoint's usage or caching options. */
+  /** Fields merged into every request body, such as an endpoint's usage options. */
   extraBody?: Record<string, unknown>;
+  /** Fields merged into the request body of each model whose name starts with the key, such as a caching option. */
+  extraBodyByModel?: Record<string, Record<string, unknown>>;
   effort: string | null;
   usage: Usage;
   /** Filled with the usage of each caller that names itself in its requests. */
@@ -108,9 +111,16 @@ export function createChat(options: ClientOptions): Chat {
   // The Responses API lets encrypted reasoning be replayed without storing the conversation with the provider.
   const responses = options.api === "responses";
 
-  /** The request body: the extra fields first, so the standard ones the client sets always win. */
+  /**
+   * The request body: the extra fields for every model, then those for this model, then the call's
+   * own, and last the standard fields the client sets, which always win.
+   */
   function bodyOf(request: ChatRequest, standard: Record<string, unknown>): Record<string, unknown> {
-    return { ...options.extraBody, ...request.extraBody, ...standard };
+    const forModel = Object.entries(options.extraBodyByModel ?? {})
+      .filter(([prefix]) => request.model.startsWith(prefix))
+      .sort(([a], [b]) => a.length - b.length)
+      .map(([, fields]) => fields);
+    return { ...mergeBodies(options.extraBody, ...forModel, request.extraBody), ...standard };
   }
 
   async function post(path: string, body: Record<string, unknown>, timeoutMs: number): Promise<any> {

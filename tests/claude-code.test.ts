@@ -44,6 +44,7 @@ process.stdin.on("end", async () => {
   appendFileSync(join(here, "calls.jsonl"), JSON.stringify({ args: process.argv.slice(2), stdin }) + "\\n");
   for (const event of step.events ?? []) await write(event);
   if (step.hang) return setInterval(() => {}, 1000);
+  if (step.killSelf) process.kill(process.pid, "SIGKILL");
   if (step.stderr) process.stderr.write(step.stderr);
   if (step.result) await write(step.result);
   process.exitCode = step.exit ?? 0;
@@ -58,6 +59,7 @@ interface Step {
   hang?: boolean;
   ignoreStop?: boolean;
   splitCharacters?: boolean;
+  killSelf?: boolean;
 }
 
 interface Call {
@@ -324,6 +326,19 @@ test("a pass stopped at the size limit charges its whole allowance before fallin
   });
   assert.equal(claude.calls().length, 2);
   // 7 turns were allowed for the investigation, all charged; the 3 kept for the answer are left.
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 3 turn\(s\) left/);
+});
+
+test("a claude killed from outside is charged its whole allowance, as its last turns may be unprinted", async () => {
+  const fallback = async (): Promise<ChatMessage> => called(null, ["f1", "submit_review", { findings: [] }]);
+  const logs: string[] = [];
+  // One read is printed before the kill; the answer request then fails.
+  const claude = fake([{ events: [...said("m1", reads("t1", "a.ts")), returned("t1", fileText)], killSelf: true }, { exit: 1, stderr: "Invalid API key" }]);
+  await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
   assert.match(logs.join("\n"), /falling back to vendor\/fallback with 3 turn\(s\) left/);
 });
 
