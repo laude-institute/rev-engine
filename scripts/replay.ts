@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { dedupe, normalizeCandidates, parseDiff, rank, toOutput, type Candidate } from "../src/findings.ts";
-import { createChat, emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
+import { createChat, emptyUsage, formatCost, roundedCost, type ChatMessage, type Usage } from "../src/llm.ts";
 import type { ToolDefinition } from "../src/tools.ts";
 import { readTools } from "../src/tools.ts";
 
@@ -110,7 +110,7 @@ async function replayOne(key: string, sample: number): Promise<string> {
     pr: recordedFindings.pr, agent: "replay", findings: ranked.map((candidate) => toOutput(candidate, "replay")),
     usage: {
       prompt_tokens: spent.promptTokens, completion_tokens: spent.completionTokens, total_tokens: spent.promptTokens + spent.completionTokens,
-      cached_tokens: spent.cachedTokens, time_in_ms: Date.now() - started, cost_usd: Number(spent.costUsd.toFixed(6)),
+      cached_tokens: spent.cachedTokens, time_in_ms: Date.now() - started, cost_usd: roundedCost(spent.costUsd),
     },
   };
   await writeFile(join(dir, `${key}.json`), `${JSON.stringify(output, null, 2)}\n`);
@@ -135,4 +135,4 @@ await Promise.all(Array.from({ length: Math.min(jobs, tasks.length) }, async () 
     }
   }
 }));
-console.error(`${usage.calls} model call(s), ${usage.promptTokens} prompt token(s) (${usage.cachedTokens} cached), $${usage.costUsd.toFixed(2)}`);
+console.error(`${usage.calls} model call(s), ${usage.promptTokens} prompt token(s) (${usage.cachedTokens} cached), ${formatCost(usage.costUsd, 2)}`);

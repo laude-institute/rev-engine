@@ -1,6 +1,7 @@
 // Case files, scoring and the report for the review evals. No model calls and
 // no file access here, so all of it can be unit tested.
 import { recommendation, type Finding, type Severity } from "../action/comments.ts";
+import { addCosts, formatCost } from "../src/llm.ts";
 import { parsePrior, type PriorDecisions } from "../src/prior.ts";
 
 /**
@@ -198,7 +199,7 @@ export function parseCase(value: unknown, name: string): EvalCase {
 export interface RunResult {
   findings: Finding[];
   fit: string | null;
-  costUsd: number;
+  costUsd: number | null;
   seconds: number;
   matches: Record<string, number[]>;
   /** Set when the review or the matching failed; such a run is left out of every count. */
@@ -249,7 +250,7 @@ export interface CaseScore {
   advice: Record<string, number>;
   /** Reported findings that match no expectation, from every run. They are candidates for labeling. */
   unlabeled: Finding[];
-  costUsd: number;
+  costUsd: number | null;
   /** Repeats of earlier decided findings the verifier left out, over every run. */
   decided: number;
 }
@@ -285,7 +286,7 @@ export function scoreCase(evalCase: EvalCase, results: RunResult[]): CaseScore {
     adviceRight: evalCase.advice ? runs.filter((run) => evalCase.advice!.includes(adviceLabel(run))).length : null,
     advice,
     unlabeled,
-    costUsd: results.reduce((sum, run) => sum + run.costUsd, 0),
+    costUsd: results.reduce<number | null>((sum, run) => addCosts(sum, run.costUsd), 0),
     decided: runs.reduce((sum, run) => sum + (run.decided ?? 0), 0),
   };
 }
@@ -342,14 +343,14 @@ export function totals(scores: CaseScore[]): Totals {
 const ratio = (part: number, whole: number): string => (whole ? `${part} of ${whole}` : "none checked");
 const cell = (text: string): string => text.replace(/\|/g, "\\|").replace(/\s+/g, " ");
 
-export function renderReport(name: string, settings: string, scores: CaseScore[], judgeCostUsd: number): string {
+export function renderReport(name: string, settings: string, scores: CaseScore[], judgeCostUsd: number | null): string {
   const sum = totals(scores);
-  const reviewCost = scores.reduce((total, score) => total + score.costUsd, 0);
+  const reviewCost = scores.reduce<number | null>((total, score) => addCosts(total, score.costUsd), 0);
   const lines = [
     `# Eval run ${name}`,
     "",
     settings,
-    `Review cost $${reviewCost.toFixed(2)}, matching cost $${judgeCostUsd.toFixed(2)}.`,
+    `Review cost ${formatCost(reviewCost, 2)}, matching cost ${formatCost(judgeCostUsd, 2)}.`,
     "",
     "## Totals",
     "",
