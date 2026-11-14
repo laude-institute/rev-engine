@@ -2,7 +2,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
-import { claudeCodeChat, claudeCodeProblem } from "./claude-code.ts";
+import { claudeCodeChat, claudeCodeProblem, claudeLoginProblem } from "./claude-code.ts";
 import { createChat, emptyUsage, formatCost, roundedCost, type Chat, type ChatMessage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
 import { naiveReview } from "./naive.ts";
@@ -25,11 +25,15 @@ log(`reviewing ${config.nwo}#${config.prNumber} at ${config.head.slice(0, 12)}`)
 log(`settings: ${describeSettings(config)}`);
 
 // An image built without Claude Code can never review with it, so this is a setup error, not a failed review to retry.
-const problem = config.engine === "claude-code" ? await claudeCodeProblem() : null;
-if (problem) {
+// With a fallback endpoint configured, the whole review runs there instead.
+let problem = config.engine === "claude-code" ? await claudeCodeProblem() : null;
+if (!problem && config.claudeLogin === "cli") problem = await claudeLoginProblem();
+if (config.engine === "claude-code" && !problem) log(`claude-code: signed in with ${config.claudeLogin === "cli" ? "the claude CLI login" : config.claudeLogin === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"}`);
+if (problem && !config.fallback) {
   log(problem);
   process.exit(2);
 }
+if (problem) log(`${problem}; reviewing with the fallback ${config.fallback!.model} at ${new URL(config.fallback!.baseUrl).host} instead`);
 
 async function write(findings: OutputFinding[]): Promise<void> {
   const output = {
@@ -75,18 +79,30 @@ try {
   const keep = (caller: string, model: string, messages: ChatMessage[]): void => {
     transcripts.set(caller, { model, messages });
   };
+  const kept = (send: Chat): Chat => config.transcriptOutPath
+    ? (request) => {
+      keep(request.caller ?? request.model, request.model, request.messages);
+      return send(request);
+    }
+    : send;
+  // Claude's effort levels are not the chat API's, so the fallback uses the endpoint's default.
+  const fallbackChat = config.fallback
+    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }))
+    : null;
   let chat: Chat;
-  if (config.engine === "claude-code") {
+  if (problem && fallbackChat) {
+    // Claude cannot run here at all, so every pass goes to the fallback model.
+    const model = config.fallback!.model;
+    chat = ({ effort: _effort, ...request }) => fallbackChat({ ...request, model });
+  } else if (config.engine === "claude-code") {
     // Its chat is not wrapped: runAgent tells the engine by a mark on the chat itself, and never calls it.
-    chat = claudeCodeChat({ effort: config.effort, usage, usageByCaller, ...(config.transcriptOutPath ? { transcript: keep } : {}) });
+    chat = claudeCodeChat({
+      effort: config.effort, usage, usageByCaller,
+      ...(config.transcriptOutPath ? { transcript: keep } : {}),
+      ...(fallbackChat ? { fallback: { chat: ({ effort: _effort, ...request }) => fallbackChat(request), model: config.fallback!.model } } : {}),
+    }, log);
   } else {
-    const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
-    chat = config.transcriptOutPath
-      ? (request) => {
-        keep(request.caller ?? request.model, request.model, request.messages);
-        return send(request);
-      }
-      : send;
+    chat = kept(createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller }));
   }
   // The swarm is a prototype kept outside src, so it is loaded only when it is turned on.
   const swarmReview = config.swarm ? (await import("../experiments/prototypes/swarm/review.ts")).swarmReview : null;

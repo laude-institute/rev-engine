@@ -3,7 +3,8 @@
 # Credential: OPENROUTER_API_KEY, passed in at run time and never baked in.
 # Egress: the host of RB_MODEL_BASE_URL (openrouter.ai by default).
 # With RB_CONFIG_ENGINE=claude-code the credential is a Claude Code login and
-# the egress is Anthropic's API. See docs/SETTINGS.md.
+# the egress is Anthropic's API, plus the host of RB_FALLBACK_BASE_URL
+# (api.commandcode.ai by default) with RB_CONFIG_FALLBACK. See docs/SETTINGS.md.
 # Configuration: see the RB_CONFIG_* table in README.md.
 FROM node:24-slim
 

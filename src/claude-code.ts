@@ -37,14 +37,27 @@ export interface ClaudeCodeSettings {
   transcript?: (caller: string, model: string, messages: ChatMessage[]) => void;
   /** The program to run in place of claude, for tests. */
   command?: string;
+  /**
+   * Takes over a pass, or a direct call, that claude could not finish: the same request,
+   * sent through an OpenAI-compatible chat with this model in place of the Claude one.
+   */
+  fallback?: { chat: Chat; model: string };
 }
 
 /**
  * A Chat that marks the run for Claude Code. runAgent sees the mark and runs the whole
  * pass in Claude Code. A direct call, as the naive baseline makes, is one claude run.
  */
-export function claudeCodeChat(settings: ClaudeCodeSettings): Chat {
-  const chat: Chat = (request) => askClaudeCode(request, settings);
+export function claudeCodeChat(settings: ClaudeCodeSettings, log: (message: string) => void = () => {}): Chat {
+  const chat: Chat = async (request) => {
+    try {
+      return await askClaudeCode(request, settings);
+    } catch (error) {
+      if (!settings.fallback) throw error;
+      log(`${request.caller ?? request.model}: claude failed (${error instanceof Error ? error.message : String(error)}); falling back to ${settings.fallback.model}`);
+      return settings.fallback.chat({ ...request, model: settings.fallback.model });
+    }
+  };
   return Object.assign(chat, { [SETTINGS]: settings });
 }
 
@@ -63,6 +76,26 @@ export function claudeCodeProblem(command = "claude"): Promise<string | null> {
     execFile(command, ["--version"], { timeout: 30_000 }, (error) => {
       if (!error) return resolve(null);
       resolve((error as NodeJS.ErrnoException).code === "ENOENT" ? NOT_INSTALLED : `claude --version failed: ${error.message}`);
+    });
+  });
+}
+
+/**
+ * Why the claude CLI's own login cannot be used, or null when it is signed in. Only
+ * asked when no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY is set. On macOS the
+ * login lives in the keychain, so a locked keychain reads as signed out.
+ */
+export function claudeLoginProblem(command = "claude"): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(command, ["auth", "status"], { timeout: 30_000 }, (error, stdout) => {
+      let status: { loggedIn?: unknown; authMethod?: unknown } | null = null;
+      try {
+        status = JSON.parse(stdout);
+      } catch {
+        // Older versions print text. Trust them only when the command succeeded.
+      }
+      if (status ? status.loggedIn === true : !error) return resolve(null);
+      resolve("claude is not signed in: run `claude auth login` (on macOS, also unlock the login keychain), or set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY");
     });
   });
 }

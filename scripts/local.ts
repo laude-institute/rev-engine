@@ -301,7 +301,12 @@ async function finish(
 ): Promise<number> {
   const env = buildReviewEnv({ nwo: ctx.nwo, number: ctx.number, base: ctx.base, head: ctx.head, repoDir: ctx.repo, runDir: run.dir, settings });
   if (process.env.RB_MODEL_BASE_URL) env.RB_MODEL_BASE_URL = process.env.RB_MODEL_BASE_URL;
-  const meta = { nwo: ctx.nwo, base: ctx.base, head: ctx.head, mode: options.command, run: run.dir, settings, ...(env.RB_MODEL_BASE_URL ? { modelBaseUrl: env.RB_MODEL_BASE_URL } : {}) };
+  if (process.env.RB_FALLBACK_BASE_URL) env.RB_FALLBACK_BASE_URL = process.env.RB_FALLBACK_BASE_URL;
+  const meta = {
+    nwo: ctx.nwo, base: ctx.base, head: ctx.head, mode: options.command, run: run.dir, settings,
+    ...(env.RB_MODEL_BASE_URL ? { modelBaseUrl: env.RB_MODEL_BASE_URL } : {}),
+    ...(env.RB_FALLBACK_BASE_URL ? { fallbackBaseUrl: env.RB_FALLBACK_BASE_URL } : {}),
+  };
   if (options.dryRun) {
     process.stdout.write(`${JSON.stringify({ meta, env }, null, 2)}\n`);
     return 0;
@@ -339,8 +344,23 @@ function doctor(): number {
   }
   const settings = availableSettings(root);
   process.stdout.write(`  settings  ${settings.size} RB_CONFIG_* setting(s)\n`);
-  process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
-  if (!process.env.OPENROUTER_API_KEY) ok = false;
+  if (process.env.RB_CONFIG_ENGINE?.trim() === "claude-code") {
+    const how = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "CLAUDE_CODE_OAUTH_TOKEN" : process.env.ANTHROPIC_API_KEY?.trim() ? "ANTHROPIC_API_KEY" : null;
+    const status = how ? null : spawnSync("claude", ["auth", "status"], { encoding: "utf8" });
+    let signedIn = Boolean(how);
+    try {
+      if (status) signedIn = JSON.parse(status.stdout).loggedIn === true;
+    } catch {
+      signedIn = status?.status === 0;
+    }
+    process.stdout.write(`  claude    ${how ?? (signedIn ? "claude CLI login" : "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN)")}\n`);
+    const fallback = process.env.RB_CONFIG_FALLBACK?.trim();
+    if (fallback && fallback !== "off") process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
+    if (!signedIn && !(fallback && fallback !== "off" && process.env.CMD_API_KEY)) ok = false;
+  } else {
+    process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
+    if (!process.env.OPENROUTER_API_KEY) ok = false;
+  }
   process.stdout.write(`  runs      ${join(root, "runs", "local")}\n`);
   return ok ? 0 : 1;
 }

@@ -8,8 +8,8 @@ import { test } from "node:test";
 import { runAgent, type SecondLook } from "../src/agent.ts";
 import { loadConfig } from "../src/config.ts";
 import { naiveReview } from "../src/naive.ts";
-import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeModel, serveTools } from "../src/claude-code.ts";
-import { emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
+import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeLoginProblem, claudeModel, serveTools } from "../src/claude-code.ts";
+import { emptyUsage, type ChatMessage, type ChatRequest, type Usage } from "../src/llm.ts";
 import { submitReview } from "../src/prompts.ts";
 import { readTools, type Workspace } from "../src/tools.ts";
 
@@ -228,6 +228,55 @@ test("a missing claude is reported as a build problem", async () => {
   assert.match(String(await claudeCodeProblem(join(tmpdir(), "no-such-claude"))), /not installed.*CLAUDE_CODE_VERSION/);
   assert.equal(await claudeCodeProblem(process.execPath), null);
   await assert.rejects(run(join(tmpdir(), "no-such-claude")), /not installed/);
+});
+
+test("the claude CLI login is read from claude auth status", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rev-fake-auth-"));
+  const status = (name: string, body: string): string => {
+    const command = join(dir, name);
+    writeFileSync(command, `#!/usr/bin/env node\n${body}\n`);
+    chmodSync(command, 0o755);
+    return command;
+  };
+  assert.equal(await claudeLoginProblem(status("in.mjs", `console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }))`)), null);
+  assert.match(String(await claudeLoginProblem(status("out.mjs", `console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }))`))), /not signed in.*claude auth login/);
+  assert.match(String(await claudeLoginProblem(status("fails.mjs", "process.exit(1)"))), /not signed in/);
+  assert.match(String(await claudeLoginProblem(join(dir, "missing"))), /not signed in/);
+});
+
+test("a direct call claude cannot answer goes to the fallback model", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [] }]);
+  };
+  const logs: string[] = [];
+  const chat = claudeCodeChat({ effort: null, command: fake([{ exit: 1, stderr: "Invalid API key" }]).command, fallback: { chat: fallback, model: "vendor/fallback" } }, (message) => logs.push(message));
+  const reply = await chat({ model: "opus", messages: [{ role: "user", content: "the diff" }], tools: [submitReview], timeoutMs: 60_000, caller: "naive" });
+  assert.deepEqual(reply, called(null, ["f1", "submit_review", { findings: [] }]));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.model, "vendor/fallback");
+  assert.match(logs.join("\n"), /naive: claude failed .*Invalid API key.*falling back to vendor\/fallback/);
+});
+
+test("a pass claude cannot finish starts over on the fallback model", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [{ file: "b.ts" }] }]);
+  };
+  const logs: string[] = [];
+  const claude = fake([{ exit: 1, stderr: "Invalid API key" }]);
+  const submitted = await runAgent({
+    chat: claudeCodeChat({ effort: "high", command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.deepEqual(submitted, { findings: [{ file: "b.ts" }] });
+  assert.equal(claude.calls().length, 1);
+  assert.equal(sent[0]!.model, "vendor/fallback");
+  assert.equal(sent[0]!.caller, "s1");
+  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback/);
 });
 
 test("the tool server lists the read tools and runs calls in the workspace", async () => {

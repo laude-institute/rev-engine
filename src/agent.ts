@@ -117,7 +117,17 @@ interface Held {
 
 export async function runAgent(options: AgentOptions): Promise<Record<string, unknown>> {
   const claudeCode = claudeCodeSettings(options.chat);
-  if (claudeCode) return runClaudeCode(options, claudeCode);
+  if (claudeCode) {
+    try {
+      return await runClaudeCode(options, claudeCode);
+    } catch (error) {
+      // A pass claude could not finish starts over on the fallback endpoint, in the time that is left.
+      if (!claudeCode.fallback || options.deadline - Date.now() < 10_000) throw error;
+      const { chat, model } = claudeCode.fallback;
+      options.log(`${options.caller ?? options.model}: claude failed (${error instanceof Error ? error.message : String(error)}); falling back to ${model}`);
+      return runAgent({ ...options, chat, model });
+    }
+  }
   // What was handed in is kept, so a failure later on still returns that work.
   const held: Held = { submissions: [], partial: null };
   try {
