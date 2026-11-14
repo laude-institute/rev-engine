@@ -100,3 +100,24 @@ test("a pass that falls back keeps claude's conversation in the transcript", asy
   assert.ok(callers.includes("s1 (opus)=opus"), callers.join(", "));
   assert.ok(callers.includes("s1 (opus) fallback=vendor/fallback"), callers.join(", "));
 });
+
+test("a claude that is not installed hands every pass to the fallback", async (t) => {
+  const { dir, env } = signedOut(t);
+  const { requests, url } = await fallbackServer(t);
+  const empty = join(dir, "empty-bin");
+  mkdirSync(empty);
+  const { code, stderr } = await run({ ...env, PATH: empty, RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: url });
+  assert.equal(code, 0, stderr);
+  assert.match(stderr, /Claude Code is not installed.*reviewing with the fallback vendor\/fallback/);
+  assert.ok(requests.length > 0 && requests.every((request) => request.model === "vendor/fallback"));
+});
+
+test("a token is used without asking the claude CLI whether it is signed in", async (t) => {
+  // The fake claude says it is signed out; with a token that is never asked.
+  const { env } = signedOut(t);
+  const { url } = await fallbackServer(t);
+  const { code, stderr } = await run({ ...env, CLAUDE_CODE_OAUTH_TOKEN: "synthetic", RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: url });
+  assert.equal(code, 0, stderr);
+  assert.match(stderr, /claude-code: using CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.doesNotMatch(stderr, /not signed in/);
+});

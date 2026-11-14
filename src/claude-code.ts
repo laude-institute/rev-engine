@@ -466,10 +466,12 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       const { result, events, error } = run;
       transcribe(events, submitName, messages);
       record(settings, options.caller, run);
-      // A run that was stopped has no final totals, so it is charged the whole allowance: unseen turns may have run.
+      if (result) turnsLeft -= result.num_turns ?? turns;
       // A run that failed printed everything it did, so it is charged the turns it was seen to take:
       // none for one that failed at once, such as a missing saved session or a bad login.
-      turnsLeft -= result?.num_turns ?? (error ? observedUsage(events).num_turns ?? 0 : turns);
+      else if (error) turnsLeft -= observedUsage(events).num_turns!;
+      // A run that was stopped has no final totals, so it is charged the whole allowance: unseen turns may have run.
+      else turnsLeft -= turns;
       if (error) throw error;
       return result;
     };

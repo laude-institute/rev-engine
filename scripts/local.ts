@@ -17,7 +17,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claudeCodeProblem, claudeLoginOf, claudeLoginProblem } from "../src/claude-cli.ts";
+import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
 import {
   UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
@@ -80,7 +80,7 @@ function mergeBase(repo: string, base: string, head: string): string {
 function availableSettings(repo: string): Set<string> {
   const available = new Set<string>();
   // Include the optional engine's own reads, without importing or executing it.
-  for (const file of ["src/config.ts", "experiments/prototypes/swarm/review.ts"]) {
+  for (const file of ["src/config.ts", "src/claude-cli.ts", "experiments/prototypes/swarm/review.ts"]) {
     const path = join(repo, file);
     if (!existsSync(path)) continue;
     const source = readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "");
@@ -353,18 +353,26 @@ async function doctor(options: LocalOptions): Promise<number> {
     process.stdout.write(`  settings  ${error instanceof Error ? error.message : String(error)}\n`);
     ok = false;
   }
-  if (settings.engine?.trim() === "claude-code") {
+  const engine = settings.engine?.trim() || "api";
+  // The same fallback checks the review makes, given the settings as the review would get them.
+  let fallback: Fallback | null = null;
+  let fallbackProblem: string | null = null;
+  try {
+    fallback = fallbackOf({ ...process.env, RB_CONFIG_FALLBACK: settings.fallback }, engine);
+  } catch (error) {
+    fallbackProblem = error instanceof Error ? error.message : String(error);
+  }
+  if (fallback || fallbackProblem) process.stdout.write(`  fallback  ${fallbackProblem ?? `${fallback!.model} at ${new URL(fallback!.baseUrl).host}, key present`}\n`);
+  if (fallbackProblem) ok = false;
+  if (engine === "claude-code") {
     const installed = await claudeCodeProblem();
     const method = claudeLoginOf(process.env);
     const how = method === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : method === "api-key" ? "ANTHROPIC_API_KEY" : null;
     const login = installed ?? (how ? null : await claudeLoginProblem());
-    process.stdout.write(`  claude    ${installed ? "missing" : login ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : how ?? "claude CLI login"}\n`);
-    const fallback = settings.fallback?.trim();
-    const hasFallback = Boolean(fallback && fallback !== "off");
-    if (hasFallback) process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
-    // The review refuses a fallback without its key, so doctor does too.
-    if (hasFallback && !process.env.CMD_API_KEY) ok = false;
-    if (login && !hasFallback) ok = false;
+    const state = installed === NOT_INSTALLED ? "missing" : installed ?? (login ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : how ?? "claude CLI login");
+    process.stdout.write(`  claude    ${state}\n`);
+    // Without claude, the review runs on the fallback, so it needs one that works.
+    if (login && !fallback) ok = false;
   } else {
     process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
     if (!process.env.OPENROUTER_API_KEY) ok = false;

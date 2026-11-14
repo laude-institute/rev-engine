@@ -287,6 +287,20 @@ test("a pass claude cannot finish starts over on the fallback model", async () =
   assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 10 turn\(s\) left/);
 });
 
+test("a pass that falls back keeps the turns claude was not seen to use", async () => {
+  const fallback = async (): Promise<ChatMessage> => called(null, ["f1", "submit_review", { findings: [] }]);
+  const logs: string[] = [];
+  // Claude reads twice, then fails: two turns taken of 10.
+  const events = [...said("m1", reads("t1", "a.ts")), returned("t1", fileText), ...said("m2", reads("t2", "a.ts")), returned("t2", fileText)];
+  const claude = fake([{ events, exit: 1, stderr: "Invalid API key" }]);
+  await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 8 turn\(s\) left/);
+});
+
 test("a pass claude cannot finish for a passing reason, such as an overload, also falls back", async () => {
   const sent: ChatRequest[] = [];
   const fallback = async (request: ChatRequest): Promise<ChatMessage> => {

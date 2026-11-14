@@ -1,7 +1,7 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
-import { claudeLoginOf } from "./claude-cli.ts";
+import { claudeLoginOf, fallbackOf, type Fallback } from "./claude-cli.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -34,7 +34,7 @@ export interface Config {
    * With the claude-code engine, an OpenAI-compatible endpoint that takes over a pass
    * claude cannot finish, or every pass when claude cannot run at all. Null for none.
    */
-  fallback: { model: string; baseUrl: string; apiKey: string } | null;
+  fallback: Fallback | null;
   /** One independent review seat per model. */
   models: string[];
   /** For each seat, the one focus it reviews for, or null for the full review. */
@@ -83,8 +83,7 @@ export type ReviewMode = "agent" | "human";
 export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, human: 25 };
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-/** Command Code's OpenAI-compatible provider API, the default fallback endpoint. */
-export const DEFAULT_FALLBACK_BASE_URL = "https://api.commandcode.ai/provider/v1";
+export { DEFAULT_FALLBACK_BASE_URL } from "./claude-cli.ts";
 export const DEFAULT_MODEL = "openai/gpt-6-luna";
 /** The effort levels `claude --effort` accepts. */
 const CLAUDE_CODE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -164,22 +163,7 @@ export function loadConfig(env: Env): Config {
   }
   const claudeLogin = engine === "claude-code" ? claudeLoginOf(env) : null;
 
-  const fallbackModel = env.RB_CONFIG_FALLBACK?.trim() || "off";
-  let fallback: Config["fallback"] = null;
-  if (fallbackModel !== "off") {
-    if (engine !== "claude-code") throw new Error("RB_CONFIG_FALLBACK needs RB_CONFIG_ENGINE=claude-code");
-    const apiKey = env.CMD_API_KEY?.trim();
-    if (!apiKey) throw new Error("RB_CONFIG_FALLBACK needs CMD_API_KEY, the fallback endpoint's key");
-    const baseUrl = (env.RB_FALLBACK_BASE_URL?.trim() || DEFAULT_FALLBACK_BASE_URL).replace(/\/+$/, "");
-    let protocol = "";
-    try {
-      protocol = new URL(baseUrl).protocol;
-    } catch {
-      // Reported below.
-    }
-    if (protocol !== "https:" && protocol !== "http:") throw new Error(`RB_FALLBACK_BASE_URL must be an http or https URL, not ${baseUrl}`);
-    fallback = { model: fallbackModel, apiKey, baseUrl };
-  }
+  const fallback = fallbackOf(env, engine);
 
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");

@@ -210,12 +210,25 @@ test("doctor checks the claude login when the engine is set with --set", t => {
   // A fallback with its key lets the review run anyway.
   result = f.cli(["doctor", "--set", "engine=claude-code", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic" });
   assert.equal(result.status, 0, result.stdout);
-  assert.match(result.stdout, /fallback\s+vendor\/fallback key present/);
+  assert.match(result.stdout, /fallback\s+vendor\/fallback at api\.commandcode\.ai, key present/);
   // A fallback without its key fails the review, so doctor fails too, even when claude is signed in.
   claude(true);
   result = f.cli(["doctor", "--set", "engine=claude-code", "--set", "fallback=vendor/fallback"]);
   assert.equal(result.status, 1);
-  assert.match(result.stdout, /fallback\s+vendor\/fallback CMD_API_KEY absent/);
+  assert.match(result.stdout, /fallback\s+RB_CONFIG_FALLBACK needs CMD_API_KEY/);
+  // So does any other fallback setting the review would refuse.
+  result = f.cli(["doctor", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic", OPENROUTER_API_KEY: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+RB_CONFIG_FALLBACK needs RB_CONFIG_ENGINE=claude-code/);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: "api.example.test/v1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+RB_FALLBACK_BASE_URL must be an http or https URL/);
+
+  // An installed claude that fails is reported with its error, not as missing.
+  writeFileSync(join(f.bin, "claude"), `#!${process.execPath}\nprocess.stderr.write("broken install");\nprocess.exit(3);\n`);
+  result = f.cli(["doctor", "--set", "engine=claude-code"], { CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude\s+claude --version failed/);
 
   rmSync(join(f.bin, "claude"));
   result = f.cli(["doctor", "--set", "engine=claude-code"], { PATH: `${f.bin}:${dirname(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim())}`, CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });
