@@ -2,6 +2,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
+import { claudeCodeChat, claudeCodeProblem } from "./claude-code.ts";
 import { createChat, emptyUsage, formatCost, roundedCost, type Chat, type ChatMessage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
 import { naiveReview } from "./naive.ts";
@@ -22,6 +23,13 @@ const usage = emptyUsage();
 const usageByCaller = new Map<string, Usage>();
 log(`reviewing ${config.nwo}#${config.prNumber} at ${config.head.slice(0, 12)}`);
 log(`settings: ${describeSettings(config)}`);
+
+// An image built without Claude Code can never review with it, so this is a setup error, not a failed review to retry.
+const problem = config.engine === "claude-code" ? await claudeCodeProblem() : null;
+if (problem) {
+  log(problem);
+  process.exit(2);
+}
 
 async function write(findings: OutputFinding[]): Promise<void> {
   const output = {
@@ -51,7 +59,10 @@ function logUsageByCaller(): void {
   }
 }
 
-/** Each caller's conversation. The tool loop sends its whole message list on every call, so the last list a caller sent is its conversation. */
+/**
+ * Each caller's conversation. The tool loop sends its whole message list on every call, so the last
+ * list a caller sent is its conversation. Claude Code hands over one list that grows as its pass runs.
+ */
 const transcripts = new Map<string, { model: string; messages: ChatMessage[] }>();
 
 async function writeTranscripts(): Promise<void> {
@@ -61,13 +72,22 @@ async function writeTranscripts(): Promise<void> {
 }
 
 try {
-  const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
-  const chat: Chat = config.transcriptOutPath
-    ? (request) => {
-      transcripts.set(request.caller ?? request.model, { model: request.model, messages: request.messages });
-      return send(request);
-    }
-    : send;
+  const keep = (caller: string, model: string, messages: ChatMessage[]): void => {
+    transcripts.set(caller, { model, messages });
+  };
+  let chat: Chat;
+  if (config.engine === "claude-code") {
+    // Its chat is not wrapped: runAgent tells the engine by a mark on the chat itself, and never calls it.
+    chat = claudeCodeChat({ effort: config.effort, usage, usageByCaller, ...(config.transcriptOutPath ? { transcript: keep } : {}) });
+  } else {
+    const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
+    chat = config.transcriptOutPath
+      ? (request) => {
+        keep(request.caller ?? request.model, request.model, request.messages);
+        return send(request);
+      }
+      : send;
+  }
   // The swarm is a prototype kept outside src, so it is loaded only when it is turned on.
   const swarmReview = config.swarm ? (await import("../experiments/prototypes/swarm/review.ts")).swarmReview : null;
   const outcome = await (swarmReview ?? (config.naive ? naiveReview : review))(config, chat, log);
@@ -75,10 +95,12 @@ try {
   if (config.detailsOutPath) {
     const details = outcome.ranked.map((candidate, index) => {
       const checked = outcome.checks?.[index];
+      const fix = outcome.fixes?.[index];
       return {
         file: candidate.file, start_line: candidate.startLine, end_line: candidate.endLine,
         severity: candidate.severity, kind: candidate.kind, title: candidate.title, detail: candidate.detail,
         ...(checked ? { confirmed: checked.confirmed, checks: checked.cast } : {}),
+        ...(fix ? { fix: { start_line: fix.startLine, end_line: fix.endLine, replacement: fix.replacement } } : {}),
       };
     });
     const decided = (outcome.decided ?? []).map((repeat) => ({ file: repeat.file, title: repeat.title, repeat_of: repeat.repeatOf }));

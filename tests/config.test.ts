@@ -94,3 +94,44 @@ test("turns on the swarm prototype, but not together with the naive baseline", (
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_SWARM: "yes" }), /RB_CONFIG_SWARM/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_SWARM: "on", RB_CONFIG_NAIVE: "on" }), /cannot both be on/);
 });
+
+test("the claude-code engine takes a Claude Code login and Claude models only", () => {
+  const { OPENROUTER_API_KEY: _key, ...contract } = BASE;
+  const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "anthropic/claude-opus-5.5,opus@tests", CLAUDE_CODE_OAUTH_TOKEN: "token" };
+  const config = loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "xhigh", RB_CONFIG_FIT: "sonnet" });
+  assert.equal(config.engine, "claude-code");
+  assert.equal(config.apiKey, "");
+  assert.deepEqual(config.models, ["anthropic/claude-opus-5.5", "opus"]);
+  assert.ok(describeSettings(config).startsWith("engine=claude-code model=anthropic/claude-opus-5.5,opus@tests "));
+  assert.equal(loadConfig(BASE).engine, "api");
+  const { CLAUDE_CODE_OAUTH_TOKEN: _token, ...noLogin } = CLAUDE;
+  assert.equal(loadConfig({ ...noLogin, ANTHROPIC_API_KEY: "key" }).engine, "claude-code");
+
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_ENGINE: "codex" }), /RB_CONFIG_ENGINE must be api or claude-code/);
+  assert.throws(() => loadConfig(noLogin), /needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY/);
+  const { RB_CONFIG_MODEL: _model, ...noModel } = CLAUDE;
+  assert.throws(() => loadConfig(noModel), /needs RB_CONFIG_MODEL set to a Claude model/);
+  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_MODEL: "opus,openai/gpt-6-luna" }), /Claude models only, not openai\/gpt-6-luna/);
+  for (const name of ["RB_CONFIG_VERIFIER", "RB_CONFIG_FOLLOW_UP", "RB_CONFIG_FIT", "RB_CONFIG_FIXES"]) {
+    assert.throws(() => loadConfig({ ...CLAUDE, [name]: "vendor/other" }), /Claude models only, not vendor\/other/, name);
+  }
+  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "minimal" }), /RB_CONFIG_EFFORT to be one of low, medium, high, xhigh, max/);
+  assert.equal(loadConfig({ ...CLAUDE, RB_TRANSCRIPT_OUT: "/work/out/transcript.json" }).transcriptOutPath, "/work/out/transcript.json");
+  assert.equal(describeSettings(loadConfig({ ...CLAUDE, RB_CONFIG_NAIVE: "on" })), "naive=on model=anthropic/claude-opus-5.5 mode=human max_findings=25 time_budget=780 engine=claude-code");
+  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);
+});
+
+test("fixes are written only when a model is named for them", () => {
+  assert.equal(loadConfig(BASE).fixModel, null);
+  assert.equal(loadConfig({ ...BASE, RB_CONFIG_FIXES: " vendor/fixer " }).fixModel, "vendor/fixer");
+});
+
+test("Claude Code rejects incompatible bare model names in every pass", () => {
+  const env = { ...BASE, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus", CLAUDE_CODE_OAUTH_TOKEN: "token" };
+  for (const name of ["RB_CONFIG_MODEL", "RB_CONFIG_VERIFIER", "RB_CONFIG_FOLLOW_UP", "RB_CONFIG_FIT", "RB_CONFIG_FIXES"]) {
+    assert.throws(() => loadConfig({ ...env, [name]: "gpt-6-luna" }), /Claude models only/, name);
+  }
+  for (const model of ["opus", "sonnet", "haiku", "default", "best", "fable", "opusplan", "opus[1m]", "claude-sonnet-4-6", "anthropic/claude-opus-5.5"]) {
+    assert.equal(loadConfig({ ...env, RB_CONFIG_MODEL: model }).models[0], model);
+  }
+});
