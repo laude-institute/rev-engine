@@ -21,7 +21,10 @@ node --env-file=/path/to/reviewer/.env scripts/local.ts branch --base main
 ```
 
 The runner never loads a credentials file from the repository being reviewed.
-Doctor exits nonzero when Node, Git or the key is missing. It reports `gh`
+Doctor exits nonzero when Node or Git is missing, or when the review would
+refuse its settings. With the default engine it needs `OPENROUTER_API_KEY`.
+With `engine=claude-code` it needs Claude models, an installed `claude`, and
+a token or a signed-in CLI, unless a working fallback is set. It reports `gh`
 separately because branch mode does not need it.
 
 To review with your own Claude login, and fall back to Command Code when

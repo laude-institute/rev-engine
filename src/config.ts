@@ -1,7 +1,7 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
-import { claudeLoginOf, fallbackOf, type Fallback } from "./claude-cli.ts";
+import { claudeLoginOf, engineProblem, fallbackOf, type Fallback } from "./claude-cli.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -85,8 +85,6 @@ export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, hum
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 export { DEFAULT_FALLBACK_BASE_URL } from "./claude-cli.ts";
 export const DEFAULT_MODEL = "openai/gpt-6-luna";
-/** The effort levels `claude --effort` accepts. */
-const CLAUDE_CODE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 type Env = Record<string, string | undefined>;
 
@@ -142,8 +140,9 @@ export function loadConfig(env: Env): Config {
   if (!["on", "off"].includes(swarm)) throw new Error("RB_CONFIG_SWARM must be on or off");
   if (naive === "on" && swarm === "on") throw new Error("RB_CONFIG_NAIVE and RB_CONFIG_SWARM cannot both be on");
 
+  const engineError = engineProblem(env);
+  if (engineError) throw new Error(engineError);
   const engine = (env.RB_CONFIG_ENGINE?.trim() || "api") as Config["engine"];
-  if (engine !== "api" && engine !== "claude-code") throw new Error("RB_CONFIG_ENGINE must be api or claude-code");
 
   const verifierModel = env.RB_CONFIG_VERIFIER?.trim() || models[0]!;
   const followUpModel = env.RB_CONFIG_FOLLOW_UP?.trim() || null;
@@ -151,16 +150,6 @@ export function loadConfig(env: Env): Config {
   const fixModel = env.RB_CONFIG_FIXES?.trim() || null;
   const effort = env.RB_CONFIG_EFFORT?.trim() || null;
   const transcriptOutPath = env.RB_TRANSCRIPT_OUT?.trim() || null;
-  if (engine === "claude-code") {
-    // Claude Code runs Claude models with its own login.
-    const only = "RB_CONFIG_ENGINE=claude-code";
-    if (swarm === "on") throw new Error(`${only} does not support RB_CONFIG_SWARM`);
-    if (!env.RB_CONFIG_MODEL?.trim()) throw new Error(`${only} needs RB_CONFIG_MODEL set to a Claude model, such as anthropic/claude-opus-5.5 or opus`);
-    const other = [...models, verifierModel, followUpModel, fitModel, fixModel].find((model) => model && !/^(?:(?:anthropic\/)?claude-[a-z0-9.-]+(?:\[1m\])?|(?:opus|sonnet|haiku|fable)(?:\[1m\])?|default|best|opusplan)$/.test(model));
-    if (other) throw new Error(`${only} runs Claude models only, not ${other}`);
-    if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) throw new Error(`${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`);
-    // With neither set, claude uses its own CLI login, which main checks before the review starts.
-  }
   const claudeLogin = engine === "claude-code" ? claudeLoginOf(env) : null;
 
   const fallback = fallbackOf(env, engine);

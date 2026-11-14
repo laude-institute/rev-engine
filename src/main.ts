@@ -33,7 +33,16 @@ if (problem && !config.fallback) {
   log(problem);
   process.exit(2);
 }
-if (problem) log(`${problem}; reviewing with the fallback ${config.fallback!.model} at ${new URL(config.fallback!.baseUrl).host} instead`);
+if (problem) {
+  log(`${problem}; reviewing with the fallback ${config.fallback!.model} at ${new URL(config.fallback!.baseUrl).host} instead`);
+  // Every pass runs on the fallback model, so the seats, logs and usage name that model.
+  const model = config.fallback!.model;
+  config = {
+    ...config, models: config.models.map(() => model), verifierModel: model, effort: null,
+    followUpModel: config.followUpModel && model, fitModel: config.fitModel && model, fixModel: config.fixModel && model,
+  };
+  log(`settings on the fallback: ${describeSettings(config)}`);
+}
 
 async function write(findings: OutputFinding[]): Promise<void> {
   const output = {

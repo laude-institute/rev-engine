@@ -5,7 +5,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runAgent, type SecondLook } from "../src/agent.ts";
+import { MAX_CONTEXT_CHARS, runAgent, type SecondLook } from "../src/agent.ts";
 import { loadConfig } from "../src/config.ts";
 import { naiveReview } from "../src/naive.ts";
 import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeLoginProblem, claudeModel, serveTools } from "../src/claude-code.ts";
@@ -241,6 +241,9 @@ test("the claude CLI login is read from claude auth status", async () => {
   assert.equal(await claudeLoginProblem(status("in.mjs", `console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }))`)), null);
   assert.match(String(await claudeLoginProblem(status("out.mjs", `console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }))`))), /not signed in.*claude auth login/);
   assert.match(String(await claudeLoginProblem(status("fails.mjs", "process.exit(1)"))), /not signed in/);
+  // Older versions print text: a successful exit means signed in, a failing one does not.
+  assert.equal(await claudeLoginProblem(status("text.mjs", `console.log("Logged in as someone")`)), null);
+  assert.match(String(await claudeLoginProblem(status("text-fails.mjs", `console.log("Not logged in"); process.exit(1)`))), /not signed in/);
   assert.match(String(await claudeLoginProblem(join(dir, "missing"))), /not signed in/);
 });
 
@@ -299,6 +302,23 @@ test("a pass that falls back keeps the turns claude was not seen to use", async 
     deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
   });
   assert.match(logs.join("\n"), /falling back to vendor\/fallback with 8 turn\(s\) left/);
+});
+
+test("a pass stopped at the size limit charges its whole allowance before falling back", async () => {
+  const fallback = async (): Promise<ChatMessage> => called(null, ["f1", "submit_review", { findings: [] }]);
+  const logs: string[] = [];
+  // The investigation passes the conversation size limit and is stopped, so its totals are never printed;
+  // the request for its answer then fails.
+  const big = { type: "text", text: "x".repeat(MAX_CONTEXT_CHARS + 1) };
+  const claude = fake([{ events: said("m1", big), hang: true }, { exit: 1, stderr: "Invalid API key" }]);
+  await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.equal(claude.calls().length, 2);
+  // 7 turns were allowed for the investigation, all charged; the 3 kept for the answer are left.
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 3 turn\(s\) left/);
 });
 
 test("a pass claude cannot finish for a passing reason, such as an overload, also falls back", async () => {

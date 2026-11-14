@@ -17,7 +17,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
+import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, engineProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
 import {
   UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
@@ -354,11 +354,19 @@ async function doctor(options: LocalOptions): Promise<number> {
     ok = false;
   }
   const engine = settings.engine?.trim() || "api";
+  // The settings as the review reads them, so doctor refuses what the review refuses.
+  const asEnv: Record<string, string | undefined> = { ...process.env };
+  for (const [name, value] of Object.entries(settings)) asEnv[`RB_CONFIG_${name.toUpperCase()}`] = value;
+  const engineError = engineProblem(asEnv);
+  if (engineError) {
+    process.stdout.write(`  engine    ${engineError}\n`);
+    ok = false;
+  }
   // The same fallback checks the review makes, given the settings as the review would get them.
   let fallback: Fallback | null = null;
   let fallbackProblem: string | null = null;
   try {
-    fallback = fallbackOf({ ...process.env, RB_CONFIG_FALLBACK: settings.fallback }, engine);
+    fallback = fallbackOf(asEnv, engine);
   } catch (error) {
     fallbackProblem = error instanceof Error ? error.message : String(error);
   }

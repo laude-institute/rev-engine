@@ -78,6 +78,10 @@ test("a signed-out claude with a fallback reviews every pass on the fallback mod
   const { code, stderr } = await run({ ...env, RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: url });
   assert.equal(code, 0, stderr);
   assert.match(stderr, /claude is not signed in.*reviewing with the fallback vendor\/fallback at 127\.0\.0\.1/);
+  // The passes are named for the model they ran on.
+  assert.match(stderr, /settings on the fallback: .*model=vendor\/fallback verifier=vendor\/fallback /);
+  assert.match(stderr, /usage s1 \(vendor\/fallback\)/);
+  assert.doesNotMatch(stderr, /s1 \(opus\)/);
   assert.ok(requests.length > 0);
   for (const request of requests) {
     assert.equal(request.path, "/v1/chat/completions");
