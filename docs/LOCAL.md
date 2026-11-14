@@ -1,9 +1,8 @@
 # Run it locally
 
-`scripts/local.ts` runs the reviewer on a git checkout, without Docker and
-without ReviewBench. It computes the input the container expects from a working
-copy and then starts the same `src/main.ts` the benchmark and the Action use, so
-a review on a laptop goes through the same code path.
+`scripts/local.ts` is an optional way to run the reviewer without Docker or
+ReviewBench. It prepares a committed checkout and calls the same `src/main.ts`
+used by the container. The GitHub Action and benchmark workflows are unchanged.
 
 ```sh
 node scripts/local.ts branch --base main     # the current branch, before a pull request
@@ -11,30 +10,47 @@ node scripts/local.ts pr 1938                # a pull request at its head
 node scripts/local.ts doctor                 # node, git, gh, settings and the key
 ```
 
-Both modes need Node 24 or newer and whatever credential the reviewer itself
-needs to reach a model, which by default is `OPENROUTER_API_KEY`.
+Both review modes need Node 24 or newer, Git and `OPENROUTER_API_KEY`. PR mode
+also needs an authenticated `gh` installation. Export the key in your shell,
+or load your trusted credentials file explicitly with Node:
+
+```sh
+node --env-file=/path/to/reviewer/.env scripts/local.ts branch --base main
+```
+
+The runner never loads a credentials file from the repository being reviewed.
+Doctor exits nonzero when Node, Git or the key is missing. It reports `gh`
+separately because branch mode does not need it.
 
 ## Modes
 
 | Mode | Reviews | Tree |
 |---|---|---|
-| `branch` | `git diff <merge-base(base, HEAD)>..HEAD` | your working copy, which must be clean |
-| `pr <number>` | the pull request at its head, read with `gh` | a detached worktree under the system temporary directory |
+| `branch` | `git diff <merge-base(base, HEAD)>..HEAD` | a detached checkout of the captured HEAD |
+| `pr <number>` | the PR head and base commits returned by `gh` | a detached checkout of the PR head |
 
-`RB_BASE` is the merge-base in both modes, so `read_base_file` returns what
-GitHub shows as the base version and the diff is the same three-dot diff the pull
-request page shows. `branch` refuses a dirty tree because the reviewer reads
-files at head from the tree: uncommitted edits would be invisible to it and the
-review would describe code that is not there.
+Both modes leave your working copy unchanged. They review committed files in a
+new worktree under the system temporary directory, so ignored local files and
+later edits in your working copy are not visible to the reviewer. Branch mode
+refuses a dirty tree so you do not mistake a review of HEAD for a review of
+uncommitted work. Git checkout hooks are disabled when creating the worktree.
 
-`pr` mode leaves your checkout untouched. It fetches the head, adds a worktree,
-reviews that, and removes the worktree afterwards unless `--keep` is given.
+`RB_BASE` is the merge base. Branch mode uses `--base`, or a locally available
+default branch; fetch first when you want the latest remote base. PR mode uses
+the exact base commit from GitHub, unless you override it with `--base`. It
+fetches missing PR commits. Both Git and `gh` use the checkout's `origin`
+repository, or the first remote when there is no `origin`.
+
+The worktree is removed after completion, failure, SIGINT or SIGTERM unless
+`--keep` is given. With `--keep`, its path is printed to stderr. A forced kill
+such as SIGKILL cannot run cleanup. `--dry-run` also removes its worktree unless
+combined with `--keep`.
 
 ## Settings
 
 Every setting flag sets the container variable of the same name, so
 `--min-severity high` is `RB_CONFIG_MIN_SEVERITY=high`. `--set KEY=VALUE` covers
-the rest, and the names are the ones in [SETTINGS.md](SETTINGS.md).
+other settings in [SETTINGS.md](SETTINGS.md).
 
 | Flag | Setting |
 |---|---|
@@ -42,6 +58,8 @@ the rest, and the names are the ones in [SETTINGS.md](SETTINGS.md).
 | `--verifier` | `RB_CONFIG_VERIFIER` |
 | `--verify` | `RB_CONFIG_VERIFY` |
 | `--second-look` | `RB_CONFIG_SECOND_LOOK` |
+| `--follow-up` | `RB_CONFIG_FOLLOW_UP` |
+| `--retry-empty` | `RB_CONFIG_RETRY_EMPTY` |
 | `--mode` | `RB_CONFIG_MODE` |
 | `--min-severity` | `RB_CONFIG_MIN_SEVERITY` |
 | `--max-findings` | `RB_CONFIG_MAX_FINDINGS` |
@@ -50,23 +68,38 @@ the rest, and the names are the ones in [SETTINGS.md](SETTINGS.md).
 | `--effort` | `RB_CONFIG_EFFORT` |
 | `--fit` | `RB_CONFIG_FIT` |
 
-The runner reads which settings the checkout supports from `src/config.ts`, so a
-flag for a setting that checkout does not define is refused before the run starts
-instead of failing a moment later inside the reviewer. Adding a setting to the
-reviewer therefore needs no change here.
+Settings come from the runner's own `src/config.ts`, which belongs to the
+reviewer it executes, rather than the repository being reviewed. Unknown
+settings are refused so they cannot be silently ignored. New settings read in
+the same form by that config file can be passed through `--set`.
 
-Other flags: `--repo <path>` (default `.`), `--base <ref>`, `--json` for machine
-readable output, `--fail-on high|medium|low` to exit 2 on findings at or above
-that severity, `--quiet` to suppress the reviewer's progress, `--dry-run` to
-print the computed environment without reviewing, and `--keep` to leave the `pr`
-worktree in place.
+Exported `RB_CONFIG_*` settings are included and validated, with command-line
+values taking precedence. The effective overrides appear in the run metadata
+and `--dry-run` output. Unset settings use the reviewer's defaults. An exported
+`RB_MODEL_BASE_URL` is also preserved and reported. Other inherited `RB_*`
+variables are removed; the runner controls the input and output paths and
+always starts at attempt 1.
+
+Other flags:
+
+- `--repo <path>` selects the checkout, defaulting to `.`.
+- `--base <ref>` overrides the base used for the merge-base calculation.
+- `--prior <file>` copies a JSON file of earlier review decisions into the run.
+  The default is `none`; there is no automatic GitHub decision collection.
+- `--pr-number <number>` sets the metadata number for branch mode, defaulting
+  to 1. PR mode uses its positional number.
+- `--json` prints machine-readable findings, decisions and any fit assessment.
+- `--fail-on high|medium|low` exits 2 on findings at or above that severity.
+- `--quiet` suppresses the reviewer's progress on stderr.
+- `--dry-run` prints the prepared environment without calling a model.
+- `--keep` retains the detached review checkout in either mode.
 
 ## Output
 
-A run writes its findings, its ranked details, what each reviewer read, and the
-reviewer's log to `runs/local/<timestamp>-<mode>-<sha>/`, which git ignores. The
-summary printed to the terminal comes from `out/details.json`, because that file
-keeps each finding's severity apart while the contract's findings file does not.
+Each run writes to a unique directory under the runner's ignored `runs/local/`.
+It contains the exact patch, PR metadata, findings, ranked details, context
+records and the reviewer's log. A requested fit assessment is saved and included
+in the terminal or JSON report. Logs are written as the reviewer runs.
 
-Exit codes: `0` a review was produced, `1` the reviewer failed, `2` misuse or a
-gate threshold was reached.
+Exit codes are 0 when a review was produced, 1 for a failed review, 2 for misuse
+or a reached severity threshold, 130 for SIGINT and 143 for SIGTERM.

@@ -110,3 +110,19 @@ test("the gate fires at the threshold it is given, and never for none", () => {
   assert.equal(reaches(summary, "medium"), true);
   assert.equal(reaches(summary, "low"), true);
 });
+
+test("inherited settings are validated and CLI settings take precedence", () => {
+  const options = parseArgs(["branch", "--model", "explicit"]);
+  assert.deepEqual(effectiveSettings(options, ALL, { RB_CONFIG_MODEL: "inherited", RB_CONFIG_MODE: "agent" }), { model: "explicit", mode: "agent" });
+  assert.throws(() => effectiveSettings(options, ALL, { RB_CONFIG_TYPO: "on" }), UsageError);
+});
+
+test("GitHub URL parsing checks the host and supports SSH URLs", () => {
+  assert.equal(repoName("ssh://git@github.com/owner/repo.git", "x"), "owner/repo");
+  assert.equal(repoName("https://github.com.example.org/owner/repo", "x"), "local/x");
+  assert.equal(repoName("https://gitlab.com/github.com/repo", "x"), "local/x");
+});
+
+test("PR mode refuses extra numbers instead of reviewing the wrong argument", () => {
+  assert.throws(() => parseArgs(["pr", "1", "2"]), UsageError);
+});

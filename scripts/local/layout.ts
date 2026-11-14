@@ -79,7 +79,7 @@ export function parseArgs(args: string[]): LocalOptions {
     keep: false,
     dryRun: false,
     failOn: "none",
-    prior: "auto",
+    prior: "none",
   };
   const positional: string[] = [];
 
@@ -130,7 +130,7 @@ export function parseArgs(args: string[]): LocalOptions {
 
   if (command === "pr") {
     const number = positional[0];
-    if (number === undefined) throw new UsageError("pr mode needs a pull request number");
+    if (number === undefined || positional.length !== 1) throw new UsageError("pr mode needs exactly one pull request number");
     options.number = integer(number, "pull request number");
   } else if (positional.length) {
     throw new UsageError(`${command} takes no positional arguments, got ${positional.join(" ")}`);
@@ -141,13 +141,15 @@ export function parseArgs(args: string[]): LocalOptions {
 /**
  * The settings the reviewer will actually apply.
  *
- * `available` is the set of settings this checkout reads. The reviewer rejects
- * an `RB_CONFIG_*` name it does not know, so a setting the checkout does not
- * define has to be refused here, where the message can say why, instead of
- * starting a run that fails a moment later with a less useful error.
+ * `available` is the set of settings the runner's reviewer reads. Reject names
+ * it would otherwise silently ignore. Command-line values override the shell.
  */
-export function effectiveSettings(options: LocalOptions, available: Set<string>): Settings {
-  const settings: Settings = { ...options.settings };
+export function effectiveSettings(options: LocalOptions, available: Set<string>, inherited: Record<string, string | undefined> = {}): Settings {
+  const settings: Settings = {};
+  for (const [name, value] of Object.entries(inherited)) {
+    if (name.startsWith("RB_CONFIG_") && value) settings[name.slice(10).toLowerCase()] = value;
+  }
+  Object.assign(settings, options.settings);
   for (const name of Object.keys(settings)) {
     if (available.has(name)) continue;
     const supported = [...available].sort().join(", ") || "none";
@@ -171,8 +173,7 @@ export interface ReviewEnvInput {
 
 /**
  * The RB_* environment the reviewer container would receive, pointed at local
- * paths. Only RB_* keys are produced, so nothing else in the caller's
- * environment leaks into the reviewer's namespace.
+ * paths. The caller must remove inherited RB_* keys before using this map.
  */
 export function buildReviewEnv(input: ReviewEnvInput): Record<string, string> {
   const env: Record<string, string> = {
@@ -206,10 +207,18 @@ export function buildReviewEnv(input: ReviewEnvInput): Record<string, string> {
 export function repoName(url: string | null, fallback: string): string {
   if (!url) return `local/${fallback}`;
   const value = url.trim();
-  const https = /^https?:\/\/[^/]+\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(value);
-  const scp = /^[\w.-]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/.exec(value);
-  const match = https ?? scp;
-  return match && /github\.com/.test(value) ? `${match[1]}/${match[2]}` : `local/${fallback}`;
+  const scp = /^[\w.-]+@github\.com:([^/]+\/[^/]+?)\/?$/i.exec(value);
+  let path = scp?.[1];
+  if (!path) {
+    try {
+      const parsed = new URL(value);
+      if (["https:", "http:", "ssh:"].includes(parsed.protocol) && parsed.hostname.toLowerCase() === "github.com") {
+        path = parsed.pathname.replace(/^\//, "").replace(/\/$/, "");
+      }
+    } catch { /* A local filesystem remote is not a GitHub repository. */ }
+  }
+  path = path?.replace(/\.git$/, "");
+  return path && /^[\w.-]+\/[\w.-]+$/.test(path) ? path : `local/${fallback}`;
 }
 
 export interface Summary {
