@@ -17,6 +17,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { claudeCodeProblem, claudeLoginProblem } from "../src/claude-cli.ts";
 import {
   UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
@@ -328,7 +329,7 @@ async function finish(
   return 0;
 }
 
-function doctor(): number {
+async function doctor(options: LocalOptions): Promise<number> {
   let ok = true;
   process.stdout.write("local: doctor\n");
   const major = Number(process.versions.node.split(".")[0]);
@@ -342,21 +343,25 @@ function doctor(): number {
     process.stdout.write(`  ${label.padEnd(9)} ${found.status === 0 ? found.stdout.split("\n")[0] : "missing"}${label === "gh" ? " (PR mode only)" : ""}\n`);
     if (label === "git" && found.status !== 0) ok = false;
   }
-  const settings = availableSettings(root);
-  process.stdout.write(`  settings  ${settings.size} RB_CONFIG_* setting(s)\n`);
-  if (process.env.RB_CONFIG_ENGINE?.trim() === "claude-code") {
+  const available = availableSettings(root);
+  process.stdout.write(`  settings  ${available.size} RB_CONFIG_* setting(s)\n`);
+  // The settings the review would get, so an engine picked with --set is checked as that engine.
+  let settings: Settings = {};
+  try {
+    settings = effectiveSettings(options, available, process.env);
+  } catch (error) {
+    process.stdout.write(`  settings  ${error instanceof Error ? error.message : String(error)}\n`);
+    ok = false;
+  }
+  if (settings.engine?.trim() === "claude-code") {
+    const installed = await claudeCodeProblem();
     const how = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "CLAUDE_CODE_OAUTH_TOKEN" : process.env.ANTHROPIC_API_KEY?.trim() ? "ANTHROPIC_API_KEY" : null;
-    const status = how ? null : spawnSync("claude", ["auth", "status"], { encoding: "utf8" });
-    let signedIn = Boolean(how);
-    try {
-      if (status) signedIn = JSON.parse(status.stdout).loggedIn === true;
-    } catch {
-      signedIn = status?.status === 0;
-    }
-    process.stdout.write(`  claude    ${how ?? (signedIn ? "claude CLI login" : "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)")}\n`);
-    const fallback = process.env.RB_CONFIG_FALLBACK?.trim();
-    if (fallback && fallback !== "off") process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
-    if (!signedIn && !(fallback && fallback !== "off" && process.env.CMD_API_KEY)) ok = false;
+    const login = installed ?? (how ? null : await claudeLoginProblem());
+    process.stdout.write(`  claude    ${installed ? "missing" : login ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : how ?? "claude CLI login"}\n`);
+    const fallback = settings.fallback?.trim();
+    const hasFallback = Boolean(fallback && fallback !== "off");
+    if (hasFallback) process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
+    if (login && !(hasFallback && process.env.CMD_API_KEY)) ok = false;
   } else {
     process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
     if (!process.env.OPENROUTER_API_KEY) ok = false;
@@ -367,7 +372,7 @@ function doctor(): number {
 
 async function main(argv: string[]): Promise<number> {
   const options = parseArgs(argv);
-  if (options.command === "doctor") return doctor();
+  if (options.command === "doctor") return doctor(options);
   const settings = effectiveSettings(options, availableSettings(root), process.env);
   return options.command === "branch" ? branchMode(options, settings) : prMode(options, settings);
 }

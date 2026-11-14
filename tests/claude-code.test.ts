@@ -256,7 +256,14 @@ test("a direct call claude cannot answer goes to the fallback model", async () =
   assert.deepEqual(reply, called(null, ["f1", "submit_review", { findings: [] }]));
   assert.equal(sent.length, 1);
   assert.equal(sent[0]!.model, "vendor/fallback");
+  // Only the time the call had left goes to the fallback.
+  assert.ok(sent[0]!.timeoutMs <= 60_000 && sent[0]!.timeoutMs > 50_000, String(sent[0]!.timeoutMs));
   assert.match(logs.join("\n"), /naive: claude failed .*Invalid API key.*falling back to vendor\/fallback/);
+
+  // With too little time left, the claude error stands.
+  const late = claudeCodeChat({ effort: null, command: fake([{ exit: 1, stderr: "Invalid API key" }]).command, fallback: { chat: fallback, model: "vendor/fallback" } });
+  await assert.rejects(late({ model: "opus", messages: [{ role: "user", content: "the diff" }], tools: [submitReview], timeoutMs: 9_000 }), /Invalid API key/);
+  assert.equal(sent.length, 1);
 });
 
 test("a pass claude cannot finish starts over on the fallback model", async () => {
@@ -276,7 +283,24 @@ test("a pass claude cannot finish starts over on the fallback model", async () =
   assert.equal(claude.calls().length, 1);
   assert.equal(sent[0]!.model, "vendor/fallback");
   assert.equal(sent[0]!.caller, "s1");
-  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback/);
+  // The failed run was charged its whole allowance of 7 turns, so the fallback has the other 3.
+  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 3 turn\(s\) left/);
+});
+
+test("a failed pass keeps claude's error without a fallback or the room to use one", async () => {
+  const fallback = async (): Promise<ChatMessage> => assert.fail("the fallback must not be called");
+  const pass = (command: string, overrides: { fallback?: boolean; deadline?: number; maxTurns?: number } = {}) => runAgent({
+    chat: claudeCodeChat({ effort: null, command, ...(overrides.fallback === false ? {} : { fallback: { chat: fallback, model: "vendor/fallback" } }) }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: overrides.deadline ?? Date.now() + 3_600_000, maxTurns: overrides.maxTurns ?? 10, caller: "s1", log: () => {},
+  });
+  const failing = () => fake([{ exit: 1, stderr: "Invalid API key" }]).command;
+  const claudeError = (error: unknown) => error instanceof Error && !/fallback must not be called/.test(error.message);
+  await assert.rejects(pass(failing(), { fallback: false }), /Invalid API key/);
+  // Less time left than the wrap-up needs.
+  await assert.rejects(pass(failing(), { deadline: Date.now() + 60_000 }), claudeError);
+  // With 3 turns, claude goes straight to its answer and is charged all 3, leaving none.
+  await assert.rejects(pass(failing(), { maxTurns: 3 }), claudeError);
 });
 
 test("the tool server lists the read tools and runs calls in the workspace", async () => {

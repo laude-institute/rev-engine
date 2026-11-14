@@ -11,7 +11,7 @@ node scripts/local.ts doctor                 # node, git, gh, settings and the k
 ```
 
 Both review modes need Node 24 or newer, Git and `OPENROUTER_API_KEY`, or
-with `--set RB_CONFIG_ENGINE=claude-code`, a signed-in `claude` CLI in place of
+with `--set engine=claude-code`, a signed-in `claude` CLI in place of
 the key. PR mode
 also needs an authenticated `gh` installation. Export the key in your shell,
 or load your trusted credentials file explicitly with Node:
@@ -31,6 +31,7 @@ claude fails:
 export RB_CONFIG_ENGINE=claude-code RB_CONFIG_MODEL=opus RB_CONFIG_FALLBACK=<model> CMD_API_KEY=<key>
 node scripts/local.ts doctor
 node scripts/local.ts branch --base main
+# or, for one run: node scripts/local.ts branch --base main --set engine=claude-code --model opus
 ```
 
 A process that cannot reach the macOS login keychain, such as one started over

@@ -135,6 +135,9 @@ test("the claude-code engine falls back to an OpenAI-compatible endpoint", () =>
   assert.match(describeSettings(config), /^engine=claude-code fallback=deepseek\/deepseek-v4-flash model=opus /);
   assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: "https://example.test/v1/" }).fallback!.baseUrl, "https://example.test/v1");
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m" }), /needs CMD_API_KEY/);
+  for (const url of ["api.commandcode.ai/provider/v1", "ftp://example.test", "not a url"]) {
+    assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: url }), /RB_FALLBACK_BASE_URL must be an http or https URL/, url);
+  }
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd" }), /needs RB_CONFIG_ENGINE=claude-code/);
 });
 

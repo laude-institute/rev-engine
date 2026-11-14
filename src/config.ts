@@ -172,7 +172,15 @@ export function loadConfig(env: Env): Config {
     if (engine !== "claude-code") throw new Error("RB_CONFIG_FALLBACK needs RB_CONFIG_ENGINE=claude-code");
     const apiKey = env.CMD_API_KEY?.trim();
     if (!apiKey) throw new Error("RB_CONFIG_FALLBACK needs CMD_API_KEY, the fallback endpoint's key");
-    fallback = { model: fallbackModel, apiKey, baseUrl: (env.RB_FALLBACK_BASE_URL?.trim() || DEFAULT_FALLBACK_BASE_URL).replace(/\/+$/, "") };
+    const baseUrl = (env.RB_FALLBACK_BASE_URL?.trim() || DEFAULT_FALLBACK_BASE_URL).replace(/\/+$/, "");
+    let protocol = "";
+    try {
+      protocol = new URL(baseUrl).protocol;
+    } catch {
+      // Reported below.
+    }
+    if (protocol !== "https:" && protocol !== "http:") throw new Error(`RB_FALLBACK_BASE_URL must be an http or https URL, not ${baseUrl}`);
+    fallback = { model: fallbackModel, apiKey, baseUrl };
   }
 
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;

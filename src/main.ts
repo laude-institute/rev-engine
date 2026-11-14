@@ -28,7 +28,7 @@ log(`settings: ${describeSettings(config)}`);
 // With a fallback endpoint configured, the whole review runs there instead.
 let problem = config.engine === "claude-code" ? await claudeCodeProblem() : null;
 if (!problem && config.claudeLogin === "cli") problem = await claudeLoginProblem();
-if (config.engine === "claude-code" && !problem) log(`claude-code: signed in with ${config.claudeLogin === "cli" ? "the claude CLI login" : config.claudeLogin === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"}`);
+if (config.engine === "claude-code" && !problem) log(config.claudeLogin === "cli" ? "claude-code: signed in with the claude CLI login" : `claude-code: using ${config.claudeLogin === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"}`);
 if (problem && !config.fallback) {
   log(problem);
   process.exit(2);
