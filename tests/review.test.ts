@@ -186,7 +186,7 @@ test("fix suggestions retain time for the fit assessment", async (context) => {
     } else args = { findings: [finding] };
     return { role: "assistant", tool_calls: [{ id: name, type: "function", function: { name, arguments: JSON.stringify(args) } }] };
   };
-  const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_FIT: "test/fit", RB_CONFIG_TIME_BUDGET: "300" }), chat, () => {});
+  const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_FIT: "test/fit", RB_CONFIG_TIME_BUDGET: "400" }), chat, () => {});
   assert.deepEqual(calls, ["submit_review", "submit_fixes", "submit_fit"]);
   assert.equal(outcome.fixes?.[0]?.replacement, "export const b = a + 1;");
   assert.equal(outcome.fit?.verdict, "fits");
@@ -204,6 +204,16 @@ test("fix suggestions are skipped when only the fit budget remains", async () =>
   };
   const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_FIT: "test/fit", RB_CONFIG_TIME_BUDGET: "200" }), chat, (line) => logs.push(line));
   assert.deepEqual(calls, ["submit_review", "submit_fit"]);
+  assert.equal(outcome.fixes, undefined);
+  assert.ok(logs.includes("fixes skipped: too little time is left"));
+});
+
+
+test("fix suggestions do not start inside the submission-only window", async () => {
+  const logs: string[] = [];
+  const { chat, reviews } = reviewer([{ file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." }]);
+  const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_TIME_BUDGET: "95" }), chat, (line) => logs.push(line));
+  assert.equal(reviews(), 1);
   assert.equal(outcome.fixes, undefined);
   assert.ok(logs.includes("fixes skipped: too little time is left"));
 });

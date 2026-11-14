@@ -54,7 +54,7 @@ const MIN_FOLLOW_UP_MS = 150_000;
 /** The fit assessment needs time to read the project's documents and to write its answer. */
 const MIN_FIT_MS = 150_000;
 /** Writing fixes needs time to read the code around each finding. */
-const MIN_FIX_MS = 90_000;
+const MIN_FIX_MS = 150_000;
 const MAX_INDEXED_FILES = 20_000;
 
 const MAX_FILES_LISTED = 25;

@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,6 +23,7 @@ const workspace = { call: async (name: string, args: string) => JSON.stringify({
 const FAKE_CLAUDE = `#!/usr/bin/env node
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+if (process.argv.includes("--version")) { console.log("2.1.321"); process.exit(0); }
 const here = import.meta.dirname;
 let calls = 0;
 try { calls = readFileSync(join(here, "calls.jsonl"), "utf8").split("\\n").filter(Boolean).length; } catch {}
@@ -301,7 +304,7 @@ test("a reviewer that runs out of turns is asked for its answer, and not asked t
   assert.equal(more.length, 0);
   assert.equal(flag(second!, "--resume"), flag(first!, "--session-id"));
   assert.equal(flag(second!, "--max-turns"), "3");
-  assert.equal(flag(second!, "--system-prompt"), undefined);
+  assert.equal(flag(second!, "--system-prompt"), flag(first!, "--system-prompt"));
   assert.match(second!.stdin, /^Stop investigating\. Give your submit_review answer as your structured output now/);
 });
 
@@ -488,7 +491,7 @@ test("a transient failed process retains usage and resumes for its answer", asyn
 });
 
 test("a transient error result can be recovered without losing its final totals", async () => {
-  const claude = fake([{ result: { type: "result", subtype: "error_during_execution", is_error: true, num_turns: 2, total_cost_usd: 0.1, result: "API Error: 503 temporarily unavailable" } }, done([], 2)]);
+  const claude = fake([{ result: { type: "result", subtype: "error_during_execution", is_error: true, num_turns: 2, total_cost_usd: 0.1, permission_denials: [], errors: ["API Error: 503 temporarily unavailable"] } }, done([], 2)]);
   const usage = emptyUsage();
   assert.deepEqual(await run(claude.command, { usage }), { findings: [] });
   assert.equal(usage.costUsd, 0.35);
@@ -500,4 +503,39 @@ test("final usage replaces streamed usage instead of counting both", async () =>
   await run(claude.command, { usage });
   assert.equal(usage.promptTokens, 400);
   assert.equal(usage.costUsd, 0.25);
+});
+
+
+test("a temporary-directory failure does not open a tool server", async () => {
+  const before = process.getActiveResourcesInfo().filter((name) => name === "TCPServerWrap").length;
+  const command = fake([]).command;
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = join(tmpdir(), "no-such-parent", "tmp");
+  try {
+    await assert.rejects(run(command), /ENOENT/);
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previous;
+  }
+  assert.equal(process.getActiveResourcesInfo().filter((name) => name === "TCPServerWrap").length, before);
+});
+
+test("the entry point writes each fix alongside its finding and omits missing fixes", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rev-details-"));
+  writeFileSync(join(dir, "a.ts"), "export const a = 1;\nexport const b = 2;\n");
+  writeFileSync(join(dir, "diff.patch"), "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -0,0 +1,2 @@\n+export const a = 1;\n+export const b = 2;\n");
+  const findings = [1, 2].map((line) => ({ file: "a.ts", start_line: line, end_line: line, severity: "low", kind: "maintainability", title: line === 1 ? "Unused constant" : "Incorrect assignment", detail: line === 1 ? "The exported value is never consumed." : "The assignment must reference its dependency." }));
+  const claude = fake([done(findings, 2), { result: { type: "result", subtype: "success", num_turns: 2, structured_output: { fixes: [{ id: "F2", start_line: 2, end_line: 2, replacement: "export const b = a + 1;" }] } } }]);
+  symlinkSync(claude.command, join(dir, "claude"));
+  await promisify(execFile)(process.execPath, [join(import.meta.dirname, "../src/main.ts")], { timeout: 30_000, env: {
+    PATH: `${dir}:${process.env.PATH}`, HOME: dir, RB_NWO: "fixture/repo", RB_PR_NUMBER: "1", RB_BASE: "a".repeat(40), RB_HEAD: "b".repeat(40),
+    RB_REPO: dir, RB_DIFF: join(dir, "diff.patch"), RB_PR_JSON: join(dir, "missing.json"), RB_OUT: join(dir, "findings.json"), RB_DETAILS_OUT: join(dir, "details.json"),
+    RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus", CLAUDE_CODE_OAUTH_TOKEN: "fixture-only", RB_CONFIG_FIXES: "opus", RB_CONFIG_SECOND_LOOK: "off", RB_CONFIG_VERIFY: "off", RB_CONFIG_RETRY_EMPTY: "off",
+  } });
+  const details = JSON.parse(readFileSync(join(dir, "details.json"), "utf8"));
+  assert.equal(details.findings.length, 2);
+  assert.equal(details.findings[0].title, "Unused constant");
+  assert.equal(Object.hasOwn(details.findings[0], "fix"), false);
+  assert.equal(details.findings[1].title, "Incorrect assignment");
+  assert.deepEqual(details.findings[1].fix, { start_line: 2, end_line: 2, replacement: "export const b = a + 1;" });
 });

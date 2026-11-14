@@ -136,7 +136,10 @@ export async function serveTools(options: Pick<AgentOptions, "workspace" | "log"
         return reply(response, 200, { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "method not found" } });
     }
   });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   const { port } = server.address() as AddressInfo;
   return { url: `http://127.0.0.1:${port}${path}`, close: () => server.close() };
 }
@@ -149,6 +152,7 @@ interface Result {
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
   structured_output?: unknown;
   result?: string;
+  errors?: string[];
 }
 
 interface Block {
@@ -419,7 +423,7 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
   const submitName = submit.function.name;
   const system = options.system + sessionNote(submitName, true);
   const answerNow = `Stop investigating. Give your ${submitName} answer as your structured output now, with what you have established so far.`;
-  const tools = await serveTools(options, who);
+  let tools: Awaited<ReturnType<typeof serveTools>> | undefined;
   // An empty directory, so Claude Code finds no CLAUDE.md or settings from the checkout.
   const cwd = await mkdtemp(join(tmpdir(), "rev-claude-"));
   const submissions: Array<Record<string, unknown>> = [];
@@ -427,11 +431,12 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
   const messages: ChatMessage[] = [{ role: "system", content: options.system }];
   settings.transcript?.(who, model, messages);
   try {
+    tools = await serveTools(options, who);
     const common = baseArgs(model, submit, settings.effort, tools.url);
     // Chosen here, so a run stopped before it reports its session can still be resumed.
     const session = randomUUID();
     const start = (id: string): string[] => ["--session-id", id, "--system-prompt", system];
-    const resume = ["--resume", session];
+    const resume = ["--resume", session, "--system-prompt", system];
     // One turn budget for the whole conversation, as in the chat loop.
     let turnsLeft = options.maxTurns;
     // The size of the conversation, counted as the chat loop counts it.
@@ -476,7 +481,7 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
         });
         const why = contextChars > MAX_CONTEXT_CHARS ? "stopped at the conversation size limit" : "stopped to keep time for the answer";
         log(`${who}: round ${round}: ${result ? describeRun(result) : why}`);
-        if (!result || result.subtype === "error_max_turns" || (result.is_error && recoverable(JSON.stringify(result)))) {
+        if (!result || result.subtype === "error_max_turns" || (result.is_error && recoverable([result.result, ...(result.errors ?? [])].filter(Boolean).join("\n")))) {
           wrappedUp = true;
           const stopped = !result;
           result = await answer(resume, answerNow).catch((error) => {
@@ -507,7 +512,7 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
     if (!submissions.length) throw error;
     log(`${who}: a later round failed, keeping the submissions so far: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
-    tools.close();
+    tools?.close();
     await rm(cwd, { recursive: true, force: true });
   }
   return secondLook && submissions.length > 1 ? secondLook.combine(submissions) : submissions[0]!;

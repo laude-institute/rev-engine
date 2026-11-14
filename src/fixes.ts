@@ -105,7 +105,7 @@ export async function parseFixes(submission: Record<string, unknown>, findings: 
       drop(`it replaces more than ${MAX_FIX_LINES} lines`);
       continue;
     }
-    if (start < finding.startLine - NEARBY_LINES || end > finding.endLine + NEARBY_LINES || end < finding.startLine - NEARBY_LINES || start > finding.endLine + NEARBY_LINES) {
+    if (start < finding.startLine - NEARBY_LINES || end > finding.endLine + NEARBY_LINES) {
       drop("it lies away from the finding's lines");
       continue;
     }
