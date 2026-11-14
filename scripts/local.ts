@@ -17,7 +17,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { claudeCodeProblem, claudeLoginProblem } from "../src/claude-cli.ts";
+import { claudeCodeProblem, claudeLoginOf, claudeLoginProblem } from "../src/claude-cli.ts";
 import {
   UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
@@ -355,13 +355,16 @@ async function doctor(options: LocalOptions): Promise<number> {
   }
   if (settings.engine?.trim() === "claude-code") {
     const installed = await claudeCodeProblem();
-    const how = process.env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "CLAUDE_CODE_OAUTH_TOKEN" : process.env.ANTHROPIC_API_KEY?.trim() ? "ANTHROPIC_API_KEY" : null;
+    const method = claudeLoginOf(process.env);
+    const how = method === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : method === "api-key" ? "ANTHROPIC_API_KEY" : null;
     const login = installed ?? (how ? null : await claudeLoginProblem());
     process.stdout.write(`  claude    ${installed ? "missing" : login ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : how ?? "claude CLI login"}\n`);
     const fallback = settings.fallback?.trim();
     const hasFallback = Boolean(fallback && fallback !== "off");
     if (hasFallback) process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
-    if (login && !(hasFallback && process.env.CMD_API_KEY)) ok = false;
+    // The review refuses a fallback without its key, so doctor does too.
+    if (hasFallback && !process.env.CMD_API_KEY) ok = false;
+    if (login && !hasFallback) ok = false;
   } else {
     process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
     if (!process.env.OPENROUTER_API_KEY) ok = false;

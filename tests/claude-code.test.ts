@@ -283,8 +283,28 @@ test("a pass claude cannot finish starts over on the fallback model", async () =
   assert.equal(claude.calls().length, 1);
   assert.equal(sent[0]!.model, "vendor/fallback");
   assert.equal(sent[0]!.caller, "s1");
-  // The failed run was charged its whole allowance of 7 turns, so the fallback has the other 3.
-  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 3 turn\(s\) left/);
+  // Claude failed before taking a turn, so the fallback has the whole budget.
+  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 10 turn\(s\) left/);
+});
+
+test("a pass claude cannot finish for a passing reason, such as an overload, also falls back", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [] }]);
+  };
+  const logs: string[] = [];
+  // The investigation and then the request for its answer both fail.
+  const claude = fake([{ exit: 1, stderr: "API Error: 529 Overloaded" }, { exit: 1, stderr: "API Error: 529 Overloaded" }]);
+  const submitted = await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.deepEqual(submitted, { findings: [] });
+  assert.equal(claude.calls().length, 2);
+  assert.equal(sent.length, 1);
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 10 turn\(s\) left/);
 });
 
 test("a failed pass keeps claude's error without a fallback or the room to use one", async () => {
@@ -299,8 +319,9 @@ test("a failed pass keeps claude's error without a fallback or the room to use o
   await assert.rejects(pass(failing(), { fallback: false }), /Invalid API key/);
   // Less time left than the wrap-up needs.
   await assert.rejects(pass(failing(), { deadline: Date.now() + 60_000 }), claudeError);
-  // With 3 turns, claude goes straight to its answer and is charged all 3, leaving none.
-  await assert.rejects(pass(failing(), { maxTurns: 3 }), claudeError);
+  // A claude that used all but one of its turns before failing leaves too few for the fallback.
+  const spent = fake([{ events: said("m1", reads("t1", "a.ts")).concat([returned("t1", fileText)], said("m2", reads("t2", "a.ts")), [returned("t2", fileText)]), exit: 1, stderr: "Invalid API key" }]).command;
+  await assert.rejects(pass(spent, { maxTurns: 3 }), claudeError);
 });
 
 test("the tool server lists the read tools and runs calls in the workspace", async () => {

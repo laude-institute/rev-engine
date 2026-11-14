@@ -79,15 +79,18 @@ try {
   const keep = (caller: string, model: string, messages: ChatMessage[]): void => {
     transcripts.set(caller, { model, messages });
   };
-  const kept = (send: Chat): Chat => config.transcriptOutPath
+  /** Records each caller's conversation, under the caller's name with a suffix when one is given. */
+  const kept = (send: Chat, suffix = ""): Chat => config.transcriptOutPath
     ? (request) => {
-      keep(request.caller ?? request.model, request.model, request.messages);
+      keep(`${request.caller ?? request.model}${suffix}`, request.model, request.messages);
       return send(request);
     }
     : send;
+  // A pass that falls back keeps claude's conversation too, so the transcript shows why it fell back.
+  const fallbackSuffix = problem ? "" : " fallback";
   // Claude's effort levels are not the chat API's, so the fallback uses the endpoint's default.
   const fallbackChat = config.fallback
-    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }))
+    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }), fallbackSuffix)
     : null;
   let chat: Chat;
   if (problem && fallbackChat) {

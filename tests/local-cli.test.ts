@@ -211,6 +211,11 @@ test("doctor checks the claude login when the engine is set with --set", t => {
   result = f.cli(["doctor", "--set", "engine=claude-code", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic" });
   assert.equal(result.status, 0, result.stdout);
   assert.match(result.stdout, /fallback\s+vendor\/fallback key present/);
+  // A fallback without its key fails the review, so doctor fails too, even when claude is signed in.
+  claude(true);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--set", "fallback=vendor/fallback"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+vendor\/fallback CMD_API_KEY absent/);
 
   rmSync(join(f.bin, "claude"));
   result = f.cli(["doctor", "--set", "engine=claude-code"], { PATH: `${f.bin}:${dirname(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim())}`, CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });

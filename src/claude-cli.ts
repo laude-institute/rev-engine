@@ -2,6 +2,11 @@
 // other modules, so the local runner's doctor can make the same checks.
 import { execFile } from "node:child_process";
 
+/** How claude signs in: a token or key in the environment, or else the claude CLI's own login. */
+export function claudeLoginOf(env: Record<string, string | undefined>): "token" | "api-key" | "cli" {
+  return env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "token" : env.ANTHROPIC_API_KEY?.trim() ? "api-key" : "cli";
+}
+
 export const NOT_INSTALLED = "Claude Code is not installed in this image; build it with --build-arg CLAUDE_CODE_VERSION=<exact version>";
 
 /** Why Claude Code cannot run here, or null when it can. */

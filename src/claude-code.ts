@@ -466,10 +466,10 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       const { result, events, error } = run;
       transcribe(events, submitName, messages);
       record(settings, options.caller, run);
-      // Without final totals, charge the whole allowance: unseen turns may have run.
-      // A missing saved session is a setup error and consumed no model turns.
-      const missingSession = error && !events.some((event) => event.type === "assistant") && /No conversation found with session ID/i.test(error.message);
-      turnsLeft -= missingSession ? 0 : (result?.num_turns ?? turns);
+      // A run that was stopped has no final totals, so it is charged the whole allowance: unseen turns may have run.
+      // A run that failed printed everything it did, so it is charged the turns it was seen to take:
+      // none for one that failed at once, such as a missing saved session or a bad login.
+      turnsLeft -= result?.num_turns ?? (error ? observedUsage(events).num_turns ?? 0 : turns);
       if (error) throw error;
       return result;
     };

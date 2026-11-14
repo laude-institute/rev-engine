@@ -19,8 +19,8 @@ function signedOut(t: TestContext) {
   mkdirSync(bin);
   writeFileSync(join(bin, "claude"), `#!${process.execPath}
 if (process.argv.includes("--version")) console.log("2.1.325 (Claude Code)");
-else if (process.argv[2] === "auth") console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }));
-else process.exit(1);
+else if (process.argv[2] === "auth") console.log(JSON.stringify({ loggedIn: process.env.FAKE_SIGNED_IN === "1" }));
+else { process.stderr.write("Invalid API key"); process.exit(1); }
 `);
   chmodSync(join(bin, "claude"), 0o755);
   writeFileSync(join(dir, "a.ts"), "export const a = 1;\nexport const b = 2;\n");
@@ -35,23 +35,8 @@ else process.exit(1);
   return { dir, env };
 }
 
-async function run(env: Record<string, string>): Promise<{ code: number | null; stderr: string }> {
-  const child = spawn(process.execPath, [main], { env, stdio: ["ignore", "ignore", "pipe"] });
-  let stderr = "";
-  child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
-  const [code] = await once(child, "close");
-  return { code, stderr };
-}
-
-test("a signed-out claude with no fallback is a setup error", async (t) => {
-  const { env } = signedOut(t);
-  const { code, stderr } = await run(env);
-  assert.equal(code, 2);
-  assert.match(stderr, /claude is not signed in/);
-});
-
-test("a signed-out claude with a fallback reviews every pass on the fallback model", async (t) => {
-  const { env } = signedOut(t);
+/** An OpenAI-compatible endpoint that answers every call by submitting no findings. */
+async function fallbackServer(t: TestContext) {
   const requests: Array<{ path: string; model: string; effort: unknown }> = [];
   const server = createServer(async (request, response) => {
     let body = "";
@@ -68,8 +53,29 @@ test("a signed-out claude with a fallback reviews every pass on the fallback mod
   await once(server, "listening");
   t.after(() => server.close());
   const { port } = server.address() as AddressInfo;
+  return { requests, url: `http://127.0.0.1:${port}/v1` };
+}
 
-  const { code, stderr } = await run({ ...env, RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: `http://127.0.0.1:${port}/v1` });
+async function run(env: Record<string, string>): Promise<{ code: number | null; stderr: string }> {
+  // A hang fails the test instead of stalling the suite.
+  const child = spawn(process.execPath, [main], { env, stdio: ["ignore", "ignore", "pipe"], timeout: 60_000 });
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+  const [code] = await once(child, "close");
+  return { code, stderr };
+}
+
+test("a signed-out claude with no fallback is a setup error", async (t) => {
+  const { env } = signedOut(t);
+  const { code, stderr } = await run(env);
+  assert.equal(code, 2);
+  assert.match(stderr, /claude is not signed in/);
+});
+
+test("a signed-out claude with a fallback reviews every pass on the fallback model", async (t) => {
+  const { env } = signedOut(t);
+  const { requests, url } = await fallbackServer(t);
+  const { code, stderr } = await run({ ...env, RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: url });
   assert.equal(code, 0, stderr);
   assert.match(stderr, /claude is not signed in.*reviewing with the fallback vendor\/fallback at 127\.0\.0\.1/);
   assert.ok(requests.length > 0);
@@ -80,4 +86,17 @@ test("a signed-out claude with a fallback reviews every pass on the fallback mod
     assert.equal(request.effort, undefined);
   }
   assert.deepEqual(JSON.parse(readFileSync(env.RB_OUT!, "utf8")).findings, []);
+});
+
+test("a pass that falls back keeps claude's conversation in the transcript", async (t) => {
+  const { dir, env } = signedOut(t);
+  const { requests, url } = await fallbackServer(t);
+  const transcript = join(dir, "out", "transcript.json");
+  const { code, stderr } = await run({ ...env, FAKE_SIGNED_IN: "1", RB_CONFIG_FALLBACK: "vendor/fallback", CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: url, RB_TRANSCRIPT_OUT: transcript });
+  assert.equal(code, 0, stderr);
+  assert.match(stderr, /s1 \(opus\): claude failed .*Invalid API key.*falling back to vendor\/fallback/);
+  assert.ok(requests.length > 0);
+  const callers = JSON.parse(readFileSync(transcript, "utf8")).conversations.map((conversation: { caller: string; model: string }) => `${conversation.caller}=${conversation.model}`);
+  assert.ok(callers.includes("s1 (opus)=opus"), callers.join(", "));
+  assert.ok(callers.includes("s1 (opus) fallback=vendor/fallback"), callers.join(", "));
 });

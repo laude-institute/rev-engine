@@ -1,6 +1,7 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
+import { claudeLoginOf } from "./claude-cli.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -161,10 +162,7 @@ export function loadConfig(env: Env): Config {
     if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) throw new Error(`${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`);
     // With neither set, claude uses its own CLI login, which main checks before the review starts.
   }
-  const claudeLogin = engine !== "claude-code" ? null
-    : env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "token"
-    : env.ANTHROPIC_API_KEY?.trim() ? "api-key"
-    : "cli";
+  const claudeLogin = engine === "claude-code" ? claudeLoginOf(env) : null;
 
   const fallbackModel = env.RB_CONFIG_FALLBACK?.trim() || "off";
   let fallback: Config["fallback"] = null;
