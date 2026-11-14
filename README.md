@@ -44,6 +44,7 @@ With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 
 | [Settings](docs/SETTINGS.md) | Every setting the reviewer container reads. |
 | [ReviewBench](docs/REVIEWBENCH.md) | How the reviewer runs in [ReviewBench](https://github.com/review-bench/ReviewBench), an open benchmark for AI code review, and how to run it locally. |
 | [Evals](evals/README.md) | Our own checks of severity, merge advice and known false positives on pull requests a person has labeled. |
+| [Local](docs/LOCAL.md) | Running the reviewer on your own checkout, without Docker or the benchmark. |
 
 ## License
 
