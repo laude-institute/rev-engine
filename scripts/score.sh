@@ -84,7 +84,7 @@ fi
 jq -s '{
   pull_requests: length,
   findings: (map(.findings | length) | add),
-  cost_usd: (map(.usage.cost_usd) | add),
+  cost_usd: (map(.usage.cost_usd) | if any(. == null) then null else add end),
   mean_seconds: ((map(.usage.time_in_ms) | add) / length / 1000 | round),
   max_seconds: (map(.usage.time_in_ms) | max / 1000 | round),
   prompt_tokens: (map(.usage.prompt_tokens) | add),

@@ -16,7 +16,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { applyVerdicts, dedupe, toOutput, type Candidate, type Verdict } from "../../../src/findings.ts";
-import { createChat, emptyUsage, type Chat } from "../../../src/llm.ts";
+import { createChat, emptyUsage, formatCost, type Chat } from "../../../src/llm.ts";
 import { cleanGroups, mergeRepeats, representative } from "./merge.ts";
 import { rankBySupport } from "./review.ts";
 
@@ -156,6 +156,6 @@ for (const key of keys) {
 }
 if (chat) {
   const usage = (chat as Chat & { usage: ReturnType<typeof emptyUsage> }).usage;
-  console.log(`merge calls ${usage.calls}, $${usage.costUsd.toFixed(4)}`);
+  console.log(`merge calls ${usage.calls}, ${formatCost(usage.costUsd, 4)}`);
 }
 if (original) console.log(mismatches ? `${mismatches} pull request(s) differ from the recorded run` : "every pull request matches the recorded run");

@@ -154,3 +154,12 @@ test("counts earlier decided findings raised again apart from the invalid ones",
   assert.match(renderReport("demo", "Settings.", [score], 0), /decided in an earlier round, reported again: 1 of 2\. Lower is better\./);
   assert.equal(withEarlierDecisions(CASE), CASE);
 });
+
+test("eval costs stay unknown when any run or matching cost is unavailable", () => {
+  const known = scoreCase(CASE, [run([], {})]);
+  const unknown = scoreCase(CASE, [run([], {}), { ...run([], {}), costUsd: null }]);
+  assert.equal(known.costUsd, 0.5);
+  assert.equal(unknown.costUsd, null);
+  assert.match(renderReport("mixed", "", [known, unknown], null), /Review cost unknown, matching cost unknown/);
+  assert.match(renderReport("known", "", [known], 0.25), /Review cost \$0.50, matching cost \$0.25/);
+});

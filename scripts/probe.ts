@@ -26,7 +26,7 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { join, resolve } from "node:path";
-import { createChat, emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
+import { createChat, emptyUsage, formatCost, addCosts, type ChatMessage, type Usage } from "../src/llm.ts";
 import { readTools, type ToolDefinition } from "../src/tools.ts";
 
 const here = resolve(import.meta.dirname, "..");
@@ -227,6 +227,6 @@ const report = [
   ...results.map((result) => `| ${result.key} | ${result.file}:${result.start}-${result.end} | ${result.severity} | ${result.outcome} | ${result.answer?.during_review ?? ""} | ${cell(result.message).slice(0, 200)} | ${cell(result.answer?.problem ?? "").slice(0, 200)} | ${cell(result.answer?.reason_left_out ?? "")} |`),
 ].join("\n");
 await writeFile(join(runDir, "probes.md"), `${report}\n`);
-const probeCost = [...byCaller].filter(([caller]) => caller.startsWith("probe")).reduce((sum, [, spent]) => sum + spent.costUsd, 0);
+const probeCost = [...byCaller].filter(([caller]) => caller.startsWith("probe")).reduce<number | null>((sum, [, spent]) => addCosts(sum, spent.costUsd), 0);
 console.log(report.split("\n").slice(0, 28).join("\n"));
-console.error(`${usage.calls} model call(s), ${usage.promptTokens} prompt token(s) (${usage.cachedTokens} cached), $${usage.costUsd.toFixed(2)} ($${probeCost.toFixed(2)} for probes)`);
+console.error(`${usage.calls} model call(s), ${usage.promptTokens} prompt token(s) (${usage.cachedTokens} cached), ${formatCost(usage.costUsd, 2)} (${formatCost(probeCost, 2)} for probes)`);
