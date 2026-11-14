@@ -85,7 +85,10 @@ test("a signed-out claude with a fallback reviews every pass on the fallback mod
     // Claude's effort levels are not sent to the chat endpoint.
     assert.equal(request.effort, undefined);
   }
-  assert.deepEqual(JSON.parse(readFileSync(env.RB_OUT!, "utf8")).findings, []);
+  const written = JSON.parse(readFileSync(env.RB_OUT!, "utf8"));
+  assert.deepEqual(written.findings, []);
+  // The endpoint reported no cost, so the cost is unknown rather than zero.
+  assert.equal(written.usage.cost_usd, null);
 });
 
 test("a pass that falls back keeps claude's conversation in the transcript", async (t) => {
