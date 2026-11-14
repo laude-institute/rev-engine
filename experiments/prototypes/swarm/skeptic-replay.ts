@@ -9,7 +9,7 @@
 // Labels land in runs/<run>/skeptic.json, by pull request and the finding's rank.
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createChat, emptyUsage, type Chat } from "../../../src/llm.ts";
+import { createChat, emptyUsage, formatCost, type Chat } from "../../../src/llm.ts";
 import { Workspace } from "../../../src/tools.ts";
 import { checkFindings, type SkepticCheck, type SkepticFinding } from "./skeptic.ts";
 
@@ -93,4 +93,4 @@ await writeFile(join(runDir, "skeptic.json"), `${JSON.stringify(labels, null, 2)
 const tally = new Map<string, number>();
 for (const byIndex of Object.values(labels)) for (const check of Object.values(byIndex)) tally.set(check.label, (tally.get(check.label) ?? 0) + 1);
 console.log(`labels: ${[...tally].map(([label, value]) => `${label} ${value}`).join(", ")}`);
-console.log(`${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}`);
+console.log(`${usage.calls} model call(s), ${formatCost(usage.costUsd, 4)}`);

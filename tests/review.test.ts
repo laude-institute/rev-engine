@@ -168,3 +168,42 @@ test("a decisions file with only fit answers leaves the reviewer and verifier as
   assert.ok(requests.every((request) => !request.prompt.includes("Earlier reviews of this pull request")));
   assert.ok(requests.every((request) => request.tools.every((tool) => !tool.includes("repeat_of"))));
 });
+
+test("fix suggestions retain time for the fit assessment", async (context) => {
+  context.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const calls: string[] = [];
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const chat: Chat = async (request) => {
+    const name = request.tools.at(-1)!.function.name;
+    calls.push(name);
+    let args: unknown;
+    if (name === "submit_fixes") {
+      // Use the entire fix deadline, including the submission reserve.
+      context.mock.timers.tick(request.timeoutMs + 100_000);
+      args = { fixes: [{ id: "F1", start_line: 2, end_line: 2, replacement: "export const b = a + 1;" }] };
+    } else if (name === "submit_fit") {
+      args = { verdict: "fits", summary: "Fits the project.", reasons: [] };
+    } else args = { findings: [finding] };
+    return { role: "assistant", tool_calls: [{ id: name, type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+  };
+  const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_FIT: "test/fit", RB_CONFIG_TIME_BUDGET: "300" }), chat, () => {});
+  assert.deepEqual(calls, ["submit_review", "submit_fixes", "submit_fit"]);
+  assert.equal(outcome.fixes?.[0]?.replacement, "export const b = a + 1;");
+  assert.equal(outcome.fit?.verdict, "fits");
+  assert.equal(outcome.ranked[0]?.title, "Unused");
+});
+
+test("fix suggestions are skipped when only the fit budget remains", async () => {
+  const calls: string[] = [];
+  const logs: string[] = [];
+  const chat: Chat = async (request) => {
+    const name = request.tools.at(-1)!.function.name;
+    calls.push(name);
+    const args = name === "submit_fit" ? { verdict: "fits", summary: "Fits.", reasons: [] } : { findings: [{ file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." }] };
+    return { role: "assistant", tool_calls: [{ id: name, type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+  };
+  const outcome = await review(configFor({ RB_CONFIG_VERIFY: "off", RB_CONFIG_FIXES: "test/fix", RB_CONFIG_FIT: "test/fit", RB_CONFIG_TIME_BUDGET: "200" }), chat, (line) => logs.push(line));
+  assert.deepEqual(calls, ["submit_review", "submit_fit"]);
+  assert.equal(outcome.fixes, undefined);
+  assert.ok(logs.includes("fixes skipped: too little time is left"));
+});

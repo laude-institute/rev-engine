@@ -2,6 +2,10 @@
 
 The reviewer container reads its settings from environment variables. It needs one credential, `OPENROUTER_API_KEY`, and reaches one host, the one in `RB_MODEL_BASE_URL` (`https://openrouter.ai/api/v1` by default). [The Claude Code engine](#the-claude-code-engine) uses another credential and host. The `RB_` names come from the [ReviewBench agent contract](https://github.com/review-bench/ReviewBench/blob/main/AGENT_CONTRACT.md).
 
+To call OpenAI directly, set `RB_MODEL_BASE_URL=https://api.openai.com/v1` and put the OpenAI key in `OPENROUTER_API_KEY`. You must also set `RB_CONFIG_MODEL` to an OpenAI model ID without the `openai/` prefix; the default is an OpenRouter ID and will not work here. Any explicitly configured verifier, follow-up, or fit model must also use an OpenAI model ID.
+
+Requests then go through OpenAI's Responses API. Token usage is recorded, but `usage.cost_usd` is `null` and cost summaries say `unknown` because this API does not report billed cost. OpenRouter remains the default; benchmark runs must allow the configured endpoint.
+
 If you use the GitHub Action, set its inputs instead. They are listed in [INSTALL.md](INSTALL.md).
 
 | Variable | Default | Meaning |
@@ -17,7 +21,7 @@ If you use the GitHub Action, set its inputs instead. They are listed in [INSTAL
 | `RB_CONFIG_SWARM` | `off` | `on` replaces the review with a prototype that runs many short reviews by a cheap model, one for each chunk of the diff and task, and has several verifiers vote on the findings. It is an experiment and may be removed. Its own settings are described in [`experiments/prototypes/swarm/README.md`](../experiments/prototypes/swarm/README.md). |
 | `RB_CONFIG_MIN_SEVERITY` | `low` | Drop findings less severe than this before verification. One of `high`, `medium` or `low`. |
 | `RB_CONFIG_FIT` | none | A model that says whether the change belongs in the project, judged by the goals and design the project states. It runs after the review and is told the findings, writes `fit.json` beside the findings file, and never changes the findings. |
-| `RB_CONFIG_FIXES` | none | A model that writes a fix for each final finding whose remedy is a small change to the lines it names: at most 10 lines replaced, on or next to the finding's lines. It runs after the review in the time left over and never changes the findings. A fix is written to the details file as the finding's `fix`, with `start_line`, `end_line` and `replacement`. Most findings get none. |
+| `RB_CONFIG_FIXES` | none | A model that writes a fix for each final finding whose remedy is a small change to the lines it names: at most 10 lines replaced, on or next to the finding's lines. It runs after the review, reserves time for a configured fit assessment, and never changes the findings. It does not edit the checkout or post GitHub suggestions. A fix is written to the details file as the finding's `fix`, with `start_line`, `end_line` and `replacement`. Most findings get none. |
 | `RB_CONFIG_EFFORT` | provider default | Reasoning effort, for models that accept one. |
 | `RB_CONFIG_MODE` | `human` | Who reads the review. `agent` writes a thorough review for an agent that manages the pull request: the cap defaults to 80, and with `RB_CONFIG_SWARM=on` each message starts with the finding's severity and how many verifiers confirmed it, and every swarm agent runs twice. `human` writes a shorter review for people to read. The benchmark runs `agent`. |
 | `RB_CONFIG_MAX_FINDINGS` | `25`, or `80` in agent mode | Cap on findings per pull request. |
@@ -37,8 +41,8 @@ Setting `RB_CONTEXT_OUT` to a path makes the container write what each model rea
 `RB_CONFIG_ENGINE=claude-code` runs each review, verification and fit pass with Claude Code (`claude -p`) instead of the chat API. Claude Code gets none of its own tools. It reads the checkout only through the reviewer's read tools. The naive baseline is one `claude` run with no tools at all.
 
 - **Image.** Claude Code is left out of the image by default. Name an exact version at build time to include it: `docker build --build-arg CLAUDE_CODE_VERSION=2.1.321 .`
-- **Credential and host.** The container needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) or `ANTHROPIC_API_KEY` in place of `OPENROUTER_API_KEY`. It reaches Anthropic's API in place of `RB_MODEL_BASE_URL`.
+- **Credential and host.** The container needs `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) or `ANTHROPIC_API_KEY` in place of `OPENROUTER_API_KEY`. It reaches Anthropic's API in place of `RB_MODEL_BASE_URL`. Nonessential traffic, including telemetry and automatic updates, is disabled.
 - **Models.** `RB_CONFIG_MODEL` must be set. Every model must be a Claude model, such as `anthropic/claude-opus-5.5` or `opus`.
 - **Effort.** `RB_CONFIG_EFFORT` is one of `low`, `medium`, `high`, `xhigh` or `max`.
-- **Usage.** The reported cost is what the tokens cost at API prices. A subscription login is not charged that amount.
+- **Usage.** The reported cost is what the tokens cost at API prices. A subscription login is not charged that amount. If a call stops before reporting its totals, observed token usage is retained and cost is `null` (unknown).
 - **Not supported.** The swarm review.

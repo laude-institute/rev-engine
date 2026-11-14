@@ -17,7 +17,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CONTEXT_CHARS, WRAP_UP_MS, label, type AgentOptions } from "./agent.ts";
-import { emptyUsage, type Chat, type ChatMessage, type ChatRequest, type Usage } from "./llm.ts";
+import { addCosts, emptyUsage, formatCost, type Chat, type ChatMessage, type ChatRequest, type Usage } from "./llm.ts";
 import { readTools, type ToolDefinition } from "./tools.ts";
 
 const SERVER = "rev";
@@ -164,7 +164,7 @@ interface Block {
 /** One line of claude's stream-json output: a message of the conversation, the final result, or a notice. */
 interface StreamEvent {
   type?: string;
-  message?: { id?: string; content?: unknown };
+  message?: { id?: string; content?: unknown; usage?: Result["usage"] };
 }
 
 function blocks(content: unknown): Block[] {
@@ -225,6 +225,7 @@ interface Run {
   /** Null when the run was stopped before it finished. */
   result: Result | null;
   events: StreamEvent[];
+  error?: Error;
 }
 
 interface RunOptions {
@@ -240,7 +241,7 @@ interface RunOptions {
 /** Runs claude with the prompt on its standard input, reading its events as they are printed. */
 function runClaude(command: string, args: string[], prompt: string, options: RunOptions): Promise<Run> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { cwd: options.cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } });
     const events: StreamEvent[] = [];
     /** The end of the output so far, when it is not a whole line yet. */
     let unread = "";
@@ -296,8 +297,8 @@ function runClaude(command: string, args: string[], prompt: string, options: Run
       const result = events.findLast((event) => event.type === "result") as Result | undefined;
       if (result) return resolve({ result, events });
       if (stopped) return resolve({ result: null, events });
-      if (signal) return reject(new Error(`claude was stopped by ${signal}`));
-      reject(new Error(`claude exited with code ${code}: ${(stderr || other).trim().slice(0, 300)}`));
+      const error = new Error(signal ? `claude was stopped by ${signal}` : `claude exited with code ${code}: ${(stderr || other).trim().slice(0, 300)}`);
+      resolve({ result: null, events, error });
     };
     child.on("error", (error) => {
       settle();
@@ -311,22 +312,54 @@ function runClaude(command: string, args: string[], prompt: string, options: Run
   });
 }
 
-/** Adds one claude call to the totals. A result reports that call alone, not the session so far. */
-function record(settings: ClaudeCodeSettings, caller: string | undefined, result: Result): void {
+/** Recover the usage we observed when a process could not print its final totals.
+ * Claude can emit several blocks of one message, so count each message only once.
+ */
+function observedUsage(events: StreamEvent[]): Result {
+  const messages = new Map<string | StreamEvent, NonNullable<Result["usage"]>>();
+  for (const event of events) {
+    if (event.type !== "assistant") continue;
+    const key = event.message?.id ?? event;
+    const previous = messages.get(key) ?? {};
+    for (const [name, value] of Object.entries(event.message?.usage ?? {})) {
+      const field = name as keyof typeof previous;
+      if (typeof value === "number" && Number.isFinite(value)) previous[field] = Math.max(previous[field] ?? 0, value);
+    }
+    messages.set(key, previous);
+  }
+  const usage: NonNullable<Result["usage"]> = {};
+  for (const message of messages.values()) {
+    for (const [name, value] of Object.entries(message)) {
+      const field = name as keyof typeof usage;
+      usage[field] = (usage[field] ?? 0) + value;
+    }
+  }
+  return { num_turns: messages.size, usage };
+}
+
+/** Adds final totals, or observed partial usage with unknown cost, without counting both. */
+function record(settings: ClaudeCodeSettings, caller: string | undefined, run: Run): void {
+  const result = run.result ?? observedUsage(run.events);
   const totals = settings.usage ? [settings.usage] : [];
   if (caller && settings.usageByCaller) {
     if (!settings.usageByCaller.has(caller)) settings.usageByCaller.set(caller, emptyUsage());
     totals.push(settings.usageByCaller.get(caller)!);
   }
-  const count = (value: unknown): number => Number(value) || 0;
+  const count = (value: unknown): number => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
   const cached = count(result.usage?.cache_read_input_tokens);
   for (const usage of totals) {
     usage.calls += count(result.num_turns);
     usage.promptTokens += count(result.usage?.input_tokens) + cached + count(result.usage?.cache_creation_input_tokens);
     usage.completionTokens += count(result.usage?.output_tokens);
     usage.cachedTokens += cached;
-    usage.costUsd += count(result.total_cost_usd);
+    usage.costUsd = addCosts(usage.costUsd, result.total_cost_usd ?? null);
   }
+}
+
+/** Setup failures cannot be repaired by asking the same model again. */
+function recoverable(message: string): boolean {
+  return /overload|rate.?limit|temporar|timeout|timed out|ECONN|fetch failed|\b50[0234]\b|\b529\b/i.test(message)
+    && !/api.?key|authenticat|unauthorized|permission|invalid model/i.test(message);
 }
 
 /** The answer a finished run gave. */
@@ -360,10 +393,12 @@ async function askClaudeCode(request: ChatRequest, settings: ClaudeCodeSettings)
       ...baseArgs(request.model, submit, request.effort ?? settings.effort),
       "--max-turns", String(ANSWER_TURNS), "--system-prompt", said("system") + sessionNote(submitName, false),
     ];
-    const { result, events } = await runClaude(settings.command ?? "claude", args, said("user"), { cwd, timeoutMs: request.timeoutMs - KILL_GRACE_MS, graceMs: KILL_GRACE_MS });
+    const run = await runClaude(settings.command ?? "claude", args, said("user"), { cwd, timeoutMs: request.timeoutMs - KILL_GRACE_MS, graceMs: KILL_GRACE_MS });
+    const { result, events } = run;
     transcribe(events, submitName, messages);
+    record(settings, request.caller, run);
+    if (run.error) throw run.error;
     if (!result) throw new Error(`${who}: ran out of time before giving its ${submitName} answer`);
-    record(settings, request.caller, result);
     const answer = JSON.stringify(submissionOf(result, who, submitName));
     return { role: "assistant", content: null, tool_calls: [{ id: "structured_output", type: "function", function: { name: submitName, arguments: answer } }] };
   } finally {
@@ -372,7 +407,7 @@ async function askClaudeCode(request: ChatRequest, settings: ClaudeCodeSettings)
 }
 
 function describeRun(result: Result): string {
-  return `${result.subtype ?? "done"} after ${result.num_turns ?? "?"} turn(s), $${(result.total_cost_usd ?? 0).toFixed(4)} at API prices`;
+  return `${result.subtype ?? "done"} after ${result.num_turns ?? "?"} turn(s), ${formatCost(result.total_cost_usd ?? null, 4)} at API prices`;
 }
 
 export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeSettings): Promise<Record<string, unknown>> {
@@ -402,9 +437,10 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
     // The size of the conversation, counted as the chat loop counts it.
     let contextChars = system.length;
     const call = async (how: string[], turns: number, prompt: string, timeoutMs: number, investigating = false): Promise<Result | null> => {
+      if (turns <= 0 || timeoutMs <= 0) throw new Error(`${who}: no budget left for the answer`);
       messages.push({ role: "user", content: prompt });
       contextChars += prompt.length;
-      const { result, events } = await runClaude(settings.command ?? "claude", [...common, "--max-turns", String(turns), ...how], prompt, {
+      const run = await runClaude(settings.command ?? "claude", [...common, "--max-turns", String(turns), ...how], prompt, {
         cwd, timeoutMs, graceMs,
         // Past the size limit an investigation is stopped and asked for its answer, which bounds the cost of every later turn.
         stopAt: (event) => {
@@ -412,15 +448,18 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
           return investigating && contextChars > MAX_CONTEXT_CHARS;
         },
       });
+      const { result, events, error } = run;
       transcribe(events, submitName, messages);
-      if (result) {
-        record(settings, options.caller, result);
-        turnsLeft -= result.num_turns ?? 0;
-      }
+      record(settings, options.caller, run);
+      // Without final totals, charge the whole allowance: unseen turns may have run.
+      // A missing saved session is a setup error and consumed no model turns.
+      const missingSession = error && !events.some((event) => event.type === "assistant") && /No conversation found with session ID/i.test(error.message);
+      turnsLeft -= missingSession ? 0 : (result?.num_turns ?? turns);
+      if (error) throw error;
       return result;
     };
     /** Asks for the answer alone, in the time that is left. */
-    const answer = (how: string[], prompt: string): Promise<Result | null> => call(how, ANSWER_TURNS, prompt, deadline - Date.now() - graceMs);
+    const answer = (how: string[], prompt: string): Promise<Result | null> => call(how, Math.min(ANSWER_TURNS, turnsLeft), prompt, deadline - Date.now() - graceMs);
 
     let request = options.prompt;
     for (let round = 1; ; round += 1) {
@@ -429,16 +468,20 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       const investigateMs = deadline - Date.now() - wrapUpMs;
       let result: Result | null;
       let wrappedUp = false;
-      if (investigateMs > 0) {
-        result = await call(how, Math.max(turnsLeft, 1), request, investigateMs, true);
+      if (investigateMs > 0 && turnsLeft > ANSWER_TURNS) {
+        result = await call(how, turnsLeft - ANSWER_TURNS, request, investigateMs, true).catch((error: unknown) => {
+          if (!(error instanceof Error) || !recoverable(error.message)) throw error;
+          log(`${who}: investigation failed (${error.message}); asking for its answer`);
+          return null;
+        });
         const why = contextChars > MAX_CONTEXT_CHARS ? "stopped at the conversation size limit" : "stopped to keep time for the answer";
         log(`${who}: round ${round}: ${result ? describeRun(result) : why}`);
-        if (!result || result.subtype === "error_max_turns") {
+        if (!result || result.subtype === "error_max_turns" || (result.is_error && recoverable(JSON.stringify(result)))) {
           wrappedUp = true;
           const stopped = !result;
           result = await answer(resume, answerNow).catch((error) => {
             // A run stopped before Claude Code saved its session cannot be resumed. Ask in a new session instead.
-            if (!stopped || round > 1) throw error;
+            if (!stopped || round > 1 || !(error instanceof Error) || !/No conversation found with session ID/i.test(error.message)) throw error;
             log(`${who}: the stopped run could not be resumed (${error instanceof Error ? error.message : String(error)}); asking again from the start`);
             // The new session knows nothing of the stopped one, so its conversation starts over too.
             messages.splice(1);

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Workspace } from "../src/tools.ts";
 import type { Candidate } from "../src/findings.ts";
-import { fixPrompt, MAX_FIX_LINES, parseFixes } from "../src/fixes.ts";
+import { fixPrompt, MAX_FIX_LINES, parseFixes, proposeFixes } from "../src/fixes.ts";
 
 const finding = (change: Partial<Candidate> = {}): Candidate => ({ id: "s1-01", seat: "s1", file: "src/a.ts", startLine: 12, endLine: 13, severity: "high", kind: "defect", title: "Off-by-one in the loop bound.", detail: "The loop reads one element past the end.", confidence: 0.9, ...change });
 const FILE = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n") + "\n";
@@ -49,4 +50,31 @@ test("gives the fix prompt each finding by its id", () => {
   assert.match(prompt, /<finding id="F1" file="src\/a\.ts" lines="12-13" severity="high" kind="defect">\nOff-by-one in the loop bound\.\nThe loop reads one element past the end\./);
   assert.match(prompt, /<finding id="F2" file="src\/b\.ts" lines="3-3"/);
   assert.match(prompt, /15 turns and about 4 minutes/);
+});
+
+test("proposeFixes skips empty findings and contains failures", async () => {
+  let calls = 0;
+  const logs: string[] = [];
+  const options = {
+    chat: async () => { calls++; throw new Error("service unavailable"); }, model: "test/model",
+    pr: { nwo: "owner/repo", number: 1, title: "Change", body: "" }, findings: [] as Candidate[],
+    workspace: { headFile: head } as unknown as Workspace, deadline: Date.now() + 10_000, maxTurns: 40,
+    log: (message: string) => logs.push(message),
+  };
+  assert.deepEqual(await proposeFixes(options), []);
+  assert.equal(calls, 0);
+  assert.deepEqual(await proposeFixes({ ...options, findings: [finding(), finding()] }), [null, null]);
+  assert.ok(logs.some((line) => line.includes("fixes (test/model) failed")));
+});
+
+test("proposeFixes caps turns and preserves finding order", async () => {
+  const fixes = await proposeFixes({
+    chat: async (request) => {
+      assert.match(String(request.messages[1]?.content), /15 turns/);
+      return { role: "assistant", tool_calls: [{ id: "fix", type: "function", function: { name: "submit_fixes", arguments: JSON.stringify({ fixes: [{ id: "F2", start_line: 5, end_line: 5, replacement: "changed" }] }) } }] };
+    }, model: "test/model", pr: { nwo: "owner/repo", number: 1, title: "Change", body: "" },
+    findings: [finding(), finding({ startLine: 5, endLine: 5 })], workspace: { headFile: head } as unknown as Workspace,
+    deadline: Date.now() + 10_000, maxTurns: 40, log: () => {},
+  });
+  assert.deepEqual(fixes, [null, { startLine: 5, endLine: 5, replacement: "changed" }]);
 });

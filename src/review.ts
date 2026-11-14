@@ -350,7 +350,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
 
   // Fixes are written for the final findings, in the time the review left over. They never touch the findings.
   let fixes: Array<Fix | null> | undefined;
-  const fixDeadline = started + config.budgetMs;
+  const fixDeadline = started + config.budgetMs - (config.fitModel ? MIN_FIT_MS + 1_000 : 0);
   if (config.fixModel && ranked.length && fixDeadline - Date.now() >= MIN_FIX_MS) {
     fixes = await proposeFixes({
       chat, model: config.fixModel, pr, findings: ranked, deadline: fixDeadline, maxTurns: config.maxTurns, log,

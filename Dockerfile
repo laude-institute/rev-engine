@@ -15,13 +15,14 @@ RUN apt-get update \
 # names an exact version, so the default image has no dependency beyond Node:
 #   docker build --build-arg CLAUDE_CODE_VERSION=2.1.321 .
 ARG CLAUDE_CODE_VERSION=
-RUN case "$CLAUDE_CODE_VERSION" in \
-      "") ;; \
-      [0-9]*.[0-9]*.[0-9]*) npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" && npm cache clean --force ;; \
-      *) echo "CLAUDE_CODE_VERSION must be an exact version, such as 2.1.321" >&2; exit 1 ;; \
-    esac
-# Keep Claude Code at the version the build chose.
-ENV DISABLE_AUTOUPDATER=1
+RUN if [ -n "$CLAUDE_CODE_VERSION" ]; then \
+      case "$CLAUDE_CODE_VERSION" in *[!0-9.]*) echo "CLAUDE_CODE_VERSION must contain only digits and dots" >&2; exit 1 ;; esac; \
+      echo "$CLAUDE_CODE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+        || { echo "CLAUDE_CODE_VERSION must be an exact version, such as 2.1.321" >&2; exit 1; }; \
+      npm install -g "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" && npm cache clean --force; \
+    fi
+# Keep the pinned version and disable telemetry and other optional traffic.
+ENV CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 # Make Node's built-in fetch use the forward proxy named in HTTPS_PROXY.
 ENV NODE_USE_ENV_PROXY=1

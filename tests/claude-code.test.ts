@@ -25,7 +25,7 @@ const here = import.meta.dirname;
 let calls = 0;
 try { calls = readFileSync(join(here, "calls.jsonl"), "utf8").split("\\n").filter(Boolean).length; } catch {}
 const step = JSON.parse(readFileSync(join(here, "script.json"), "utf8"))[calls] ?? { exit: 1, stderr: "script ran out" };
-if (step.ignoreStop) process.on("SIGTERM", () => {});
+if (step.ignoreStop) process.on("SIGTERM", () => appendFileSync(join(here, "signals"), "SIGTERM"));
 let stdin = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => (stdin += chunk));
@@ -90,7 +90,7 @@ function done(findings: unknown[], turns = 4, events: unknown[] = []): Step {
   };
 }
 
-const outOfTurns: Step = { result: { type: "result", subtype: "error_max_turns", is_error: true, num_turns: 10 } };
+const outOfTurns: Step = { result: { type: "result", subtype: "error_max_turns", is_error: true, num_turns: 7 } };
 
 /** The events claude prints for a response and for the results of its tool calls, one event for each block. */
 function said(id: string, ...content: Array<Record<string, unknown>>): unknown[] {
@@ -275,7 +275,7 @@ test("a pass sends its prompt on standard input and returns the structured outpu
   assert.equal(flag(call!, "--tools"), "");
   assert.equal(flag(call!, "--setting-sources"), "");
   assert.equal(flag(call!, "--effort"), "high");
-  assert.equal(flag(call!, "--max-turns"), "10");
+  assert.equal(flag(call!, "--max-turns"), "7");
   assert.match(flag(call!, "--session-id")!, /^[0-9a-f-]{36}$/);
   assert.match(flag(call!, "--system-prompt")!, /^system\n\n## Tools in this session[\s\S]*mcp__rev__read_file[\s\S]*submit_review/);
   assert.deepEqual(JSON.parse(flag(call!, "--json-schema")!), submitReview.function.parameters);
@@ -312,7 +312,7 @@ test("the second look resumes the session with the turns that are left", async (
   const [first, second, ...more] = claude.calls();
   assert.equal(more.length, 0);
   assert.equal(flag(second!, "--resume"), flag(first!, "--session-id"));
-  assert.equal(flag(second!, "--max-turns"), "6");
+  assert.equal(flag(second!, "--max-turns"), "3");
   assert.equal(second!.stdin, "look again");
 });
 
@@ -320,7 +320,8 @@ test("a failed second look keeps the first submission", async () => {
   const claude = fake([done([{ file: "a.ts" }]), { exit: 1, stderr: "API Error: overloaded" }]);
   const logs: string[] = [];
   assert.deepEqual(await run(claude.command, { secondLook: lookAgain }, logs), { findings: [{ file: "a.ts" }] });
-  assert.ok(logs.some((line) => /a later round failed.*overloaded/.test(line)));
+  assert.ok(logs.some((line) => /investigation failed.*overloaded/.test(line)));
+  assert.ok(logs.some((line) => /a later round failed/.test(line)));
 });
 
 test("a pass with no answer fails", async () => {
@@ -421,12 +422,11 @@ test("an investigation that runs into the wrap-up time is stopped and asked for 
   assert.ok(logs.some((line) => line.includes("stopped to keep time for the answer")));
 });
 
-test("a claude that ignores the stop signal is killed", async () => {
-  const claude = fake([{ hang: true, ignoreStop: true }, done([], 2)]);
-  const started = Date.now();
-  // Stopped after 1s, killed 1s later, which leaves the answer 2s of its own.
-  assert.deepEqual(await run(claude.command, { deadline: started + 5_000, wrapUpMs: 4_000 }), { findings: [] });
-  assert.ok(Date.now() - started >= 1_900, "the run waited out the grace period");
+test("a claude that ignores the stop signal is killed", { timeout: 30_000 }, async () => {
+  // The context limit triggers only after the fake has installed its signal handler.
+  const claude = fake([{ hang: true, ignoreStop: true, events: said("m1", { type: "text", text: "x".repeat(900_000) }) }, done([], 2)]);
+  assert.deepEqual(await run(claude.command, { wrapUpMs: 4_000 }), { findings: [] });
+  assert.equal(readFileSync(join(claude.command, "..", "signals"), "utf8"), "SIGTERM");
   assert.equal(claude.calls().length, 2);
 });
 
@@ -457,4 +457,47 @@ test("with no time left to investigate, the first call asks for the answer", asy
   assert.equal(flag(call!, "--max-turns"), "3");
   assert.match(flag(call!, "--session-id")!, /^[0-9a-f-]{36}$/);
   assert.match(call!.stdin, /^prompt\n\nStop investigating/);
+});
+
+test("a small turn budget goes straight to the answer without exceeding it", async () => {
+  const claude = fake([done([], 2)]);
+  await run(claude.command, { maxTurns: 2, secondLook: lookAgain });
+  assert.deepEqual(claude.calls().map((call) => flag(call, "--max-turns")), ["2"]);
+  assert.match(claude.calls()[0]!.stdin, /Stop investigating/);
+});
+
+test("interrupted usage counts each message once and leaves cost unknown", { timeout: 30_000 }, async () => {
+  const partial = { type: "assistant", message: { id: "m1", usage: { input_tokens: 100, output_tokens: 30, cache_read_input_tokens: 20 }, content: [{ type: "text", text: "x".repeat(450_000) }] } };
+  const claude = fake([{ hang: true, events: [partial, partial] }, done([], 2)]);
+  const usage = emptyUsage();
+  const usageByCaller = new Map<string, Usage>();
+  await run(claude.command, { usage, usageByCaller });
+  assert.deepEqual(usage, { calls: 3, promptTokens: 520, completionTokens: 80, cachedTokens: 320, costUsd: null });
+  assert.deepEqual(usageByCaller.get("s1"), usage);
+  assert.deepEqual(claude.calls().map((call) => flag(call, "--max-turns")), ["7", "3"]);
+});
+
+test("a transient failed process retains usage and resumes for its answer", async () => {
+  const claude = fake([{ exit: 1, stderr: "API Error: overloaded", events: [{ type: "assistant", message: { id: "m1", content: [], usage: { input_tokens: 100, output_tokens: 30 } } }] }, done([], 2)]);
+  const usage = emptyUsage();
+  assert.deepEqual(await run(claude.command, { usage }), { findings: [] });
+  assert.equal(usage.promptTokens, 500);
+  assert.equal(usage.completionTokens, 80);
+  assert.equal(usage.costUsd, null);
+  assert.equal(flag(claude.calls()[1]!, "--resume"), flag(claude.calls()[0]!, "--session-id"));
+});
+
+test("a transient error result can be recovered without losing its final totals", async () => {
+  const claude = fake([{ result: { type: "result", subtype: "error_during_execution", is_error: true, num_turns: 2, total_cost_usd: 0.1, result: "API Error: 503 temporarily unavailable" } }, done([], 2)]);
+  const usage = emptyUsage();
+  assert.deepEqual(await run(claude.command, { usage }), { findings: [] });
+  assert.equal(usage.costUsd, 0.35);
+});
+
+test("final usage replaces streamed usage instead of counting both", async () => {
+  const claude = fake([done([], 2, [{ type: "assistant", message: { id: "m1", usage: { input_tokens: 1000 }, content: [] } }])]);
+  const usage = emptyUsage();
+  await run(claude.command, { usage });
+  assert.equal(usage.promptTokens, 400);
+  assert.equal(usage.costUsd, 0.25);
 });

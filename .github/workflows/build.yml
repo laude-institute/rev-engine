@@ -1,5 +1,6 @@
 # Builds the reviewer image and pushes it to GitHub Container Registry.
 # ReviewBench references an image by digest; the run summary shows the digest to register.
+# Each image is also tagged with scripts/image-tag.sh, which action.yml pulls so a review skips the build.
 name: Build and push
 on:
   push:
@@ -18,11 +19,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - id: tag
+        run: echo "content=$(bash scripts/image-tag.sh)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ github.sha }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ steps.tag.outputs.content }}
       - run: echo "ghcr.io/${{ github.repository_owner }}/rev-engine-prime@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"

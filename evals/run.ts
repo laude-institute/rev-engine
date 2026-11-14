@@ -186,11 +186,11 @@ async function match(evalCase: EvalCase, findings: Finding[], chat: Chat, judge:
 async function readRun(evalCase: EvalCase, out: string, chat: Chat, judge: string): Promise<RunResult> {
   const empty: RunResult = { findings: [], fit: null, costUsd: 0, seconds: 0, matches: {} };
   try {
-    const output = JSON.parse(await readFile(join(out, "findings.json"), "utf8")) as { usage?: { cost_usd?: number; time_in_ms?: number } };
+    const output = JSON.parse(await readFile(join(out, "findings.json"), "utf8")) as { usage?: { cost_usd?: number | null; time_in_ms?: number } };
     const details = JSON.parse(await readFile(join(out, "details.json"), "utf8")) as { findings: Finding[]; decided?: unknown[] };
     const fit = await readFile(join(out, "fit.json"), "utf8").then((text) => (JSON.parse(text) as { verdict: string }).verdict, () => null);
     const run = {
-      ...empty, findings: details.findings, fit, costUsd: output.usage?.cost_usd ?? 0, seconds: Math.round((output.usage?.time_in_ms ?? 0) / 1000),
+      ...empty, findings: details.findings, fit, costUsd: output.usage?.cost_usd ?? null, seconds: Math.round((output.usage?.time_in_ms ?? 0) / 1000),
       decided: Array.isArray(details.decided) ? details.decided.length : 0,
     };
     return { ...run, matches: await match(evalCase, details.findings, chat, judge) };

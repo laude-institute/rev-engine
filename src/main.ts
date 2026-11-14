@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { describeSettings, loadConfig, type Config } from "./config.ts";
 import { claudeCodeChat, claudeCodeProblem } from "./claude-code.ts";
-import { createChat, emptyUsage, type Chat, type ChatMessage, type Usage } from "./llm.ts";
+import { createChat, emptyUsage, formatCost, roundedCost, type Chat, type ChatMessage, type Usage } from "./llm.ts";
 import type { OutputFinding } from "./findings.ts";
 import { naiveReview } from "./naive.ts";
 import { review } from "./review.ts";
@@ -42,7 +42,7 @@ async function write(findings: OutputFinding[]): Promise<void> {
       total_tokens: usage.promptTokens + usage.completionTokens,
       cached_tokens: usage.cachedTokens,
       time_in_ms: Date.now() - started,
-      cost_usd: Number(usage.costUsd.toFixed(6)),
+      cost_usd: roundedCost(usage.costUsd),
     },
   };
   // Write beside the target and rename, so a crash never leaves half a file at RB_OUT.
@@ -55,7 +55,7 @@ async function write(findings: OutputFinding[]): Promise<void> {
 /** One line for each seat and for the verifier, so a run shows where its tokens and money went. */
 function logUsageByCaller(): void {
   for (const [caller, spent] of usageByCaller) {
-    log(`usage ${caller}: ${spent.calls} model call(s), ${spent.promptTokens} prompt token(s) (${spent.cachedTokens} cached), ${spent.completionTokens} completion token(s), $${spent.costUsd.toFixed(4)}`);
+    log(`usage ${caller}: ${spent.calls} model call(s), ${spent.promptTokens} prompt token(s) (${spent.cachedTokens} cached), ${spent.completionTokens} completion token(s), ${formatCost(spent.costUsd, 4)}`);
   }
 }
 
@@ -113,7 +113,7 @@ try {
   }
   await writeTranscripts();
   logUsageByCaller();
-  log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), $${usage.costUsd.toFixed(4)}, ${Math.round((Date.now() - started) / 1000)}s`);
+  log(`${outcome.findings.length} finding(s) written (${outcome.proposed} proposed, ${outcome.verified ? "verified" : "not verified"}); ${usage.calls} model call(s), ${formatCost(usage.costUsd, 4)}, ${Math.round((Date.now() - started) / 1000)}s`);
 } catch (error) {
   log(`failed: ${error instanceof Error ? error.message : String(error)}`);
   logUsageByCaller();

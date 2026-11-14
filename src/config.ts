@@ -144,7 +144,7 @@ export function loadConfig(env: Env): Config {
     const only = "RB_CONFIG_ENGINE=claude-code";
     if (swarm === "on") throw new Error(`${only} does not support RB_CONFIG_SWARM`);
     if (!env.RB_CONFIG_MODEL?.trim()) throw new Error(`${only} needs RB_CONFIG_MODEL set to a Claude model, such as anthropic/claude-opus-5.5 or opus`);
-    const other = [...models, verifierModel, followUpModel, fitModel, fixModel].find((model) => model?.includes("/") && !model.startsWith("anthropic/"));
+    const other = [...models, verifierModel, followUpModel, fitModel, fixModel].find((model) => model && !/^(?:(?:anthropic\/)?claude-[a-z0-9.-]+(?:\[1m\])?|(?:opus|sonnet|haiku|fable)(?:\[1m\])?|default|best|opusplan)$/.test(model));
     if (other) throw new Error(`${only} runs Claude models only, not ${other}`);
     if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) throw new Error(`${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`);
     if (!env.CLAUDE_CODE_OAUTH_TOKEN?.trim() && !env.ANTHROPIC_API_KEY?.trim()) throw new Error(`${only} needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY`);

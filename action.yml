@@ -121,10 +121,21 @@ runs:
         git -C "$repo" -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --quiet --no-tags origin "$BASE"
         git -C "$repo" diff "$BASE...$HEAD" > "$RUNNER_TEMP/rev-engine-prime/pr/diff.patch"
 
-    - name: Build the reviewer
+    # Main publishes an image for each commit (.github/workflows/build.yml), tagged with a hash of
+    # what it was built from. Pulling it takes seconds; building takes about half a minute, so build
+    # only when no image matches this version of the action, such as a branch or a commit still building.
+    - name: Get the reviewer
       if: steps.ask.outputs.run == 'true'
       shell: bash
-      run: docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
+      run: |
+        set -euo pipefail
+        image="ghcr.io/laude-institute/rev-engine-prime:$(bash "$GITHUB_ACTION_PATH/scripts/image-tag.sh" "$GITHUB_ACTION_PATH")"
+        if docker pull --quiet "$image"; then
+          docker tag "$image" rev-engine-prime:action
+        else
+          echo "::notice::No published image $image; building it."
+          docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
+        fi
 
     # The maintainer's decisions on earlier reviews of this pull request, so the review does not
     # report decided findings again. It holds the GitHub token and no model key. A failure is

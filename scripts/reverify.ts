@@ -14,7 +14,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { runAgent } from "../src/agent.ts";
 import { applyVerdicts, parseVerdicts, rank, toOutput, type Candidate } from "../src/findings.ts";
-import { createChat, emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
+import { createChat, emptyUsage, formatCost, roundedCost, type ChatMessage, type Usage } from "../src/llm.ts";
 import { submitVerdicts, VERIFIER_SYSTEM } from "../src/prompts.ts";
 import { Workspace } from "../src/tools.ts";
 
@@ -81,7 +81,7 @@ async function reverify(key: string): Promise<string> {
     pr: recordedFindings.pr, agent: "reverify", findings: kept.map((candidate) => toOutput(candidate, "reverify")),
     usage: {
       prompt_tokens: spent.promptTokens, completion_tokens: spent.completionTokens, total_tokens: spent.promptTokens + spent.completionTokens,
-      cached_tokens: spent.cachedTokens, time_in_ms: Date.now() - started, cost_usd: Number(spent.costUsd.toFixed(6)),
+      cached_tokens: spent.cachedTokens, time_in_ms: Date.now() - started, cost_usd: roundedCost(spent.costUsd),
     },
   }, null, 2)}\n`);
   const count = (name: string) => verdicts.filter((verdict) => verdict.verdict === name).length;
@@ -101,4 +101,4 @@ await Promise.all(Array.from({ length: Math.min(jobs, keys.length) }, async () =
     }
   }
 }));
-console.error(`${usage.calls} model call(s), $${usage.costUsd.toFixed(2)}`);
+console.error(`${usage.calls} model call(s), ${formatCost(usage.costUsd, 2)}`);

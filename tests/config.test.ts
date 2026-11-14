@@ -125,3 +125,13 @@ test("fixes are written only when a model is named for them", () => {
   assert.equal(loadConfig(BASE).fixModel, null);
   assert.equal(loadConfig({ ...BASE, RB_CONFIG_FIXES: " vendor/fixer " }).fixModel, "vendor/fixer");
 });
+
+test("Claude Code rejects incompatible bare model names in every pass", () => {
+  const env = { ...BASE, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus", CLAUDE_CODE_OAUTH_TOKEN: "token" };
+  for (const name of ["RB_CONFIG_MODEL", "RB_CONFIG_VERIFIER", "RB_CONFIG_FOLLOW_UP", "RB_CONFIG_FIT", "RB_CONFIG_FIXES"]) {
+    assert.throws(() => loadConfig({ ...env, [name]: "gpt-6-luna" }), /Claude models only/, name);
+  }
+  for (const model of ["opus", "sonnet", "haiku", "default", "best", "fable", "opusplan", "opus[1m]", "claude-sonnet-4-6", "anthropic/claude-opus-5.5"]) {
+    assert.equal(loadConfig({ ...env, RB_CONFIG_MODEL: model }).models[0], model);
+  }
+});

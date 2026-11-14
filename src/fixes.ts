@@ -26,7 +26,7 @@ const MAX_REPLACEMENT_CHARS = 2_000;
 /** A fix starts and ends this close to its finding's lines. */
 const NEARBY_LINES = 3;
 
-export const FIX_SYSTEM = `You are a maintainer writing fixes for problems a review has already confirmed on one pull request. For each finding, decide whether a small change to the lines it names would resolve it, and if so write that change. The author can apply it with one click, without running anything, so a wrong fix is worse than none. Proposing nothing for a finding is always acceptable, and for most findings it is the right answer.
+export const FIX_SYSTEM = `You are a maintainer writing fixes for potential problems a review has reported on one pull request, some of which may be unverified. For each finding, decide whether a small change to the lines it names would resolve it, and if so write that change. The replacement text is saved to the details output for inspection, so a wrong fix is worse than none. Proposing nothing for a finding is always acceptable, and for most findings it is the right answer.
 
 ${UNTRUSTED}
 
@@ -77,7 +77,7 @@ export function fixPrompt(pr: PullRequestInfo, findings: Candidate[], minutes: n
   return [
     pullRequestSection(pr),
     `Your budget is ${turns} turns and about ${minutes} minutes. A turn can hold many tool calls.`,
-    `The review confirmed the findings below. Read the code of each before you decide.\n\n${listed}`,
+    `The review reported the findings below; verify each claim before proposing a fix. Read the code of each before you decide.\n\n${listed}`,
   ].join("\n\n");
 }
 
