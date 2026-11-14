@@ -353,7 +353,7 @@ function doctor(): number {
     } catch {
       signedIn = status?.status === 0;
     }
-    process.stdout.write(`  claude    ${how ?? (signedIn ? "claude CLI login" : "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN)")}\n`);
+    process.stdout.write(`  claude    ${how ?? (signedIn ? "claude CLI login" : "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)")}\n`);
     const fallback = process.env.RB_CONFIG_FALLBACK?.trim();
     if (fallback && fallback !== "off") process.stdout.write(`  fallback  ${fallback} ${process.env.CMD_API_KEY ? "key present" : "CMD_API_KEY absent"}\n`);
     if (!signedIn && !(fallback && fallback !== "off" && process.env.CMD_API_KEY)) ok = false;

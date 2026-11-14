@@ -33,6 +33,12 @@ node scripts/local.ts doctor
 node scripts/local.ts branch --base main
 ```
 
+A process that cannot reach the macOS login keychain, such as one started over
+SSH or by another agent, reads the claude login as signed out. Make a long-lived
+token once with `claude setup-token` in a local terminal, keep it in a trusted
+file outside any repository as `CLAUDE_CODE_OAUTH_TOKEN=...`, and pass that file
+with `node --env-file`.
+
 ## Modes
 
 | Mode | Reviews | Tree |

@@ -95,7 +95,7 @@ export function claudeLoginProblem(command = "claude"): Promise<string | null> {
         // Older versions print text. Trust them only when the command succeeded.
       }
       if (status ? status.loggedIn === true : !error) return resolve(null);
-      resolve("claude is not signed in: run `claude auth login` (on macOS, also unlock the login keychain), or set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY");
+      resolve("claude is not signed in: run `claude auth login` (on macOS, also unlock the login keychain), or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, which needs no keychain, or ANTHROPIC_API_KEY");
     });
   });
 }
