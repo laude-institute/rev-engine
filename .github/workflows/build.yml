@@ -6,9 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch: {}
+# id-token and attestations let the build sign a record of which commit and workflow built the image.
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,4 +33,11 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/rev-engine-prime:${{ steps.tag.outputs.content }}
+      # action.yml checks this record before it runs a pulled image, so an image that this
+      # workflow did not build from main is never given a repository's code or keys.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/rev-engine-prime
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
       - run: echo "ghcr.io/${{ github.repository_owner }}/rev-engine-prime@${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"

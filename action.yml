@@ -124,16 +124,36 @@ runs:
     # Main publishes an image for each commit (.github/workflows/build.yml), tagged with a hash of
     # what it was built from. Pulling it takes seconds; building takes about half a minute, so build
     # only when no image matches this version of the action, such as a branch or a commit still building.
+    #
+    # A tag can be moved to another image, and the image is given the checkout, the model key and
+    # the GitHub token. So a pulled image is used only when its signed build record says the Build
+    # and push workflow built it from main. The record is checked for the digest that was pulled,
+    # not for the tag, so the tag cannot change between the check and the run. Any other image is
+    # ignored and the reviewer is built from this action's own source.
     - name: Get the reviewer
       if: steps.ask.outputs.run == 'true'
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
       run: |
         set -euo pipefail
-        image="ghcr.io/laude-institute/rev-engine-prime:$(bash "$GITHUB_ACTION_PATH/scripts/image-tag.sh" "$GITHUB_ACTION_PATH")"
-        if docker pull --quiet "$image"; then
-          docker tag "$image" rev-engine-prime:action
-        else
+        name=ghcr.io/laude-institute/rev-engine-prime
+        image="$name:$(bash "$GITHUB_ACTION_PATH/scripts/image-tag.sh" "$GITHUB_ACTION_PATH")"
+        verified() {
+          local digest
+          digest=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image" | grep -m 1 "^$name@sha256:") || return 1
+          gh attestation verify "oci://$digest" \
+            --repo laude-institute/rev-engine \
+            --signer-workflow laude-institute/rev-engine/.github/workflows/build.yml \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners > /dev/null || return 1
+          docker tag "$digest" rev-engine-prime:action
+        }
+        if ! docker pull --quiet "$image"; then
           echo "::notice::No published image $image; building it."
+          docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
+        elif ! verified; then
+          echo "::warning::The published image $image has no valid build record from main; building it instead."
           docker build --quiet --tag rev-engine-prime:action "$GITHUB_ACTION_PATH"
         fi
 
