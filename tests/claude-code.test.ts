@@ -9,6 +9,7 @@ import { MAX_CONTEXT_CHARS, runAgent, type SecondLook } from "../src/agent.ts";
 import { loadConfig } from "../src/config.ts";
 import { naiveReview } from "../src/naive.ts";
 import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeLoginProblem, claudeModel, serveTools } from "../src/claude-code.ts";
+import { NOT_INSTALLED } from "../src/claude-cli.ts";
 import { emptyUsage, type ChatMessage, type ChatRequest, type Usage } from "../src/llm.ts";
 import { submitReview } from "../src/prompts.ts";
 import { readTools, type Workspace } from "../src/tools.ts";
@@ -238,13 +239,18 @@ test("the claude CLI login is read from claude auth status", async () => {
     chmodSync(command, 0o755);
     return command;
   };
+  const signedOut = { message: (await claudeLoginProblem(status("out.mjs", `console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }))`)))?.message, retry: false };
   assert.equal(await claudeLoginProblem(status("in.mjs", `console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }))`)), null);
-  assert.match(String(await claudeLoginProblem(status("out.mjs", `console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }))`))), /not signed in.*claude auth login/);
-  assert.match(String(await claudeLoginProblem(status("fails.mjs", "process.exit(1)"))), /not signed in/);
+  assert.match(String(signedOut.message), /not signed in.*claude auth login/);
+  assert.deepEqual(await claudeLoginProblem(status("fails.mjs", "process.exit(1)")), signedOut);
   // Older versions print text: a successful exit means signed in, a failing one does not.
   assert.equal(await claudeLoginProblem(status("text.mjs", `console.log("Logged in as someone")`)), null);
-  assert.match(String(await claudeLoginProblem(status("text-fails.mjs", `console.log("Not logged in"); process.exit(1)`))), /not signed in/);
-  assert.match(String(await claudeLoginProblem(join(dir, "missing"))), /not signed in/);
+  assert.deepEqual(await claudeLoginProblem(status("text-fails.mjs", `console.log("Not logged in"); process.exit(1)`)), signedOut);
+  // A missing claude is not a signed-out one, and a crash says nothing about the login, so it may be retried.
+  assert.deepEqual(await claudeLoginProblem(join(dir, "missing")), { message: NOT_INSTALLED, retry: false });
+  const crashed = await claudeLoginProblem(status("crash.mjs", `process.kill(process.pid, "SIGKILL")`));
+  assert.equal(crashed?.retry, true);
+  assert.match(String(crashed?.message), /claude auth status failed/);
 });
 
 test("a direct call claude cannot answer goes to the fallback model", async () => {

@@ -106,6 +106,8 @@ test("a pass that falls back keeps claude's conversation in the transcript", asy
   const callers = JSON.parse(readFileSync(transcript, "utf8")).conversations.map((conversation: { caller: string; model: string }) => `${conversation.caller}=${conversation.model}`);
   assert.ok(callers.includes("s1 (opus)=opus"), callers.join(", "));
   assert.ok(callers.includes("s1 (opus) fallback=vendor/fallback"), callers.join(", "));
+  // The fallback's usage is reported apart from claude's.
+  assert.match(stderr, /usage s1 \(opus\) fallback: /);
 });
 
 test("a claude that is not installed hands every pass to the fallback", async (t) => {

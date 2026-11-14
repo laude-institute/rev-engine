@@ -48,6 +48,7 @@ The benchmark publishes all 219 pull requests and their expected findings. That 
 | `src/prompts.ts` | Reviewer and verifier prompts and their submit tools. |
 | `src/llm.ts` | The model API client. |
 | `src/claude-code.ts` | The optional engine that runs each pass with `claude -p` in place of the chat API. |
+| `src/claude-cli.ts` | Checks that claude is installed and signed in, and reads the claude-code engine's and the fallback's settings, shared by the review and the local runner's doctor. |
 | `src/prior.ts` | Reads those earlier decisions and writes the prompt sections that carry them. |
 | `src/fixes.ts` | Optional replacement text for small fixes, written only to the details output. |
 | `src/fit.ts` | The optional assessment of whether a change belongs in the project. |

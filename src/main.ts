@@ -27,11 +27,17 @@ log(`settings: ${describeSettings(config)}`);
 // An image built without Claude Code can never review with it, so this is a setup error, not a failed review to retry.
 // With a fallback endpoint configured, the whole review runs there instead.
 let problem = config.engine === "claude-code" ? await claudeCodeProblem() : null;
-if (!problem && config.claudeLogin === "cli") problem = await claudeLoginProblem();
+// A login check that timed out may pass next time, so without a fallback it fails the attempt for a retry.
+let retry = false;
+if (!problem && config.claudeLogin === "cli") {
+  const login = await claudeLoginProblem();
+  problem = login?.message ?? null;
+  retry = login?.retry ?? false;
+}
 if (config.engine === "claude-code" && !problem) log(config.claudeLogin === "cli" ? "claude-code: signed in with the claude CLI login" : `claude-code: using ${config.claudeLogin === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY"}`);
 if (problem && !config.fallback) {
   log(problem);
-  process.exit(2);
+  process.exit(retry ? 1 : 2);
 }
 if (problem) {
   log(`${problem}; reviewing with the fallback ${config.fallback!.model} at ${new URL(config.fallback!.baseUrl).host} instead`);
@@ -88,18 +94,15 @@ try {
   const keep = (caller: string, model: string, messages: ChatMessage[]): void => {
     transcripts.set(caller, { model, messages });
   };
-  /** Records each caller's conversation, under the caller's name with a suffix when one is given. */
-  const kept = (send: Chat, suffix = ""): Chat => config.transcriptOutPath
+  const kept = (send: Chat): Chat => config.transcriptOutPath
     ? (request) => {
-      keep(`${request.caller ?? request.model}${suffix}`, request.model, request.messages);
+      keep(request.caller ?? request.model, request.model, request.messages);
       return send(request);
     }
     : send;
-  // A pass that falls back keeps claude's conversation too, so the transcript shows why it fell back.
-  const fallbackSuffix = problem ? "" : " fallback";
   // Claude's effort levels are not the chat API's, so the fallback uses the endpoint's default.
   const fallbackChat = config.fallback
-    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }), fallbackSuffix)
+    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }))
     : null;
   let chat: Chat;
   if (problem && fallbackChat) {
@@ -111,7 +114,9 @@ try {
     chat = claudeCodeChat({
       effort: config.effort, usage, usageByCaller,
       ...(config.transcriptOutPath ? { transcript: keep } : {}),
-      ...(fallbackChat ? { fallback: { chat: ({ effort: _effort, ...request }) => fallbackChat(request), model: config.fallback!.model } } : {}),
+      // A pass that falls back is named apart from claude's, so the transcript keeps claude's conversation
+      // and the usage lines show what each provider was sent.
+      ...(fallbackChat ? { fallback: { chat: ({ effort: _effort, ...request }) => fallbackChat({ ...request, caller: `${request.caller ?? request.model} fallback` }), model: config.fallback!.model } } : {}),
     }, log);
   } else {
     chat = kept(createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller }));

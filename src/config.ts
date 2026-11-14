@@ -1,7 +1,7 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
-import { claudeLoginOf, engineProblem, fallbackOf, type Fallback } from "./claude-cli.ts";
+import { claudeLoginOf, engineProblem, fallbackOf, seatsOf, type Fallback } from "./claude-cli.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -115,10 +115,10 @@ export function loadConfig(env: Env): Config {
   if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("RB_PR_NUMBER is not a positive integer");
 
   // Each seat is a model, optionally followed by "@" and the one focus it reviews for.
-  const seats = (env.RB_CONFIG_MODEL ?? DEFAULT_MODEL).split(",").map((seat) => seat.trim()).filter(Boolean);
+  const seats = seatsOf(env.RB_CONFIG_MODEL ?? DEFAULT_MODEL);
   if (!seats.length) throw new Error("RB_CONFIG_MODEL names no model");
-  const models = seats.map((seat) => (seat.includes("@") ? seat.slice(0, seat.lastIndexOf("@")) : seat));
-  const focuses = seats.map((seat) => (seat.includes("@") ? seat.slice(seat.lastIndexOf("@") + 1) : null));
+  const models = seats.map((seat) => seat.model);
+  const focuses = seats.map((seat) => seat.focus);
   for (const focus of focuses) {
     if (focus !== null && !FOCUS_NAMES.includes(focus)) throw new Error(`RB_CONFIG_MODEL names an unknown focus "${focus}"; the choices are ${FOCUS_NAMES.join(", ")}`);
   }

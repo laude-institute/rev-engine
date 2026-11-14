@@ -19,7 +19,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, engineProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
 import {
-  UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
+  UsageError, buildReviewEnv, effectiveSettings, envNameOf, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
 } from "./local/layout.ts";
 
@@ -356,7 +356,7 @@ async function doctor(options: LocalOptions): Promise<number> {
   const engine = settings.engine?.trim() || "api";
   // The settings as the review reads them, so doctor refuses what the review refuses.
   const asEnv: Record<string, string | undefined> = { ...process.env };
-  for (const [name, value] of Object.entries(settings)) asEnv[`RB_CONFIG_${name.toUpperCase()}`] = value;
+  for (const [name, value] of Object.entries(settings)) asEnv[envNameOf(name)] = value;
   const engineError = engineProblem(asEnv);
   if (engineError) {
     process.stdout.write(`  engine    ${engineError}\n`);
@@ -376,8 +376,8 @@ async function doctor(options: LocalOptions): Promise<number> {
     const installed = await claudeCodeProblem();
     const method = claudeLoginOf(process.env);
     const how = method === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : method === "api-key" ? "ANTHROPIC_API_KEY" : null;
-    const login = installed ?? (how ? null : await claudeLoginProblem());
-    const state = installed === NOT_INSTALLED ? "missing" : installed ?? (login ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : how ?? "claude CLI login");
+    const login = installed ?? (how ? null : (await claudeLoginProblem())?.message ?? null);
+    const state = installed === NOT_INSTALLED ? "missing" : installed ?? (login ? (login.startsWith("claude is not signed in") ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : login) : how ?? "claude CLI login");
     process.stdout.write(`  claude    ${state}\n`);
     // Without claude, the review runs on the fallback, so it needs one that works.
     if (login && !fallback) ok = false;

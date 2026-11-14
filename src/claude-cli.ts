@@ -17,8 +17,8 @@ export function engineProblem(env: Record<string, string | undefined>): string |
   const only = "RB_CONFIG_ENGINE=claude-code";
   if (env.RB_CONFIG_SWARM?.trim() === "on") return `${only} does not support RB_CONFIG_SWARM`;
   if (!env.RB_CONFIG_MODEL?.trim()) return `${only} needs RB_CONFIG_MODEL set to a Claude model, such as anthropic/claude-opus-5.5 or opus`;
-  // Each seat is a model, optionally followed by "@" and its focus; the verifier defaults to the first.
-  const models = env.RB_CONFIG_MODEL.split(",").map((seat) => seat.trim()).filter(Boolean).map((seat) => (seat.includes("@") ? seat.slice(0, seat.lastIndexOf("@")) : seat));
+  // The verifier defaults to the first seat's model.
+  const models = seatsOf(env.RB_CONFIG_MODEL).map((seat) => seat.model);
   const passes = [...models, env.RB_CONFIG_VERIFIER, env.RB_CONFIG_FOLLOW_UP, env.RB_CONFIG_FIT, env.RB_CONFIG_FIXES].map((model) => model?.trim());
   const other = passes.find((model) => model && !/^(?:(?:anthropic\/)?claude-[a-z0-9.-]+(?:\[1m\])?|(?:opus|sonnet|haiku|fable)(?:\[1m\])?|default|best|opusplan)$/.test(model));
   if (other) return `${only} runs Claude models only, not ${other}`;
@@ -71,12 +71,18 @@ export function claudeCodeProblem(command = "claude"): Promise<string | null> {
   });
 }
 
+export interface LoginProblem {
+  message: string;
+  /** True when asking again may succeed, such as after a timeout; false when claude is signed out or missing. */
+  retry: boolean;
+}
+
 /**
  * Why the claude CLI's own login cannot be used, or null when it is signed in. Only
  * asked when no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY is set. On macOS the
  * login lives in the keychain, so a locked keychain reads as signed out.
  */
-export function claudeLoginProblem(command = "claude"): Promise<string | null> {
+export function claudeLoginProblem(command = "claude"): Promise<LoginProblem | null> {
   return new Promise((resolve) => {
     execFile(command, ["auth", "status"], { timeout: 30_000 }, (error, stdout) => {
       let status: { loggedIn?: unknown; authMethod?: unknown } | null = null;
@@ -86,7 +92,17 @@ export function claudeLoginProblem(command = "claude"): Promise<string | null> {
         // Older versions print text. Trust them only when the command succeeded.
       }
       if (status ? status.loggedIn === true : !error) return resolve(null);
-      resolve("claude is not signed in: run `claude auth login` (on macOS, also unlock the login keychain), or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, which needs no keychain, or ANTHROPIC_API_KEY");
+      const failure = error as (NodeJS.ErrnoException & { killed?: boolean; signal?: string | null }) | null;
+      if (failure?.code === "ENOENT") return resolve({ message: NOT_INSTALLED, retry: false });
+      // A timeout or a crash says nothing about the login, so it is not reported as signing out.
+      if (!status && (failure?.killed || failure?.signal)) return resolve({ message: `claude auth status failed: ${failure.message}`, retry: true });
+      resolve({ message: "claude is not signed in: run `claude auth login` (on macOS, also unlock the login keychain), or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, which needs no keychain, or ANTHROPIC_API_KEY", retry: false });
     });
   });
+}
+
+/** The seats RB_CONFIG_MODEL names: each a model, optionally followed by "@" and the one focus it reviews for. */
+export function seatsOf(value: string): Array<{ model: string; focus: string | null }> {
+  return value.split(",").map((seat) => seat.trim()).filter(Boolean)
+    .map((seat) => (seat.includes("@") ? { model: seat.slice(0, seat.lastIndexOf("@")), focus: seat.slice(seat.lastIndexOf("@") + 1) } : { model: seat, focus: null }));
 }
