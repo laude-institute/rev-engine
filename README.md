@@ -7,7 +7,7 @@
 [Install](docs/INSTALL.md) | [Example review](https://github.com/laude-institute/headlong/pull/155#pullrequestreview-5529766020) | [Another example](https://github.com/laude-institute/headlong/pull/150#pullrequestreview-5529787934) | [Benchmark results](docs/REVIEWBENCH.md#results) | [Announcement on X](https://x.com/LaudeInstitute/status/2111263666763116982)
 
 > [!IMPORTANT]
-> RevEngine is early work. Expect frequent changes. Each review costs money in model tokens, so use an OpenRouter key with a spending limit.
+> RevEngine is early work. Expect frequent changes. Each review costs money in model tokens, so use a model API key with a spending limit.
 
 ## Use it
 
@@ -17,7 +17,7 @@
 
 Comment `/review agent` instead for a review meant for an agent that manages the pull request: a fast swarm of cheap model reviews, with every finding listed in one comment. See [Agent reviews](docs/INSTALL.md#agent-reviews).
 
-With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in OpenRouter tokens.
+With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 in model tokens.
 
 ## How it reviews
 

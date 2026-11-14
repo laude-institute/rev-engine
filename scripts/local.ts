@@ -17,6 +17,7 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { endpointOf } from "../src/endpoint.ts";
 import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, engineProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
 import {
   UsageError, buildReviewEnv, effectiveSettings, envNameOf, parseArgs, reaches,
@@ -301,8 +302,12 @@ async function finish(
   ctx: { repo: string; base: string; head: string; nwo: string; number: number },
 ): Promise<number> {
   const env = buildReviewEnv({ nwo: ctx.nwo, number: ctx.number, base: ctx.base, head: ctx.head, repoDir: ctx.repo, runDir: run.dir, settings });
-  if (process.env.RB_MODEL_BASE_URL) env.RB_MODEL_BASE_URL = process.env.RB_MODEL_BASE_URL;
-  if (process.env.RB_FALLBACK_BASE_URL) env.RB_FALLBACK_BASE_URL = process.env.RB_FALLBACK_BASE_URL;
+  // Where the model APIs are, which is not a review setting. The keys stay out of env, which a dry run prints,
+  // and reach the reviewer from the shell.
+  for (const name of ENDPOINT_SETTINGS) {
+    const value = process.env[name];
+    if (value) env[name] = value;
+  }
   const meta = {
     nwo: ctx.nwo, base: ctx.base, head: ctx.head, mode: options.command, run: run.dir, settings,
     ...(env.RB_MODEL_BASE_URL ? { modelBaseUrl: env.RB_MODEL_BASE_URL } : {}),
@@ -328,6 +333,9 @@ async function finish(
   }
   return 0;
 }
+
+/** The RB_* endpoint settings passed through from the shell, though other RB_* variables are not. */
+const ENDPOINT_SETTINGS = ["RB_MODEL_BASE_URL", "RB_MODEL_API", "RB_MODEL_EXTRA_BODY", "RB_FALLBACK_BASE_URL", "RB_FALLBACK_API", "RB_FALLBACK_EXTRA_BODY"];
 
 async function doctor(options: LocalOptions): Promise<number> {
   let ok = true;
@@ -382,8 +390,14 @@ async function doctor(options: LocalOptions): Promise<number> {
     // Without claude, the review runs on the fallback, so it needs one that works.
     if (login && !fallback) ok = false;
   } else {
-    process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
-    if (!process.env.OPENROUTER_API_KEY) ok = false;
+    // The same endpoint checks the review makes. Doctor does not call it.
+    try {
+      const endpoint = endpointOf(process.env, "MODEL");
+      process.stdout.write(`  model api ${endpoint.api} at ${new URL(endpoint.baseUrl).host}, key present\n`);
+    } catch (error) {
+      process.stdout.write(`  model api ${error instanceof Error ? error.message : String(error)} (export it, or use node --env-file with a trusted file)\n`);
+      ok = false;
+    }
   }
   process.stdout.write(`  runs      ${join(root, "runs", "local")}\n`);
   return ok ? 0 : 1;

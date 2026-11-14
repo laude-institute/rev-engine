@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_BASE_URL, DEFAULT_MODEL, describeSettings, loadConfig } from "../src/config.ts";
+import { DEFAULT_MODEL, describeSettings, loadConfig } from "../src/config.ts";
 
 const BASE = {
   RB_NWO: "owner/repo",
@@ -8,7 +8,8 @@ const BASE = {
   RB_BASE: "a".repeat(40),
   RB_HEAD: "b".repeat(40),
   RB_OUT: "/work/out/findings.json",
-  OPENROUTER_API_KEY: "test-key",
+  RB_MODEL_BASE_URL: "https://models.example.test/v1",
+  MODEL_API_KEY: "test-key",
 };
 
 test("applies defaults when only the contract variables are set", () => {
@@ -16,7 +17,7 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.prNumber, 1938);
   assert.equal(config.agent, "rev-engine-prime");
   assert.equal(config.repoDir, "/work/repo");
-  assert.equal(config.baseUrl, DEFAULT_BASE_URL);
+  assert.deepEqual(config.endpoint, { baseUrl: "https://models.example.test/v1", apiKey: "test-key", api: "chat", extraBody: {} });
   assert.deepEqual(config.models, [DEFAULT_MODEL]);
   assert.equal(config.verifierModel, DEFAULT_MODEL);
   assert.equal(config.verify, "lenient");
@@ -59,7 +60,7 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
     RB_CONFIG_TIME_BUDGET: "600",
   });
   assert.equal(config.agent, "registered-name");
-  assert.equal(config.baseUrl, "https://example.com/v1");
+  assert.equal(config.endpoint!.baseUrl, "https://example.com/v1");
   assert.deepEqual(config.models, ["vendor/one", "vendor/two"]);
   assert.equal(config.verifierModel, "vendor/three");
   const settings = describeSettings(config);
@@ -69,7 +70,7 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
 
 test("rejects missing or malformed inputs", () => {
   assert.throws(() => loadConfig({ ...BASE, RB_HEAD: "abc123" }), /RB_HEAD is not a 40-character commit SHA/);
-  assert.throws(() => loadConfig({ ...BASE, OPENROUTER_API_KEY: "" }), /missing OPENROUTER_API_KEY/);
+  assert.throws(() => loadConfig({ ...BASE, MODEL_API_KEY: "" }), /missing MODEL_API_KEY/);
   assert.throws(() => loadConfig({ ...BASE, RB_PR_NUMBER: "abc" }), /RB_PR_NUMBER/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_VERIFY: "maybe" }), /RB_CONFIG_VERIFY/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MAX_FINDINGS: "0" }), /RB_CONFIG_MAX_FINDINGS/);
@@ -96,11 +97,11 @@ test("turns on the swarm prototype, but not together with the naive baseline", (
 });
 
 test("the claude-code engine takes a Claude Code login and Claude models only", () => {
-  const { OPENROUTER_API_KEY: _key, ...contract } = BASE;
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
   const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "anthropic/claude-opus-5.5,opus@tests", CLAUDE_CODE_OAUTH_TOKEN: "token" };
   const config = loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "xhigh", RB_CONFIG_FIT: "sonnet" });
   assert.equal(config.engine, "claude-code");
-  assert.equal(config.apiKey, "");
+  assert.equal(config.endpoint, null);
   assert.deepEqual(config.models, ["anthropic/claude-opus-5.5", "opus"]);
   assert.ok(describeSettings(config).startsWith("engine=claude-code model=anthropic/claude-opus-5.5,opus@tests "));
   assert.equal(loadConfig(BASE).engine, "api");
@@ -125,20 +126,38 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);
 });
 
-test("the claude-code engine falls back to an OpenAI-compatible endpoint", () => {
-  const { OPENROUTER_API_KEY: _key, ...contract } = BASE;
+test("the model API is any OpenAI-compatible endpoint, named by its settings alone", () => {
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
+  assert.throws(() => loadConfig({ ...contract, MODEL_API_KEY: "k" }), /missing RB_MODEL_BASE_URL/);
+  assert.throws(() => loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://example.test/v1" }), /missing MODEL_API_KEY/);
+  // The older key name still works.
+  assert.equal(loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://example.test/v1/", OPENROUTER_API_KEY: "old" }).endpoint!.apiKey, "old");
+  const config = loadConfig({ ...BASE, RB_MODEL_API: "responses", RB_MODEL_EXTRA_BODY: '{"usage":{"include":true}}' });
+  assert.equal(config.endpoint!.api, "responses");
+  assert.deepEqual(config.endpoint!.extraBody, { usage: { include: true } });
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "completions" }), /RB_MODEL_API must be chat or responses/);
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "{" }), /RB_MODEL_EXTRA_BODY is not JSON/);
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "[1]" }), /RB_MODEL_EXTRA_BODY must be a JSON object/);
+  for (const url of ["example.test/v1", "ftp://example.test", "not a url"]) {
+    assert.throws(() => loadConfig({ ...BASE, RB_MODEL_BASE_URL: url }), /RB_MODEL_BASE_URL must be an http or https URL/, url);
+  }
+});
+
+test("the claude-code engine falls back to another OpenAI-compatible endpoint", () => {
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
   const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus" };
+  const FALLBACK = { RB_CONFIG_FALLBACK: "vendor/fallback", RB_FALLBACK_BASE_URL: "https://fallback.example.test/v1/", FALLBACK_API_KEY: "fb" };
   assert.equal(loadConfig(CLAUDE).fallback, null);
   assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "off" }).fallback, null);
-  const config = loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "deepseek/deepseek-v4-flash", CMD_API_KEY: "cmd" });
-  assert.deepEqual(config.fallback, { model: "deepseek/deepseek-v4-flash", apiKey: "cmd", baseUrl: "https://api.commandcode.ai/provider/v1" });
-  assert.match(describeSettings(config), /^engine=claude-code fallback=deepseek\/deepseek-v4-flash model=opus /);
-  assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: "https://example.test/v1/" }).fallback!.baseUrl, "https://example.test/v1");
-  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m" }), /needs CMD_API_KEY/);
-  for (const url of ["api.commandcode.ai/provider/v1", "ftp://example.test", "not a url"]) {
-    assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: url }), /RB_FALLBACK_BASE_URL must be an http or https URL/, url);
-  }
-  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd" }), /needs RB_CONFIG_ENGINE=claude-code/);
+  const config = loadConfig({ ...CLAUDE, ...FALLBACK });
+  assert.deepEqual(config.fallback, { model: "vendor/fallback", baseUrl: "https://fallback.example.test/v1", apiKey: "fb", api: "chat", extraBody: {} });
+  assert.match(describeSettings(config), /^engine=claude-code fallback=vendor\/fallback model=opus /);
+  const { RB_FALLBACK_BASE_URL: _fallbackUrl, ...noUrl } = FALLBACK;
+  assert.throws(() => loadConfig({ ...CLAUDE, ...noUrl }), /RB_CONFIG_FALLBACK: missing RB_FALLBACK_BASE_URL/);
+  // The reviewer's own key is not the fallback's.
+  assert.throws(() => loadConfig({ ...CLAUDE, ...FALLBACK, FALLBACK_API_KEY: "", MODEL_API_KEY: "k" }), /RB_CONFIG_FALLBACK: missing FALLBACK_API_KEY/);
+  assert.throws(() => loadConfig({ ...CLAUDE, ...FALLBACK, RB_FALLBACK_BASE_URL: "not a url" }), /RB_FALLBACK_BASE_URL must be an http or https URL/);
+  assert.throws(() => loadConfig({ ...BASE, ...FALLBACK }), /needs RB_CONFIG_ENGINE=claude-code/);
 });
 
 test("fixes are written only when a model is named for them", () => {

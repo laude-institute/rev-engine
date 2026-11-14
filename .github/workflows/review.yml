@@ -20,6 +20,8 @@ jobs:
     steps:
       - uses: laude-institute/rev-engine@main
         with:
-          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model-base-url: https://openrouter.ai/api/v1
+          model-extra-body: '{"usage":{"include":true}}'
           pr-number: ${{ inputs.pr-number }}
           allow-forks: "true"

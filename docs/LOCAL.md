@@ -7,13 +7,14 @@ used by the container. The GitHub Action and benchmark workflows are unchanged.
 ```sh
 node scripts/local.ts branch --base main     # the current branch, before a pull request
 node scripts/local.ts pr 1938                # a pull request at its head
-node scripts/local.ts doctor                 # node, git, gh, settings and the key
+node scripts/local.ts doctor                 # node, git, gh, settings and the model API
 ```
 
-Both review modes need Node 24 or newer, Git and `OPENROUTER_API_KEY`, or
-with `--set engine=claude-code`, a signed-in `claude` CLI in place of
-the key. PR mode
-also needs an authenticated `gh` installation. Export the key in your shell,
+Both review modes need Node 24 or newer, Git and a model API:
+`RB_MODEL_BASE_URL` and `MODEL_API_KEY`, as described in
+[SETTINGS.md](SETTINGS.md#the-model-api). With `--set engine=claude-code`, a
+signed-in `claude` CLI takes the place of the model API. PR mode also needs an
+authenticated `gh` installation. Export the settings and the key in your shell,
 or load your trusted credentials file explicitly with Node:
 
 ```sh
@@ -22,18 +23,21 @@ node --env-file=/path/to/reviewer/.env scripts/local.ts branch --base main
 
 The runner never loads a credentials file from the repository being reviewed.
 Doctor exits nonzero when Node or Git is missing, or when the review would
-refuse its settings. With the default engine it needs `OPENROUTER_API_KEY`.
+refuse its settings. With the default engine it checks the model API settings
+as the review reads them, and prints `model api <api> at <host>, key present`.
 With `engine=claude-code` it needs Claude models, an installed `claude`, and
-a token or a signed-in CLI, unless a fallback is configured. It does not
-call the fallback endpoint, so a wrong key or an unreachable host shows only
-when the review runs. It reports `gh`
+a token or a signed-in CLI, unless a fallback is configured. It calls neither
+the model API nor the fallback endpoint, so a wrong key or an unreachable host
+shows only when the review runs. It reports `gh`
 separately because branch mode does not need it.
 
-To review with your own Claude login, and fall back to Command Code when
-claude fails:
+To review with your own Claude login, and fall back to another
+OpenAI-compatible endpoint when claude fails, such as Command Code's provider
+API:
 
 ```sh
-export RB_CONFIG_ENGINE=claude-code RB_CONFIG_MODEL=opus RB_CONFIG_FALLBACK=<model> CMD_API_KEY=<key>
+export RB_CONFIG_ENGINE=claude-code RB_CONFIG_MODEL=opus RB_CONFIG_FALLBACK=<model>
+export RB_FALLBACK_BASE_URL=https://api.commandcode.ai/provider/v1 FALLBACK_API_KEY=<key>
 node scripts/local.ts doctor
 node scripts/local.ts branch --base main
 # or, for one run: node scripts/local.ts branch --base main --set engine=claude-code --model opus
@@ -100,8 +104,11 @@ the same form by that config file can be passed through `--set`.
 
 Exported `RB_CONFIG_*` settings are included and validated, with command-line
 values taking precedence. The effective overrides appear in the run metadata
-and `--dry-run` output. Unset settings use the reviewer's defaults. An exported
-`RB_MODEL_BASE_URL` and `RB_FALLBACK_BASE_URL` are also preserved and reported. Other inherited `RB_*`
+and `--dry-run` output. Unset settings use the reviewer's defaults. The exported
+endpoint settings, `RB_MODEL_BASE_URL`, `RB_MODEL_API`, `RB_MODEL_EXTRA_BODY`,
+`RB_FALLBACK_BASE_URL`, `RB_FALLBACK_API` and `RB_FALLBACK_EXTRA_BODY`, are
+passed through, and the two base URLs are reported in the run metadata. The keys
+reach the reviewer from the shell and are not printed. Other inherited `RB_*`
 variables are removed; the runner controls the input and output paths and
 always starts at attempt 1.
 

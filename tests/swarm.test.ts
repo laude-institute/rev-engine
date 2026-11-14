@@ -197,7 +197,7 @@ test("runs the whole swarm end to end with a stand-in model", async () => {
   writeFileSync(diffPath, DIFF);
   const config = loadConfig({
     RB_NWO: "owner/repo", RB_PR_NUMBER: "1", RB_BASE: "a".repeat(40), RB_HEAD: "b".repeat(40), RB_OUT: join(repo, "out", "findings.json"),
-    OPENROUTER_API_KEY: "key", RB_REPO: repo, RB_DIFF: diffPath, RB_PR_JSON: join(repo, "missing.json"), RB_CONFIG_SWARM: "on",
+    RB_MODEL_BASE_URL: "https://models.example.test/v1", MODEL_API_KEY: "key", RB_REPO: repo, RB_DIFF: diffPath, RB_PR_JSON: join(repo, "missing.json"), RB_CONFIG_SWARM: "on",
   });
   const requests: ChatRequest[] = [];
   const chat: Chat = async (request) => {
@@ -241,7 +241,7 @@ async function swarmFixture(env: Record<string, string> = {}) {
   writeFileSync(diffPath, DIFF);
   const config = loadConfig({
     RB_NWO: "owner/repo", RB_PR_NUMBER: "1", RB_BASE: "a".repeat(40), RB_HEAD: "b".repeat(40), RB_OUT: join(repo, "out", "findings.json"),
-    OPENROUTER_API_KEY: "key", RB_REPO: repo, RB_DIFF: diffPath, RB_PR_JSON: join(repo, "missing.json"), RB_CONFIG_SWARM: "on", ...env,
+    RB_MODEL_BASE_URL: "https://models.example.test/v1", MODEL_API_KEY: "key", RB_REPO: repo, RB_DIFF: diffPath, RB_PR_JSON: join(repo, "missing.json"), RB_CONFIG_SWARM: "on", ...env,
   });
   const trace = () => JSON.parse(readFileSync(join(repo, "out", "swarm.json"), "utf8"));
   return { config, trace };

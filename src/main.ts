@@ -102,7 +102,7 @@ try {
     : send;
   // Claude's effort levels are not the chat API's, so the fallback uses the endpoint's default.
   const fallbackChat = config.fallback
-    ? kept(createChat({ apiKey: config.fallback.apiKey, baseUrl: config.fallback.baseUrl, effort: null, usage, usageByCaller }))
+    ? kept(createChat({ ...config.fallback, effort: null, usage, usageByCaller }))
     : null;
   let chat: Chat;
   if (problem && fallbackChat) {
@@ -119,7 +119,7 @@ try {
       ...(fallbackChat ? { fallback: { chat: ({ effort: _effort, ...request }) => fallbackChat({ ...request, caller: `${request.caller ?? request.model} fallback` }), model: config.fallback!.model } } : {}),
     }, log);
   } else {
-    chat = kept(createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller }));
+    chat = kept(createChat({ ...config.endpoint!, effort: config.effort, usage, usageByCaller }));
   }
   // The swarm is a prototype kept outside src, so it is loaded only when it is turned on.
   const swarmReview = config.swarm ? (await import("../experiments/prototypes/swarm/review.ts")).swarmReview : null;

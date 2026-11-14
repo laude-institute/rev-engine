@@ -31,7 +31,7 @@ after(async () => {
 function configFor(env: Record<string, string> = {}) {
   return loadConfig({
     RB_NWO: "owner/repo", RB_PR_NUMBER: "1", RB_BASE: "a".repeat(40), RB_HEAD: "b".repeat(40),
-    RB_OUT: join(dir, "out", "findings.json"), OPENROUTER_API_KEY: "test-key",
+    RB_OUT: join(dir, "out", "findings.json"), RB_MODEL_BASE_URL: "https://models.example.test/v1", MODEL_API_KEY: "test-key",
     RB_REPO: dir, RB_DIFF: join(dir, "diff.patch"), RB_PR_JSON: join(dir, "missing.json"),
     RB_CONFIG_MODEL: "test/model", RB_CONFIG_SECOND_LOOK: "off", ...env,
   });

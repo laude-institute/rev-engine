@@ -9,7 +9,9 @@
 #   JOBS=5 scripts/local-run.sh cheap -e RB_CONFIG_MODEL=vendor/model
 #
 # Needs a clone of https://github.com/review-bench/ReviewBench beside this
-# repository, or at $REVIEWBENCH_DIR, and OPENROUTER_API_KEY in .env or the shell.
+# repository, or at $REVIEWBENCH_DIR, and the model API in .env or the shell:
+# RB_MODEL_BASE_URL and MODEL_API_KEY (OPENROUTER_API_KEY is read as an older
+# name), with RB_MODEL_API and RB_MODEL_EXTRA_BODY when the endpoint needs them.
 # Results land in runs/<run-name>/, which git ignores.
 #
 # JOBS=<n> runs n pull requests of the test set at a time. The full set shares
@@ -29,7 +31,12 @@ bench="${REVIEWBENCH_DIR:-$here/../ReviewBench}"
 [ -x "$bench/scripts/try-agent.sh" ] || { echo "no ReviewBench clone at $bench; set REVIEWBENCH_DIR" >&2; exit 2; }
 
 if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
-[ -n "${OPENROUTER_API_KEY:-}" ] || { echo "OPENROUTER_API_KEY is not set" >&2; exit 2; }
+export MODEL_API_KEY="${MODEL_API_KEY:-${OPENROUTER_API_KEY:-}}"
+[ -n "$MODEL_API_KEY" ] || { echo "MODEL_API_KEY is not set" >&2; exit 2; }
+[ -n "${RB_MODEL_BASE_URL:-}" ] || { echo "RB_MODEL_BASE_URL is not set" >&2; exit 2; }
+export RB_MODEL_BASE_URL RB_MODEL_API="${RB_MODEL_API:-chat}" RB_MODEL_EXTRA_BODY="${RB_MODEL_EXTRA_BODY:-}"
+# The model API reaches the container by name, so the key never appears on a command line.
+endpoint=(-e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY)
 
 # BUILD_DIR builds the image from another checkout, such as a worktree of an older
 # commit, so an earlier version can be run again with this script.
@@ -62,7 +69,7 @@ single=0
 case " $* " in *" --pr "*|*" --set full "*) single=1 ;; esac
 
 if [ "$single" -eq 1 ] || { [ "$jobs" -le 1 ] && [ "$prs" = all ]; }; then
-  "$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json "$@" 2>&1 | tee "logs/run.log"
+  "$bench/scripts/try-agent.sh" "$image" "${endpoint[@]}" -e RB_CONTEXT_OUT=/work/out/context.json "$@" 2>&1 | tee "logs/run.log"
   exit "${PIPESTATUS[0]}"
 fi
 
@@ -76,7 +83,7 @@ export bench image
 rm -rf findings logs/pr-*.log
 review() {
   xargs -P "$jobs" -I{} sh -c \
-    '"$bench/scripts/try-agent.sh" "$image" -e OPENROUTER_API_KEY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
+    '"$bench/scripts/try-agent.sh" "$image" -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_CONTEXT_OUT=/work/out/context.json --pr {} "$@" > "logs/pr-{}.log" 2>&1 || true' sh "$@"
 }
 review "$@" <<<"$indexes"
 # Docker on an arm64 Mac runs the amd64 image under emulation, and now and then the

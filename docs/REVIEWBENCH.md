@@ -30,10 +30,10 @@ Because of the limits, settings that suit a model are defaults rather than label
 
 ## Run it locally
 
-You need Docker, Node 24, `git`, `jq`, a clone of ReviewBench beside this repository, and an OpenRouter key.
+You need Docker, Node 24, `git`, `jq`, a clone of ReviewBench beside this repository, and a model API. The scored runs used OpenRouter, which `.env.example` sets as its example. Any OpenAI-compatible endpoint works, as described in [SETTINGS.md](SETTINGS.md#the-model-api).
 
 ```sh
-cp .env.example .env                    # then add your key
+cp .env.example .env                    # then add your key and endpoint
 npm install
 npm run check                           # typecheck and unit tests
 scripts/local-run.sh smoke --pr 0       # one pull request from the test set

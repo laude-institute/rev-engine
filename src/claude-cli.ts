@@ -2,6 +2,7 @@
 // settings. Kept free of the reviewer's other modules, so the local runner's
 // doctor can make the same checks as the review.
 import { execFile } from "node:child_process";
+import { endpointOf, type Endpoint } from "./endpoint.ts";
 
 /** The effort levels `claude --effort` accepts. */
 const CLAUDE_CODE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -32,31 +33,24 @@ export function claudeLoginOf(env: Record<string, string | undefined>): "token" 
   return env.CLAUDE_CODE_OAUTH_TOKEN?.trim() ? "token" : env.ANTHROPIC_API_KEY?.trim() ? "api-key" : "cli";
 }
 
-/** Command Code's OpenAI-compatible provider API, the default fallback endpoint. */
-export const DEFAULT_FALLBACK_BASE_URL = "https://api.commandcode.ai/provider/v1";
-
-export interface Fallback {
+export interface Fallback extends Endpoint {
   model: string;
-  baseUrl: string;
-  apiKey: string;
 }
 
-/** The fallback RB_CONFIG_FALLBACK names, or null when it is off. Throws on a setting the review cannot use. */
+/**
+ * The fallback RB_CONFIG_FALLBACK names, or null when it is off: that model at the
+ * endpoint the RB_FALLBACK_* settings and FALLBACK_API_KEY describe. Throws on a
+ * setting the review cannot use.
+ */
 export function fallbackOf(env: Record<string, string | undefined>, engine: string): Fallback | null {
   const model = env.RB_CONFIG_FALLBACK?.trim() || "off";
   if (model === "off") return null;
   if (engine !== "claude-code") throw new Error("RB_CONFIG_FALLBACK needs RB_CONFIG_ENGINE=claude-code");
-  const apiKey = env.CMD_API_KEY?.trim();
-  if (!apiKey) throw new Error("RB_CONFIG_FALLBACK needs CMD_API_KEY, the fallback endpoint's key");
-  const baseUrl = (env.RB_FALLBACK_BASE_URL?.trim() || DEFAULT_FALLBACK_BASE_URL).replace(/\/+$/, "");
-  let protocol = "";
   try {
-    protocol = new URL(baseUrl).protocol;
-  } catch {
-    // Reported below.
+    return { model, ...endpointOf(env, "FALLBACK") };
+  } catch (error) {
+    throw new Error(`RB_CONFIG_FALLBACK: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (protocol !== "https:" && protocol !== "http:") throw new Error(`RB_FALLBACK_BASE_URL must be an http or https URL, not ${baseUrl}`);
-  return { model, apiKey, baseUrl };
 }
 
 export const NOT_INSTALLED = "Claude Code is not installed in this image; build it with --build-arg CLAUDE_CODE_VERSION=<exact version>";

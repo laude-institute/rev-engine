@@ -2,6 +2,7 @@
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
 import { claudeLoginOf, engineProblem, fallbackOf, seatsOf, type Fallback } from "./claude-cli.ts";
+import { endpointOf, type Endpoint } from "./endpoint.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -23,8 +24,8 @@ export interface Config {
   attempt: number;
   /** "api" calls the chat API with apiKey; "claude-code" runs each pass, or the naive baseline's one call, with `claude -p`. */
   engine: "api" | "claude-code";
-  apiKey: string;
-  baseUrl: string;
+  /** The OpenAI-compatible API the api engine calls; null with the claude-code engine. */
+  endpoint: Endpoint | null;
   /**
    * With the claude-code engine, how claude is signed in: a token or key in the
    * environment, or else the login of the claude CLI on this machine ("cli").
@@ -82,8 +83,6 @@ export type ReviewMode = "agent" | "human";
 /** The default cap on findings in each mode. An agent can triage a longer list than a person reads. */
 export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, human: 25 };
 
-export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
-export { DEFAULT_FALLBACK_BASE_URL } from "./claude-cli.ts";
 export const DEFAULT_MODEL = "openai/gpt-6-luna";
 
 type Env = Record<string, string | undefined>;
@@ -175,8 +174,7 @@ export function loadConfig(env: Env): Config {
     outPath,
     attempt: integer(env, "RB_ATTEMPT", 1, 1, 1000),
     engine,
-    apiKey: engine === "api" ? required(env, "OPENROUTER_API_KEY") : "",
-    baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    endpoint: engine === "api" ? endpointOf(env, "MODEL") : null,
     claudeLogin,
     fallback,
     models,

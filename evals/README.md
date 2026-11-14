@@ -116,4 +116,4 @@ A review with the default model costs about $0.65, so three runs of ten cases co
 
 The report also lists reported findings that match no label. The ones that recur across runs are the next findings to label.
 
-You need Docker, Node 24, `git`, the `gh` command for `eval:add`, and `OPENROUTER_API_KEY` in the environment or in `.env`.
+You need Docker, Node 24, `git`, the `gh` command for `eval:add`, and the model API in the environment or in `.env`: `RB_MODEL_BASE_URL` and `MODEL_API_KEY`, with `RB_MODEL_API` and `RB_MODEL_EXTRA_BODY` when the endpoint needs them. `OPENROUTER_API_KEY` is still read as an older name for the key. The reviews and the matching model both call that endpoint. See [SETTINGS.md](../docs/SETTINGS.md#the-model-api).
