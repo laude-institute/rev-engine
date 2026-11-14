@@ -247,7 +247,8 @@ export function createChat(options: ClientOptions): Chat {
       promptTokens: Number(payload.usage?.prompt_tokens) || 0,
       completionTokens: Number(payload.usage?.completion_tokens) || 0,
       cachedTokens: Number(payload.usage?.prompt_tokens_details?.cached_tokens) || 0,
-      costUsd: Number(payload.usage?.cost) || 0,
+      // An endpoint that does not report what a call cost leaves the cost unknown, not zero.
+      costUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? payload.usage.cost : null,
     });
 
     const result: ChatMessage = { role: "assistant", content: typeof message.content === "string" ? message.content : null };

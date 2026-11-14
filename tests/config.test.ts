@@ -108,7 +108,11 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   assert.equal(loadConfig({ ...noLogin, ANTHROPIC_API_KEY: "key" }).engine, "claude-code");
 
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_ENGINE: "codex" }), /RB_CONFIG_ENGINE must be api or claude-code/);
-  assert.throws(() => loadConfig(noLogin), /needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY/);
+  assert.equal(loadConfig({ ...noLogin, ANTHROPIC_API_KEY: "key" }).claudeLogin, "api-key");
+  assert.equal(config.claudeLogin, "token");
+  // With neither set, claude uses its own CLI login.
+  assert.equal(loadConfig(noLogin).claudeLogin, "cli");
+  assert.equal(loadConfig(BASE).claudeLogin, null);
   const { RB_CONFIG_MODEL: _model, ...noModel } = CLAUDE;
   assert.throws(() => loadConfig(noModel), /needs RB_CONFIG_MODEL set to a Claude model/);
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_MODEL: "opus,openai/gpt-6-luna" }), /Claude models only, not openai\/gpt-6-luna/);
@@ -119,6 +123,22 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   assert.equal(loadConfig({ ...CLAUDE, RB_TRANSCRIPT_OUT: "/work/out/transcript.json" }).transcriptOutPath, "/work/out/transcript.json");
   assert.equal(describeSettings(loadConfig({ ...CLAUDE, RB_CONFIG_NAIVE: "on" })), "naive=on model=anthropic/claude-opus-5.5 mode=human max_findings=25 time_budget=780 engine=claude-code");
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);
+});
+
+test("the claude-code engine falls back to an OpenAI-compatible endpoint", () => {
+  const { OPENROUTER_API_KEY: _key, ...contract } = BASE;
+  const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus" };
+  assert.equal(loadConfig(CLAUDE).fallback, null);
+  assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "off" }).fallback, null);
+  const config = loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "deepseek/deepseek-v4-flash", CMD_API_KEY: "cmd" });
+  assert.deepEqual(config.fallback, { model: "deepseek/deepseek-v4-flash", apiKey: "cmd", baseUrl: "https://api.commandcode.ai/provider/v1" });
+  assert.match(describeSettings(config), /^engine=claude-code fallback=deepseek\/deepseek-v4-flash model=opus /);
+  assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: "https://example.test/v1/" }).fallback!.baseUrl, "https://example.test/v1");
+  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m" }), /needs CMD_API_KEY/);
+  for (const url of ["api.commandcode.ai/provider/v1", "ftp://example.test", "not a url"]) {
+    assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd", RB_FALLBACK_BASE_URL: url }), /RB_FALLBACK_BASE_URL must be an http or https URL/, url);
+  }
+  assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_FALLBACK: "m", CMD_API_KEY: "cmd" }), /needs RB_CONFIG_ENGINE=claude-code/);
 });
 
 test("fixes are written only when a model is named for them", () => {

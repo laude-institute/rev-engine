@@ -1,6 +1,7 @@
 // Reads the agent contract's inputs and this reviewer's settings from the environment.
 import { dirname, join } from "node:path";
 import type { Severity } from "./findings.ts";
+import { claudeLoginOf, engineProblem, fallbackOf, seatsOf, type Fallback } from "./claude-cli.ts";
 import { FOCUS_NAMES } from "./prompts.ts";
 
 export type VerifyMode = "off" | "lenient" | "strict";
@@ -24,6 +25,16 @@ export interface Config {
   engine: "api" | "claude-code";
   apiKey: string;
   baseUrl: string;
+  /**
+   * With the claude-code engine, how claude is signed in: a token or key in the
+   * environment, or else the login of the claude CLI on this machine ("cli").
+   */
+  claudeLogin: "token" | "api-key" | "cli" | null;
+  /**
+   * With the claude-code engine, an OpenAI-compatible endpoint that takes over a pass
+   * claude cannot finish, or every pass when claude cannot run at all. Null for none.
+   */
+  fallback: Fallback | null;
   /** One independent review seat per model. */
   models: string[];
   /** For each seat, the one focus it reviews for, or null for the full review. */
@@ -72,9 +83,8 @@ export type ReviewMode = "agent" | "human";
 export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, human: 25 };
 
 export const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
+export { DEFAULT_FALLBACK_BASE_URL } from "./claude-cli.ts";
 export const DEFAULT_MODEL = "openai/gpt-6-luna";
-/** The effort levels `claude --effort` accepts. */
-const CLAUDE_CODE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
 type Env = Record<string, string | undefined>;
 
@@ -105,10 +115,10 @@ export function loadConfig(env: Env): Config {
   if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("RB_PR_NUMBER is not a positive integer");
 
   // Each seat is a model, optionally followed by "@" and the one focus it reviews for.
-  const seats = (env.RB_CONFIG_MODEL ?? DEFAULT_MODEL).split(",").map((seat) => seat.trim()).filter(Boolean);
+  const seats = seatsOf(env.RB_CONFIG_MODEL ?? DEFAULT_MODEL);
   if (!seats.length) throw new Error("RB_CONFIG_MODEL names no model");
-  const models = seats.map((seat) => (seat.includes("@") ? seat.slice(0, seat.lastIndexOf("@")) : seat));
-  const focuses = seats.map((seat) => (seat.includes("@") ? seat.slice(seat.lastIndexOf("@") + 1) : null));
+  const models = seats.map((seat) => seat.model);
+  const focuses = seats.map((seat) => seat.focus);
   for (const focus of focuses) {
     if (focus !== null && !FOCUS_NAMES.includes(focus)) throw new Error(`RB_CONFIG_MODEL names an unknown focus "${focus}"; the choices are ${FOCUS_NAMES.join(", ")}`);
   }
@@ -130,8 +140,9 @@ export function loadConfig(env: Env): Config {
   if (!["on", "off"].includes(swarm)) throw new Error("RB_CONFIG_SWARM must be on or off");
   if (naive === "on" && swarm === "on") throw new Error("RB_CONFIG_NAIVE and RB_CONFIG_SWARM cannot both be on");
 
+  const engineError = engineProblem(env);
+  if (engineError) throw new Error(engineError);
   const engine = (env.RB_CONFIG_ENGINE?.trim() || "api") as Config["engine"];
-  if (engine !== "api" && engine !== "claude-code") throw new Error("RB_CONFIG_ENGINE must be api or claude-code");
 
   const verifierModel = env.RB_CONFIG_VERIFIER?.trim() || models[0]!;
   const followUpModel = env.RB_CONFIG_FOLLOW_UP?.trim() || null;
@@ -139,16 +150,9 @@ export function loadConfig(env: Env): Config {
   const fixModel = env.RB_CONFIG_FIXES?.trim() || null;
   const effort = env.RB_CONFIG_EFFORT?.trim() || null;
   const transcriptOutPath = env.RB_TRANSCRIPT_OUT?.trim() || null;
-  if (engine === "claude-code") {
-    // Claude Code runs Claude models with its own login.
-    const only = "RB_CONFIG_ENGINE=claude-code";
-    if (swarm === "on") throw new Error(`${only} does not support RB_CONFIG_SWARM`);
-    if (!env.RB_CONFIG_MODEL?.trim()) throw new Error(`${only} needs RB_CONFIG_MODEL set to a Claude model, such as anthropic/claude-opus-5.5 or opus`);
-    const other = [...models, verifierModel, followUpModel, fitModel, fixModel].find((model) => model && !/^(?:(?:anthropic\/)?claude-[a-z0-9.-]+(?:\[1m\])?|(?:opus|sonnet|haiku|fable)(?:\[1m\])?|default|best|opusplan)$/.test(model));
-    if (other) throw new Error(`${only} runs Claude models only, not ${other}`);
-    if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) throw new Error(`${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`);
-    if (!env.CLAUDE_CODE_OAUTH_TOKEN?.trim() && !env.ANTHROPIC_API_KEY?.trim()) throw new Error(`${only} needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY`);
-  }
+  const claudeLogin = engine === "claude-code" ? claudeLoginOf(env) : null;
+
+  const fallback = fallbackOf(env, engine);
 
   const minSeverity = (env.RB_CONFIG_MIN_SEVERITY?.trim() || "low") as Severity;
   if (!["high", "medium", "low"].includes(minSeverity)) throw new Error("RB_CONFIG_MIN_SEVERITY must be high, medium or low");
@@ -173,6 +177,8 @@ export function loadConfig(env: Env): Config {
     engine,
     apiKey: engine === "api" ? required(env, "OPENROUTER_API_KEY") : "",
     baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    claudeLogin,
+    fallback,
     models,
     focuses,
     verifierModel,
@@ -199,10 +205,11 @@ export function loadConfig(env: Env): Config {
 
 /** The settings line the benchmark looks for: every configured label value must appear in the output. */
 export function describeSettings(config: Config): string {
-  if (config.naive) return `naive=on model=${config.models[0]} mode=${config.mode} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} engine=${config.engine}`;
+  if (config.naive) return `naive=on model=${config.models[0]} mode=${config.mode} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} engine=${config.engine}${config.fallback ? ` fallback=${config.fallback.model}` : ""}`;
   if (config.swarm) return `swarm=on model=${config.models[0]} verifier=${config.verifierModel} verify=${config.verify} effort=${config.effort ?? "default"} mode=${config.mode} max_findings=${config.maxFindings} time_budget=${config.budgetMs / 1000} max_turns=${config.maxTurns}`;
   return [
     `engine=${config.engine}`,
+    ...(config.fallback ? [`fallback=${config.fallback.model}`] : []),
     `model=${config.models.map((model, index) => (config.focuses[index] ? `${model}@${config.focuses[index]}` : model)).join(",")}`,
     `verifier=${config.verifierModel}`,
     `verify=${config.verify}`,

@@ -9,7 +9,7 @@
 // Prompts reach claude on its standard input. Linux limits one command-line
 // argument to 128 KiB, and a review prompt can be larger. Claude prints every
 // message of the conversation as it happens, which is kept for the transcript.
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -18,15 +18,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_CONTEXT_CHARS, WRAP_UP_MS, label, type AgentOptions } from "./agent.ts";
 import { addCosts, emptyUsage, formatCost, type Chat, type ChatMessage, type ChatRequest, type Usage } from "./llm.ts";
+import { NOT_INSTALLED } from "./claude-cli.ts";
 import { readTools, type ToolDefinition } from "./tools.ts";
+
+export { claudeCodeProblem, claudeLoginProblem } from "./claude-cli.ts";
 
 const SERVER = "rev";
 const SETTINGS = Symbol("claude-code");
 /** How long a claude that was told to stop gets to exit before it is killed. */
 const KILL_GRACE_MS = 5_000;
+/** A fallback with less time than this left is not started. */
+export const MIN_FALLBACK_MS = 10_000;
 /** Turns allowed when only the answer is asked for. */
 const ANSWER_TURNS = 3;
-const NOT_INSTALLED = "Claude Code is not installed in this image; build it with --build-arg CLAUDE_CODE_VERSION=<exact version>";
 
 export interface ClaudeCodeSettings {
   effort: string | null;
@@ -37,14 +41,30 @@ export interface ClaudeCodeSettings {
   transcript?: (caller: string, model: string, messages: ChatMessage[]) => void;
   /** The program to run in place of claude, for tests. */
   command?: string;
+  /**
+   * Takes over a pass, or a direct call, that claude could not finish: the same request,
+   * sent through an OpenAI-compatible chat with this model in place of the Claude one.
+   */
+  fallback?: { chat: Chat; model: string };
 }
 
 /**
  * A Chat that marks the run for Claude Code. runAgent sees the mark and runs the whole
  * pass in Claude Code. A direct call, as the naive baseline makes, is one claude run.
  */
-export function claudeCodeChat(settings: ClaudeCodeSettings): Chat {
-  const chat: Chat = (request) => askClaudeCode(request, settings);
+export function claudeCodeChat(settings: ClaudeCodeSettings, log: (message: string) => void = () => {}): Chat {
+  const chat: Chat = async (request) => {
+    const started = Date.now();
+    try {
+      return await askClaudeCode(request, settings);
+    } catch (error) {
+      // The fallback gets only the time the call had left, so falling back never overruns it.
+      const timeoutMs = request.timeoutMs - (Date.now() - started);
+      if (!settings.fallback || timeoutMs < MIN_FALLBACK_MS) throw error;
+      log(`${request.caller ?? request.model}: claude failed (${error instanceof Error ? error.message : String(error)}); falling back to ${settings.fallback.model}`);
+      return settings.fallback.chat({ ...request, model: settings.fallback.model, timeoutMs });
+    }
+  };
   return Object.assign(chat, { [SETTINGS]: settings });
 }
 
@@ -55,16 +75,6 @@ export function claudeCodeSettings(chat: Chat): ClaudeCodeSettings | null {
 /** anthropic/claude-opus-5.5 becomes claude-opus-5-5; aliases such as opus pass through. */
 export function claudeModel(model: string): string {
   return model.replace(/^anthropic\//, "").replace(/(\d)\.(\d)/g, "$1-$2");
-}
-
-/** Why Claude Code cannot run here, or null when it can. */
-export function claudeCodeProblem(command = "claude"): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(command, ["--version"], { timeout: 30_000 }, (error) => {
-      if (!error) return resolve(null);
-      resolve((error as NodeJS.ErrnoException).code === "ENOENT" ? NOT_INSTALLED : `claude --version failed: ${error.message}`);
-    });
-  });
 }
 
 /** Tells the model how this session differs from the one its instructions were written for. */
@@ -427,6 +437,8 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
   // An empty directory, so Claude Code finds no CLAUDE.md or settings from the checkout.
   const cwd = await mkdtemp(join(tmpdir(), "rev-claude-"));
   const submissions: Array<Record<string, unknown>> = [];
+  // One turn budget for the whole conversation, as in the chat loop.
+  let turnsLeft = options.maxTurns;
   // The conversation as the chat loop would hold it, so the system prompt is the one without the note on tool names.
   const messages: ChatMessage[] = [{ role: "system", content: options.system }];
   settings.transcript?.(who, model, messages);
@@ -437,8 +449,6 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
     const session = randomUUID();
     const start = (id: string): string[] => ["--session-id", id, "--system-prompt", system];
     const resume = ["--resume", session, "--system-prompt", system];
-    // One turn budget for the whole conversation, as in the chat loop.
-    let turnsLeft = options.maxTurns;
     // The size of the conversation, counted as the chat loop counts it.
     let contextChars = system.length;
     const call = async (how: string[], turns: number, prompt: string, timeoutMs: number, investigating = false): Promise<Result | null> => {
@@ -456,10 +466,12 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       const { result, events, error } = run;
       transcribe(events, submitName, messages);
       record(settings, options.caller, run);
-      // Without final totals, charge the whole allowance: unseen turns may have run.
-      // A missing saved session is a setup error and consumed no model turns.
-      const missingSession = error && !events.some((event) => event.type === "assistant") && /No conversation found with session ID/i.test(error.message);
-      turnsLeft -= missingSession ? 0 : (result?.num_turns ?? turns);
+      if (result) turnsLeft -= result.num_turns ?? turns;
+      // A run that failed printed everything it did, so it is charged the turns it was seen to take:
+      // none for one that failed at once, such as a missing saved session or a bad login.
+      else if (error) turnsLeft -= observedUsage(events).num_turns!;
+      // A run that was stopped has no final totals, so it is charged the whole allowance: unseen turns may have run.
+      else turnsLeft -= turns;
       if (error) throw error;
       return result;
     };
@@ -509,7 +521,8 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       request = next;
     }
   } catch (error) {
-    if (!submissions.length) throw error;
+    // A fallback continues the pass in the turns that are left, not a fresh budget.
+    if (!submissions.length) throw Object.assign(error instanceof Error ? error : new Error(String(error)), { turnsUsed: options.maxTurns - turnsLeft });
     log(`${who}: a later round failed, keeping the submissions so far: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     tools?.close();

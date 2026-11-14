@@ -5,11 +5,12 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync, symlinkSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { runAgent, type SecondLook } from "../src/agent.ts";
+import { MAX_CONTEXT_CHARS, runAgent, type SecondLook } from "../src/agent.ts";
 import { loadConfig } from "../src/config.ts";
 import { naiveReview } from "../src/naive.ts";
-import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeModel, serveTools } from "../src/claude-code.ts";
-import { emptyUsage, type ChatMessage, type Usage } from "../src/llm.ts";
+import { claudeCodeChat, claudeCodeProblem, claudeCodeSettings, claudeLoginProblem, claudeModel, serveTools } from "../src/claude-code.ts";
+import { NOT_INSTALLED } from "../src/claude-cli.ts";
+import { emptyUsage, type ChatMessage, type ChatRequest, type Usage } from "../src/llm.ts";
 import { submitReview } from "../src/prompts.ts";
 import { readTools, type Workspace } from "../src/tools.ts";
 
@@ -228,6 +229,139 @@ test("a missing claude is reported as a build problem", async () => {
   assert.match(String(await claudeCodeProblem(join(tmpdir(), "no-such-claude"))), /not installed.*CLAUDE_CODE_VERSION/);
   assert.equal(await claudeCodeProblem(process.execPath), null);
   await assert.rejects(run(join(tmpdir(), "no-such-claude")), /not installed/);
+});
+
+test("the claude CLI login is read from claude auth status", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "rev-fake-auth-"));
+  const status = (name: string, body: string): string => {
+    const command = join(dir, name);
+    writeFileSync(command, `#!/usr/bin/env node\n${body}\n`);
+    chmodSync(command, 0o755);
+    return command;
+  };
+  const signedOut = { message: (await claudeLoginProblem(status("out.mjs", `console.log(JSON.stringify({ loggedIn: false, authMethod: "none" }))`)))?.message, retry: false };
+  assert.equal(await claudeLoginProblem(status("in.mjs", `console.log(JSON.stringify({ loggedIn: true, authMethod: "claude.ai" }))`)), null);
+  assert.match(String(signedOut.message), /not signed in.*claude auth login/);
+  assert.deepEqual(await claudeLoginProblem(status("fails.mjs", "process.exit(1)")), signedOut);
+  // Older versions print text: a successful exit means signed in, a failing one does not.
+  assert.equal(await claudeLoginProblem(status("text.mjs", `console.log("Logged in as someone")`)), null);
+  assert.deepEqual(await claudeLoginProblem(status("text-fails.mjs", `console.log("Not logged in"); process.exit(1)`)), signedOut);
+  // A missing claude is not a signed-out one, and a crash says nothing about the login, so it may be retried.
+  assert.deepEqual(await claudeLoginProblem(join(dir, "missing")), { message: NOT_INSTALLED, retry: false });
+  const crashed = await claudeLoginProblem(status("crash.mjs", `process.kill(process.pid, "SIGKILL")`));
+  assert.equal(crashed?.retry, true);
+  assert.match(String(crashed?.message), /claude auth status failed/);
+});
+
+test("a direct call claude cannot answer goes to the fallback model", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [] }]);
+  };
+  const logs: string[] = [];
+  const chat = claudeCodeChat({ effort: null, command: fake([{ exit: 1, stderr: "Invalid API key" }]).command, fallback: { chat: fallback, model: "vendor/fallback" } }, (message) => logs.push(message));
+  const reply = await chat({ model: "opus", messages: [{ role: "user", content: "the diff" }], tools: [submitReview], timeoutMs: 60_000, caller: "naive" });
+  assert.deepEqual(reply, called(null, ["f1", "submit_review", { findings: [] }]));
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.model, "vendor/fallback");
+  // Only the time the call had left goes to the fallback.
+  assert.ok(sent[0]!.timeoutMs <= 60_000 && sent[0]!.timeoutMs > 50_000, String(sent[0]!.timeoutMs));
+  assert.match(logs.join("\n"), /naive: claude failed .*Invalid API key.*falling back to vendor\/fallback/);
+
+  // With too little time left, the claude error stands.
+  const late = claudeCodeChat({ effort: null, command: fake([{ exit: 1, stderr: "Invalid API key" }]).command, fallback: { chat: fallback, model: "vendor/fallback" } });
+  await assert.rejects(late({ model: "opus", messages: [{ role: "user", content: "the diff" }], tools: [submitReview], timeoutMs: 9_000 }), /Invalid API key/);
+  assert.equal(sent.length, 1);
+});
+
+test("a pass claude cannot finish starts over on the fallback model", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [{ file: "b.ts" }] }]);
+  };
+  const logs: string[] = [];
+  const claude = fake([{ exit: 1, stderr: "Invalid API key" }]);
+  const submitted = await runAgent({
+    chat: claudeCodeChat({ effort: "high", command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.deepEqual(submitted, { findings: [{ file: "b.ts" }] });
+  assert.equal(claude.calls().length, 1);
+  assert.equal(sent[0]!.model, "vendor/fallback");
+  assert.equal(sent[0]!.caller, "s1");
+  // Claude failed before taking a turn, so the fallback has the whole budget.
+  assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 10 turn\(s\) left/);
+});
+
+test("a pass that falls back keeps the turns claude was not seen to use", async () => {
+  const fallback = async (): Promise<ChatMessage> => called(null, ["f1", "submit_review", { findings: [] }]);
+  const logs: string[] = [];
+  // Claude reads twice, then fails: two turns taken of 10.
+  const events = [...said("m1", reads("t1", "a.ts")), returned("t1", fileText), ...said("m2", reads("t2", "a.ts")), returned("t2", fileText)];
+  const claude = fake([{ events, exit: 1, stderr: "Invalid API key" }]);
+  await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 8 turn\(s\) left/);
+});
+
+test("a pass stopped at the size limit charges its whole allowance before falling back", async () => {
+  const fallback = async (): Promise<ChatMessage> => called(null, ["f1", "submit_review", { findings: [] }]);
+  const logs: string[] = [];
+  // The investigation passes the conversation size limit and is stopped, so its totals are never printed;
+  // the request for its answer then fails.
+  const big = { type: "text", text: "x".repeat(MAX_CONTEXT_CHARS + 1) };
+  const claude = fake([{ events: said("m1", big), hang: true }, { exit: 1, stderr: "Invalid API key" }]);
+  await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.equal(claude.calls().length, 2);
+  // 7 turns were allowed for the investigation, all charged; the 3 kept for the answer are left.
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 3 turn\(s\) left/);
+});
+
+test("a pass claude cannot finish for a passing reason, such as an overload, also falls back", async () => {
+  const sent: ChatRequest[] = [];
+  const fallback = async (request: ChatRequest): Promise<ChatMessage> => {
+    sent.push(request);
+    return called(null, ["f1", "submit_review", { findings: [] }]);
+  };
+  const logs: string[] = [];
+  // The investigation and then the request for its answer both fail.
+  const claude = fake([{ exit: 1, stderr: "API Error: 529 Overloaded" }, { exit: 1, stderr: "API Error: 529 Overloaded" }]);
+  const submitted = await runAgent({
+    chat: claudeCodeChat({ effort: null, command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+  });
+  assert.deepEqual(submitted, { findings: [] });
+  assert.equal(claude.calls().length, 2);
+  assert.equal(sent.length, 1);
+  assert.match(logs.join("\n"), /falling back to vendor\/fallback with 10 turn\(s\) left/);
+});
+
+test("a failed pass keeps claude's error without a fallback or the room to use one", async () => {
+  const fallback = async (): Promise<ChatMessage> => assert.fail("the fallback must not be called");
+  const pass = (command: string, overrides: { fallback?: boolean; deadline?: number; maxTurns?: number } = {}) => runAgent({
+    chat: claudeCodeChat({ effort: null, command, ...(overrides.fallback === false ? {} : { fallback: { chat: fallback, model: "vendor/fallback" } }) }),
+    model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
+    deadline: overrides.deadline ?? Date.now() + 3_600_000, maxTurns: overrides.maxTurns ?? 10, caller: "s1", log: () => {},
+  });
+  const failing = () => fake([{ exit: 1, stderr: "Invalid API key" }]).command;
+  const claudeError = (error: unknown) => error instanceof Error && !/fallback must not be called/.test(error.message);
+  await assert.rejects(pass(failing(), { fallback: false }), /Invalid API key/);
+  // Less time left than the wrap-up needs.
+  await assert.rejects(pass(failing(), { deadline: Date.now() + 60_000 }), claudeError);
+  // A claude that used all but one of its turns before failing leaves too few for the fallback.
+  const spent = fake([{ events: said("m1", reads("t1", "a.ts")).concat([returned("t1", fileText)], said("m2", reads("t2", "a.ts")), [returned("t2", fileText)]), exit: 1, stderr: "Invalid API key" }]).command;
+  await assert.rejects(pass(spent, { maxTurns: 3 }), claudeError);
 });
 
 test("the tool server lists the read tools and runs calls in the workspace", async () => {

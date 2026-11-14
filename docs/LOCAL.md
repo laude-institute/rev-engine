@@ -10,7 +10,9 @@ node scripts/local.ts pr 1938                # a pull request at its head
 node scripts/local.ts doctor                 # node, git, gh, settings and the key
 ```
 
-Both review modes need Node 24 or newer, Git and `OPENROUTER_API_KEY`. PR mode
+Both review modes need Node 24 or newer, Git and `OPENROUTER_API_KEY`, or
+with `--set engine=claude-code`, a signed-in `claude` CLI in place of
+the key. PR mode
 also needs an authenticated `gh` installation. Export the key in your shell,
 or load your trusted credentials file explicitly with Node:
 
@@ -19,8 +21,29 @@ node --env-file=/path/to/reviewer/.env scripts/local.ts branch --base main
 ```
 
 The runner never loads a credentials file from the repository being reviewed.
-Doctor exits nonzero when Node, Git or the key is missing. It reports `gh`
+Doctor exits nonzero when Node or Git is missing, or when the review would
+refuse its settings. With the default engine it needs `OPENROUTER_API_KEY`.
+With `engine=claude-code` it needs Claude models, an installed `claude`, and
+a token or a signed-in CLI, unless a fallback is configured. It does not
+call the fallback endpoint, so a wrong key or an unreachable host shows only
+when the review runs. It reports `gh`
 separately because branch mode does not need it.
+
+To review with your own Claude login, and fall back to Command Code when
+claude fails:
+
+```sh
+export RB_CONFIG_ENGINE=claude-code RB_CONFIG_MODEL=opus RB_CONFIG_FALLBACK=<model> CMD_API_KEY=<key>
+node scripts/local.ts doctor
+node scripts/local.ts branch --base main
+# or, for one run: node scripts/local.ts branch --base main --set engine=claude-code --model opus
+```
+
+A process that cannot reach the macOS login keychain, such as one started over
+SSH or by another agent, reads the claude login as signed out. Make a long-lived
+token once with `claude setup-token` in a local terminal, keep it in a trusted
+file outside any repository as `CLAUDE_CODE_OAUTH_TOKEN=...`, and pass that file
+with `node --env-file`.
 
 ## Modes
 
@@ -78,7 +101,7 @@ the same form by that config file can be passed through `--set`.
 Exported `RB_CONFIG_*` settings are included and validated, with command-line
 values taking precedence. The effective overrides appear in the run metadata
 and `--dry-run` output. Unset settings use the reviewer's defaults. An exported
-`RB_MODEL_BASE_URL` is also preserved and reported. Other inherited `RB_*`
+`RB_MODEL_BASE_URL` and `RB_FALLBACK_BASE_URL` are also preserved and reported. Other inherited `RB_*`
 variables are removed; the runner controls the input and output paths and
 always starts at attempt 1.
 

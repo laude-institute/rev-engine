@@ -37,7 +37,7 @@ function fixture(t: TestContext) {
   const repo = join(dir, "repo");
   const bin = join(dir, "bin");
   for (const path of [join(runner, "scripts/local"), join(runner, "src"), join(runner, "experiments/prototypes/swarm"), repo, bin]) mkdirSync(path, { recursive: true });
-  for (const file of ["scripts/local.ts", "scripts/local/layout.ts", "src/config.ts", "experiments/prototypes/swarm/review.ts"]) copyFileSync(join(source, file), join(runner, file));
+  for (const file of ["scripts/local.ts", "scripts/local/layout.ts", "src/config.ts", "src/claude-cli.ts", "experiments/prototypes/swarm/review.ts"]) copyFileSync(join(source, file), join(runner, file));
   writeFileSync(join(runner, "package.json"), '{"type":"module"}');
   writeFileSync(join(runner, "src/main.ts"), stub);
   const env: Record<string, string> = {
@@ -185,6 +185,65 @@ test("doctor fails without git and reports gh as optional for branch mode", t =>
   assert.equal(result.status, 1);
   assert.match(result.stdout, /git\s+missing/);
   assert.match(result.stdout, /gh\s+missing \(PR mode only\)/);
+});
+
+test("doctor checks the claude login when the engine is set with --set", t => {
+  const f = fixture(t);
+  const claude = (loggedIn: boolean) => {
+    writeFileSync(join(f.bin, "claude"), `#!${process.execPath}\nif (process.argv.includes("--version")) console.log("2.1.325");\nelse console.log(JSON.stringify({ loggedIn: ${loggedIn} }));\n`);
+    chmodSync(join(f.bin, "claude"), 0o755);
+  };
+  claude(true);
+  // The review refuses claude-code without a Claude model, so doctor does too.
+  let result = f.cli(["doctor", "--set", "engine=claude-code"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /engine\s+RB_CONFIG_ENGINE=claude-code needs RB_CONFIG_MODEL/);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "openai/gpt-6-luna"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /runs Claude models only, not openai\/gpt-6-luna/);
+  result = f.cli(["doctor", "--set", "engine=codex"], { OPENROUTER_API_KEY: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /engine\s+RB_CONFIG_ENGINE must be api or claude-code/);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus"]);
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /claude\s+claude CLI login/);
+  assert.doesNotMatch(result.stdout, /api key/);
+
+  result = f.cli(["doctor"], { RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus", CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /claude\s+CLAUDE_CODE_OAUTH_TOKEN/);
+
+  claude(false);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude\s+not signed in/);
+  // A fallback with its key lets the review run anyway.
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic" });
+  assert.equal(result.status, 0, result.stdout);
+  assert.match(result.stdout, /fallback\s+vendor\/fallback at api\.commandcode\.ai, key present/);
+  // A fallback without its key fails the review, so doctor fails too, even when claude is signed in.
+  claude(true);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus", "--set", "fallback=vendor/fallback"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+RB_CONFIG_FALLBACK needs CMD_API_KEY/);
+  // So does any other fallback setting the review would refuse.
+  result = f.cli(["doctor", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic", OPENROUTER_API_KEY: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+RB_CONFIG_FALLBACK needs RB_CONFIG_ENGINE=claude-code/);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus", "--set", "fallback=vendor/fallback"], { CMD_API_KEY: "synthetic", RB_FALLBACK_BASE_URL: "api.example.test/v1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /fallback\s+RB_FALLBACK_BASE_URL must be an http or https URL/);
+
+  // An installed claude that fails is reported with its error, not as missing.
+  writeFileSync(join(f.bin, "claude"), `#!${process.execPath}\nprocess.stderr.write("broken install");\nprocess.exit(3);\n`);
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus"], { CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude\s+claude --version failed/);
+
+  rmSync(join(f.bin, "claude"));
+  result = f.cli(["doctor", "--set", "engine=claude-code", "--model", "opus"], { PATH: `${f.bin}:${dirname(spawnSync("which", ["git"], { encoding: "utf8" }).stdout.trim())}`, CLAUDE_CODE_OAUTH_TOKEN: "synthetic" });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude\s+missing/);
 });
 
 test("PR mode fetches the exact missing head and base from its selected remote", t => {

@@ -17,8 +17,9 @@ import { closeSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, openS
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NOT_INSTALLED, claudeCodeProblem, claudeLoginOf, claudeLoginProblem, engineProblem, fallbackOf, type Fallback } from "../src/claude-cli.ts";
 import {
-  UsageError, buildReviewEnv, effectiveSettings, parseArgs, reaches,
+  UsageError, buildReviewEnv, effectiveSettings, envNameOf, parseArgs, reaches,
   repoName, summarize, type LocalOptions, type Settings, type Summary,
 } from "./local/layout.ts";
 
@@ -79,7 +80,7 @@ function mergeBase(repo: string, base: string, head: string): string {
 function availableSettings(repo: string): Set<string> {
   const available = new Set<string>();
   // Include the optional engine's own reads, without importing or executing it.
-  for (const file of ["src/config.ts", "experiments/prototypes/swarm/review.ts"]) {
+  for (const file of ["src/config.ts", "src/claude-cli.ts", "experiments/prototypes/swarm/review.ts"]) {
     const path = join(repo, file);
     if (!existsSync(path)) continue;
     const source = readFileSync(path, "utf8").replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, "");
@@ -301,7 +302,12 @@ async function finish(
 ): Promise<number> {
   const env = buildReviewEnv({ nwo: ctx.nwo, number: ctx.number, base: ctx.base, head: ctx.head, repoDir: ctx.repo, runDir: run.dir, settings });
   if (process.env.RB_MODEL_BASE_URL) env.RB_MODEL_BASE_URL = process.env.RB_MODEL_BASE_URL;
-  const meta = { nwo: ctx.nwo, base: ctx.base, head: ctx.head, mode: options.command, run: run.dir, settings, ...(env.RB_MODEL_BASE_URL ? { modelBaseUrl: env.RB_MODEL_BASE_URL } : {}) };
+  if (process.env.RB_FALLBACK_BASE_URL) env.RB_FALLBACK_BASE_URL = process.env.RB_FALLBACK_BASE_URL;
+  const meta = {
+    nwo: ctx.nwo, base: ctx.base, head: ctx.head, mode: options.command, run: run.dir, settings,
+    ...(env.RB_MODEL_BASE_URL ? { modelBaseUrl: env.RB_MODEL_BASE_URL } : {}),
+    ...(env.RB_FALLBACK_BASE_URL ? { fallbackBaseUrl: env.RB_FALLBACK_BASE_URL } : {}),
+  };
   if (options.dryRun) {
     process.stdout.write(`${JSON.stringify({ meta, env }, null, 2)}\n`);
     return 0;
@@ -323,7 +329,7 @@ async function finish(
   return 0;
 }
 
-function doctor(): number {
+async function doctor(options: LocalOptions): Promise<number> {
   let ok = true;
   process.stdout.write("local: doctor\n");
   const major = Number(process.versions.node.split(".")[0]);
@@ -337,17 +343,55 @@ function doctor(): number {
     process.stdout.write(`  ${label.padEnd(9)} ${found.status === 0 ? found.stdout.split("\n")[0] : "missing"}${label === "gh" ? " (PR mode only)" : ""}\n`);
     if (label === "git" && found.status !== 0) ok = false;
   }
-  const settings = availableSettings(root);
-  process.stdout.write(`  settings  ${settings.size} RB_CONFIG_* setting(s)\n`);
-  process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
-  if (!process.env.OPENROUTER_API_KEY) ok = false;
+  const available = availableSettings(root);
+  process.stdout.write(`  settings  ${available.size} RB_CONFIG_* setting(s)\n`);
+  // The settings the review would get, so an engine picked with --set is checked as that engine.
+  let settings: Settings = {};
+  try {
+    settings = effectiveSettings(options, available, process.env);
+  } catch (error) {
+    process.stdout.write(`  settings  ${error instanceof Error ? error.message : String(error)}\n`);
+    ok = false;
+  }
+  const engine = settings.engine?.trim() || "api";
+  // The settings as the review reads them, so doctor refuses what the review refuses.
+  const asEnv: Record<string, string | undefined> = { ...process.env };
+  for (const [name, value] of Object.entries(settings)) asEnv[envNameOf(name)] = value;
+  const engineError = engineProblem(asEnv);
+  if (engineError) {
+    process.stdout.write(`  engine    ${engineError}\n`);
+    ok = false;
+  }
+  // The same fallback checks the review makes, given the settings as the review would get them.
+  let fallback: Fallback | null = null;
+  let fallbackProblem: string | null = null;
+  try {
+    fallback = fallbackOf(asEnv, engine);
+  } catch (error) {
+    fallbackProblem = error instanceof Error ? error.message : String(error);
+  }
+  if (fallback || fallbackProblem) process.stdout.write(`  fallback  ${fallbackProblem ?? `${fallback!.model} at ${new URL(fallback!.baseUrl).host}, key present`}\n`);
+  if (fallbackProblem) ok = false;
+  if (engine === "claude-code") {
+    const installed = await claudeCodeProblem();
+    const method = claudeLoginOf(process.env);
+    const how = method === "token" ? "CLAUDE_CODE_OAUTH_TOKEN" : method === "api-key" ? "ANTHROPIC_API_KEY" : null;
+    const login = installed ?? (how ? null : (await claudeLoginProblem())?.message ?? null);
+    const state = installed === NOT_INSTALLED ? "missing" : installed ?? (login ? (login.startsWith("claude is not signed in") ? "not signed in (run claude auth login, or set CLAUDE_CODE_OAUTH_TOKEN from claude setup-token)" : login) : how ?? "claude CLI login");
+    process.stdout.write(`  claude    ${state}\n`);
+    // Without claude, the review runs on the fallback, so it needs one that works.
+    if (login && !fallback) ok = false;
+  } else {
+    process.stdout.write(`  api key   ${process.env.OPENROUTER_API_KEY ? "present" : "absent (export OPENROUTER_API_KEY or use node --env-file with a trusted file)"}\n`);
+    if (!process.env.OPENROUTER_API_KEY) ok = false;
+  }
   process.stdout.write(`  runs      ${join(root, "runs", "local")}\n`);
   return ok ? 0 : 1;
 }
 
 async function main(argv: string[]): Promise<number> {
   const options = parseArgs(argv);
-  if (options.command === "doctor") return doctor();
+  if (options.command === "doctor") return doctor(options);
   const settings = effectiveSettings(options, availableSettings(root), process.env);
   return options.command === "branch" ? branchMode(options, settings) : prMode(options, settings);
 }
