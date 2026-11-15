@@ -124,6 +124,30 @@ function directClient(fetchImpl: typeof fetch, usage = emptyUsage(), usageByCall
   return createChat({ apiKey: "fake", baseUrl: "https://api.openai.com/v1/", effort: "high", usage, usageByCaller, fetchImpl });
 }
 
+test("selects Responses for OpenAI hosts and honors the API setting", async () => {
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    return url.endsWith("/responses")
+      ? Response.json({ output: textOutput })
+      : Response.json({ choices: [{ message: { content: "ok" } }] });
+  }) as unknown as typeof fetch;
+  const chat = (baseUrl: string, api?: "auto" | "chat" | "responses") =>
+    createChat({ apiKey: "fake", baseUrl, api, effort: null, usage: emptyUsage(), fetchImpl })(directRequest);
+
+  await chat("https://us.api.openai.com/v1");
+  await chat("https://example.test/v1", "responses");
+  await chat("https://example.test/v1");
+  await chat("https://api.openai.com/v1", "chat");
+
+  assert.deepEqual(urls, [
+    "https://us.api.openai.com/v1/responses",
+    "https://example.test/v1/responses",
+    "https://example.test/v1/chat/completions",
+    "https://api.openai.com/v1/chat/completions",
+  ]);
+});
+
 test("replays every Responses output item in order, including phase, after saving a transcript", async () => {
   const output = [
     { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "first" },

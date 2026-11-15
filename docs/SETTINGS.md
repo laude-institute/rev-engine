@@ -4,12 +4,15 @@ The reviewer container reads its settings from environment variables. It needs o
 
 To call OpenAI directly, set `RB_MODEL_BASE_URL=https://api.openai.com/v1` and put the OpenAI key in `OPENROUTER_API_KEY`. You must also set `RB_CONFIG_MODEL` to an OpenAI model ID without the `openai/` prefix; the default is an OpenRouter ID and will not work here. Any explicitly configured verifier, follow-up, fit, or fixes model must also use an OpenAI model ID.
 
-Requests then go through OpenAI's Responses API. Token usage is recorded, but `usage.cost_usd` is `null` and cost summaries say `unknown` because this API does not report billed cost. OpenRouter remains the default; benchmark runs must allow the configured endpoint.
+`RB_MODEL_API` defaults to `auto`, which selects Responses for `api.openai.com` and its subdomains and chat completions elsewhere; set it to `chat` or `responses` to choose explicitly, including when a local proxy fronts OpenAI.
+
+When Responses is selected, token usage is recorded, but `usage.cost_usd` is `null` and cost summaries say `unknown` because this API does not report billed cost. OpenRouter remains the default; benchmark runs must allow the configured endpoint.
 
 If you use the GitHub Action, set its inputs instead. They are listed in [INSTALL.md](INSTALL.md).
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `RB_MODEL_API` | `auto` | `auto` selects an API based on the host; `chat` and `responses` force chat completions or Responses. |
 | `RB_CONFIG_ENGINE` | `api` | `claude-code` runs each review, verification and fit pass with `claude -p` instead of the chat API. See [The Claude Code engine](#the-claude-code-engine). |
 | `RB_CONFIG_MODEL` | `openai/gpt-6-luna` | Reviewer model. A comma-separated list runs one independent review per model. A model followed by `@maintainability` or `@tests` reviews for that one thing only, in place of the full review. |
 | `RB_CONFIG_VERIFIER` | first reviewer model | Model for the verification pass. |

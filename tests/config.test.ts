@@ -27,6 +27,13 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(loadConfig({ ...BASE, RB_DETAILS_OUT: "/work/out/details.json" }).detailsOutPath, "/work/out/details.json");
 });
 
+test("reads which model API to call", () => {
+  assert.equal(loadConfig(BASE).modelApi, "auto");
+  assert.equal(loadConfig({ ...BASE, RB_MODEL_API: "responses" }).modelApi, "responses");
+  assert.equal(loadConfig({ ...BASE, RB_MODEL_API: "chat" }).modelApi, "chat");
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "grpc" }), /RB_MODEL_API/);
+});
+
 test("reads the minimum severity and the fit model", () => {
   const config = loadConfig({ ...BASE, RB_CONFIG_MIN_SEVERITY: "high", RB_CONFIG_FIT: "vendor/fit" });
   assert.equal(config.minSeverity, "high");

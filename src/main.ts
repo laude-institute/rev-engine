@@ -80,7 +80,7 @@ try {
     // Its chat is not wrapped: runAgent tells the engine by a mark on the chat itself, and never calls it.
     chat = claudeCodeChat({ effort: config.effort, usage, usageByCaller, ...(config.transcriptOutPath ? { transcript: keep } : {}) });
   } else {
-    const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, effort: config.effort, usage, usageByCaller });
+    const send = createChat({ apiKey: config.apiKey, baseUrl: config.baseUrl, api: config.modelApi, effort: config.effort, usage, usageByCaller });
     chat = config.transcriptOutPath
       ? (request) => {
         keep(request.caller ?? request.model, request.model, request.messages);

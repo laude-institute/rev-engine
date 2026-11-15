@@ -93,6 +93,7 @@ function retryable(error: unknown): boolean {
 export interface ClientOptions {
   apiKey: string;
   baseUrl: string;
+  api?: "auto" | "chat" | "responses";
   effort: string | null;
   usage: Usage;
   /** Filled with the usage of each caller that names itself in its requests. */
@@ -104,9 +105,9 @@ export function createChat(options: ClientOptions): Chat {
   const fetchImpl = options.fetchImpl ?? fetch;
   const openRouter = new URL(options.baseUrl).hostname.endsWith("openrouter.ai");
 
-  // Direct OpenAI requests use Responses so encrypted reasoning can be replayed
-  // without storing the conversation with the provider.
-  const openAiResponses = new URL(options.baseUrl).hostname === "api.openai.com";
+  const host = new URL(options.baseUrl).hostname;
+  const api = options.api ?? "auto";
+  const openAiResponses = api === "responses" || (api === "auto" && (host === "api.openai.com" || host.endsWith(".api.openai.com")));
 
   async function post(path: string, body: Record<string, unknown>, timeoutMs: number): Promise<any> {
     const response = await fetchImpl(`${options.baseUrl.replace(/\/$/, "")}/${path}`, {

@@ -24,6 +24,7 @@ export interface Config {
   engine: "api" | "claude-code";
   apiKey: string;
   baseUrl: string;
+  modelApi: ModelApi;
   /** One independent review seat per model. */
   models: string[];
   /** For each seat, the one focus it reviews for, or null for the full review. */
@@ -68,6 +69,7 @@ export interface Config {
 }
 
 export type ReviewMode = "agent" | "human";
+export type ModelApi = "auto" | "chat" | "responses";
 /** The default cap on findings in each mode. An agent can triage a longer list than a person reads. */
 export const DEFAULT_MAX_FINDINGS: Record<ReviewMode, number> = { agent: 80, human: 25 };
 
@@ -156,6 +158,9 @@ export function loadConfig(env: Env): Config {
   const mode = (env.RB_CONFIG_MODE?.trim() || "human") as ReviewMode;
   if (!["agent", "human"].includes(mode)) throw new Error("RB_CONFIG_MODE must be agent or human");
 
+  const modelApi = (env.RB_MODEL_API?.trim() || "auto") as ModelApi;
+  if (!["auto", "chat", "responses"].includes(modelApi)) throw new Error("RB_MODEL_API must be auto, chat or responses");
+
   const outPath = required(env, "RB_OUT");
 
   return {
@@ -173,6 +178,7 @@ export function loadConfig(env: Env): Config {
     engine,
     apiKey: engine === "api" ? required(env, "OPENROUTER_API_KEY") : "",
     baseUrl: (env.RB_MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
+    modelApi,
     models,
     focuses,
     verifierModel,
