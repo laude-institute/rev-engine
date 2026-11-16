@@ -3,6 +3,7 @@
 // here knows one provider from another. Kept free of the reviewer's other
 // modules, so scripts and the local runner's doctor can read the same settings.
 import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 
 export type Env = Record<string, string | undefined>;
 
@@ -97,10 +98,5 @@ export function readEnvFile(path: string): Env {
   } catch {
     return {};
   }
-  const env: Env = {};
-  for (const line of text.split("\n")) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
-    if (match) env[match[1]!] = match[2]!.trim().replace(/^(["'])(.*)\1$/, "$2");
-  }
-  return env;
+  return parseEnv(text);
 }

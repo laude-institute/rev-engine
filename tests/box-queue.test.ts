@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-for (const preset of [undefined, "", "custom"] as const) {
+for (const preset of [undefined, "", "custom", "foreign-env", "foreign-queue"] as const) {
   test(`the experiment queue preserves valid endpoint JSON with ${preset === "" ? "empty" : preset ?? "unset"} settings`, (t) => {
     const dir = mkdtempSync(join(tmpdir(), "rev-box-queue-"));
     t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -24,7 +24,7 @@ writeFileSync('runs/smoke/endpoint.json', JSON.stringify({
   byModel: process.env.RB_MODEL_EXTRA_BODY_BY_MODEL,
 }));
 `);
-    writeFileSync(join(dir, "queue.txt"), "smoke 0 RB_CONFIG_MODEL=fixture\n");
+    writeFileSync(join(dir, "queue.txt"), preset === "foreign-queue" ? "smoke 0 RB_MODEL_BASE_URL=https://elsewhere.example/v1\n" : "smoke 0 RB_CONFIG_MODEL=fixture\n");
     const custom = {
       RB_MODEL_EXTRA_BODY: '{ "provider": { "data_collection": "deny" } }',
       RB_MODEL_EXTRA_BODY_BY_MODEL: '{ "vendor/": { "reasoning": { "effort": "low" } } }',
@@ -33,10 +33,16 @@ writeFileSync('runs/smoke/endpoint.json', JSON.stringify({
       env: {
         PATH: `${join(dir, "bin")}:${process.env.PATH ?? ""}`,
         BOX_BUCKET: "fixture", BOX_REGION: "fixture", BOX_KEY_PARAMETER: "fixture",
+        ...(preset === "foreign-env" ? { RB_MODEL_BASE_URL: "https://elsewhere.example/v1" } : {}),
         ...(preset === "custom" ? custom : preset === "" ? { RB_MODEL_EXTRA_BODY: "", RB_MODEL_EXTRA_BODY_BY_MODEL: "" } : {}),
       },
       encoding: "utf8", timeout: 10_000,
     });
+    if (preset === "foreign-env" || preset === "foreign-queue") {
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stderr, /OpenRouter endpoint/);
+      return;
+    }
     assert.equal(result.status, 0, result.stderr);
     const received = JSON.parse(readFileSync(join(dir, "runs/smoke/endpoint.json"), "utf8"));
     assert.deepEqual(JSON.parse(received.body), preset === "custom" ? JSON.parse(custom.RB_MODEL_EXTRA_BODY) : { usage: { include: true } });

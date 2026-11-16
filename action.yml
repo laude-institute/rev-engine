@@ -221,6 +221,10 @@ runs:
         if [ "$LEGACY_KEY" = true ]; then
           echo "::warning::openrouter-api-key is an older input; pass model-api-key and model-base-url instead"
           [ -n "$RB_MODEL_BASE_URL" ] || RB_MODEL_BASE_URL=https://openrouter.ai/api/v1
+          case "$RB_MODEL_BASE_URL" in
+            https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/) ;;
+            *) echo "::error::use model-api-key for an endpoint other than OpenRouter"; exit 1 ;;
+          esac
           [ -n "$RB_MODEL_EXTRA_BODY" ] || RB_MODEL_EXTRA_BODY='{"usage":{"include":true}}'
           [ -n "$RB_MODEL_EXTRA_BODY_BY_MODEL" ] || RB_MODEL_EXTRA_BODY_BY_MODEL='{"anthropic/":{"cache_control":{"type":"ephemeral"}}}'
           export RB_MODEL_BASE_URL RB_MODEL_EXTRA_BODY RB_MODEL_EXTRA_BODY_BY_MODEL

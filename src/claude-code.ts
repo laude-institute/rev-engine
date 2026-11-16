@@ -524,7 +524,7 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
       request = next;
     }
   } catch (error) {
-    // A fallback continues the pass in the turns that are left, not a fresh budget.
+    // A fallback restarts the pass with the turns that are left, not a fresh budget.
     if (!submissions.length) throw Object.assign(error instanceof Error ? error : new Error(String(error)), { turnsUsed: options.maxTurns - turnsLeft });
     log(`${who}: a later round failed, keeping the submissions so far: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

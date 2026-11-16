@@ -11,9 +11,9 @@ test("an env file gives its NAME=value lines, unquoted, and a missing file gives
   const path = join(dir, ".env");
   writeFileSync(path, [
     "# a comment",
-    "RB_MODEL_BASE_URL=https://example.test/v1",
-    "export MODEL_API_KEY=\"quoted key\"",
-    "RB_MODEL_EXTRA_BODY='{\"usage\":{\"include\":true}}'",
+    "RB_MODEL_BASE_URL=https://example.test/v1 # endpoint",
+    "export MODEL_API_KEY=\"quoted key\" # credential",
+    "RB_MODEL_EXTRA_BODY='{\"usage\":{\"include\":true}}' # cost",
     "not a line",
   ].join("\n"));
   const env = readEnvFile(path);

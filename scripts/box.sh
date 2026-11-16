@@ -78,8 +78,12 @@ case "${1:-}" in
   up)
     [ -f "$here/.env" ] && { set -a; . "$here/.env"; set +a; }
     # The box's reviews and their judge both run on OpenRouter, so its key is stored for both.
-    OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${MODEL_API_KEY:-}}"
-    [ -n "$OPENROUTER_API_KEY" ] || { echo "MODEL_API_KEY (an OpenRouter key) is not set" >&2; exit 2; }
+    if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+      case "${RB_MODEL_BASE_URL:-}" in
+        https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/) OPENROUTER_API_KEY="${MODEL_API_KEY:-}" ;;
+      esac
+    fi
+    [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "Set OPENROUTER_API_KEY, or MODEL_API_KEY with the standard OpenRouter endpoint" >&2; exit 2; }
 
     aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
       if [ "$region" = us-east-1 ]; then aws s3api create-bucket --bucket "$bucket" >/dev/null

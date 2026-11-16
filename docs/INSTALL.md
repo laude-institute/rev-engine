@@ -73,7 +73,7 @@ An agent can read the whole list and decide what to fix. There is no assessment 
 | `model-api` | `chat` | API protocol, `chat` or `responses`. Use `responses` for the Responses API, including direct OpenAI with encrypted reasoning replay. |
 | `model-extra-body` | none | A JSON object merged into every model request, such as `{"usage":{"include":true}}` for OpenRouter's cost reporting. |
 | `model-extra-body-by-model` | none | A JSON object mapping a model name prefix to fields merged into that model's requests only, such as `{"anthropic/":{"cache_control":{"type":"ephemeral"}}}`. |
-| `openrouter-api-key` | none | The older way to pass the key, for OpenRouter only. It implies `model-base-url` `https://openrouter.ai/api/v1`, its cost reporting and prompt caching for Anthropic models. Use `model-api-key` and `model-base-url` instead. |
+| `openrouter-api-key` | none | The older way to pass the key, for OpenRouter only. It implies `model-base-url` `https://openrouter.ai/api/v1`, its cost reporting and prompt caching for Anthropic models. Use `model-api-key` and `model-base-url` instead. The legacy input rejects a non-OpenRouter URL. |
 | `model` | `anthropic/claude-opus-5.5` | Model that reviews and verifies, as the endpoint at `model-base-url` names it. |
 | `min-severity` | `medium` | The least severe findings that get a comment. One of `high`, `medium` or `low`. |
 | `max-findings` | `10` | Cap on findings that get a comment. The rest join the collapsed section. |
