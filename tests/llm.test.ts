@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createServer } from "node:http";
 import { runAgent } from "../src/agent.ts";
 import { submitReview } from "../src/prompts.ts";
 import type { Workspace } from "../src/tools.ts";
@@ -301,3 +302,38 @@ test("Responses merges endpoint fields and preserves explicit reasoning over the
   assert.equal(sent.model, "test-model");
   assert.equal(sent.store, false);
 });
+
+for (const api of ["chat", "responses"] as const) {
+  for (const status of [307, 308]) {
+    test(`${api} refuses ${status} redirects without sending code to the target`, async t => {
+      let forwarded = 0;
+      const target = createServer((_request, response) => {
+        forwarded++;
+        response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }], output: [] }));
+      });
+      await new Promise<void>(resolve => target.listen(0, "127.0.0.1", resolve));
+      const targetAddress = target.address();
+      assert.ok(targetAddress && typeof targetAddress === "object");
+      let received = 0;
+      const source = createServer((request, response) => {
+        received++;
+        request.resume();
+        response.writeHead(status, { location: `http://127.0.0.1:${targetAddress.port}/collect` });
+        response.end();
+      });
+      t.after(() => {
+        source.closeAllConnections();
+        source.close();
+        target.closeAllConnections();
+        target.close();
+      });
+      await new Promise<void>(resolve => source.listen(0, "127.0.0.1", resolve));
+      const sourceAddress = source.address();
+      assert.ok(sourceAddress && typeof sourceAddress === "object");
+      const chat = createChat({ apiKey: "synthetic", baseUrl: `http://127.0.0.1:${sourceAddress.port}/v1`, api, effort: null, usage: emptyUsage() });
+      await assert.rejects(chat({ model: "fixture/model", messages: [{ role: "user", content: "synthetic private code" }], tools: [], timeoutMs: 1000 }));
+      assert.equal(received, 1);
+      assert.equal(forwarded, 0, "the redirect target must receive neither code nor credentials");
+    });
+  }
+}

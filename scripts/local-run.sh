@@ -11,7 +11,7 @@
 # Needs a clone of https://github.com/review-bench/ReviewBench beside this
 # repository, or at $REVIEWBENCH_DIR, and the model API in .env or the shell:
 # RB_MODEL_BASE_URL and MODEL_API_KEY (OPENROUTER_API_KEY is read as an older
-# name), with RB_MODEL_API and RB_MODEL_EXTRA_BODY when the endpoint needs them.
+# name for OpenRouter only), with RB_MODEL_API and RB_MODEL_EXTRA_BODY when the endpoint needs them.
 # Results land in runs/<run-name>/, which git ignores.
 #
 # JOBS=<n> runs n pull requests of the test set at a time. The full set shares
@@ -31,13 +31,24 @@ bench="${REVIEWBENCH_DIR:-$here/../ReviewBench}"
 [ -x "$bench/scripts/try-agent.sh" ] || { echo "no ReviewBench clone at $bench; set REVIEWBENCH_DIR" >&2; exit 2; }
 
 if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
-export MODEL_API_KEY="${MODEL_API_KEY:-${OPENROUTER_API_KEY:-}}"
-[ -n "$MODEL_API_KEY" ] || { echo "MODEL_API_KEY is not set" >&2; exit 2; }
 [ -n "${RB_MODEL_BASE_URL:-}" ] || { echo "RB_MODEL_BASE_URL is not set" >&2; exit 2; }
+# Keep the legacy key's name, so the container checks its endpoint after any -e overrides.
+credential_flag="-e MODEL_API_KEY"
+if [ -n "${MODEL_API_KEY:-}" ]; then
+  export MODEL_API_KEY
+else
+  [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "MODEL_API_KEY is not set" >&2; exit 2; }
+  case "$RB_MODEL_BASE_URL" in
+    https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/) ;;
+    *) echo "OPENROUTER_API_KEY requires the standard OpenRouter endpoint; set MODEL_API_KEY explicitly for another endpoint" >&2; exit 2 ;;
+  esac
+  export OPENROUTER_API_KEY
+  credential_flag="-e OPENROUTER_API_KEY"
+fi
 export RB_MODEL_BASE_URL RB_MODEL_API="${RB_MODEL_API:-chat}" RB_MODEL_EXTRA_BODY="${RB_MODEL_EXTRA_BODY:-}" RB_MODEL_EXTRA_BODY_BY_MODEL="${RB_MODEL_EXTRA_BODY_BY_MODEL:-}"
 # The model API reaches the container by name, so the key never appears on a command line.
 # One list for both ways of running below, so neither drops a variable.
-export endpoint_flags="-e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL"
+export endpoint_flags="$credential_flag -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL"
 
 # BUILD_DIR builds the image from another checkout, such as a worktree of an older
 # commit, so an earlier version can be run again with this script.

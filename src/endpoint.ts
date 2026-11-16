@@ -25,23 +25,31 @@ export interface Endpoint {
 /**
  * The endpoint the RB_<prefix>_* settings and the <prefix>_API_KEY key describe:
  * MODEL for the reviewer's chat API, FALLBACK for the claude-code engine's fallback.
- * OPENROUTER_API_KEY is still read as an older name for MODEL_API_KEY.
+ * OPENROUTER_API_KEY is accepted only for the standard OpenRouter endpoint.
  */
 export function endpointOf(env: Env, prefix: "MODEL" | "FALLBACK"): Endpoint {
   const name = `RB_${prefix}_BASE_URL`;
   const raw = env[name]?.trim();
   if (!raw) throw new Error(`missing ${name}, the OpenAI-compatible API to call, such as https://example.test/v1`);
   const baseUrl = raw.replace(/\/+$/, "");
-  let protocol = "";
+  let url: URL;
   try {
-    protocol = new URL(baseUrl).protocol;
+    url = new URL(baseUrl);
   } catch {
-    // Reported below.
+    throw new Error(`${name} must be an http or https URL`);
   }
-  if (protocol !== "https:" && protocol !== "http:") throw new Error(`${name} must be an http or https URL, not ${baseUrl}`);
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`${name} must be an http or https URL`);
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol === "http:" && !loopback) throw new Error(`${name} must use HTTPS except on loopback for local development`);
+  // Credentials belong in the key variable, not a URL that may be logged.
+  if (url.username || url.password || url.search || url.hash) throw new Error(`${name} must not contain credentials, a query or a fragment`);
 
   const keyName = `${prefix}_API_KEY`;
-  const apiKey = env[keyName]?.trim() || (prefix === "MODEL" ? env.OPENROUTER_API_KEY?.trim() : undefined);
+  let apiKey = env[keyName]?.trim();
+  if (!apiKey && prefix === "MODEL" && env.OPENROUTER_API_KEY?.trim()) {
+    if (baseUrl !== "https://openrouter.ai/api/v1") throw new Error("OPENROUTER_API_KEY requires the standard OpenRouter endpoint; set MODEL_API_KEY explicitly for another endpoint");
+    apiKey = env.OPENROUTER_API_KEY.trim();
+  }
   if (!apiKey) throw new Error(`missing ${keyName}, the key for ${name}`);
 
   const api = env[`RB_${prefix}_API`]?.trim() || "chat";

@@ -130,8 +130,8 @@ test("the model API is any OpenAI-compatible endpoint, named by its settings alo
   const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
   assert.throws(() => loadConfig({ ...contract, MODEL_API_KEY: "k" }), /missing RB_MODEL_BASE_URL/);
   assert.throws(() => loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://example.test/v1" }), /missing MODEL_API_KEY/);
-  // The older key name still works.
-  assert.equal(loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://example.test/v1/", OPENROUTER_API_KEY: "old" }).endpoint!.apiKey, "old");
+  // The older key name still works for OpenRouter only.
+  assert.equal(loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://openrouter.ai/api/v1/", OPENROUTER_API_KEY: "old" }).endpoint!.apiKey, "old");
   const config = loadConfig({ ...BASE, RB_MODEL_API: "responses", RB_MODEL_EXTRA_BODY: '{"usage":{"include":true}}' });
   assert.equal(config.endpoint!.api, "responses");
   assert.deepEqual(config.endpoint!.extraBody, { usage: { include: true } });
@@ -173,4 +173,11 @@ test("Claude Code rejects incompatible bare model names in every pass", () => {
   for (const model of ["opus", "sonnet", "haiku", "default", "best", "fable", "opusplan", "opus[1m]", "claude-sonnet-4-6", "anthropic/claude-opus-5.5"]) {
     assert.equal(loadConfig({ ...env, RB_CONFIG_MODEL: model }).models[0], model);
   }
+});
+
+test("OpenRouter API reviews stay on that endpoint despite unrelated Claude login and fallback credentials", () => {
+  const config = loadConfig({ ...BASE, RB_MODEL_BASE_URL: "https://openrouter.ai/api/v1", ANTHROPIC_API_KEY: "synthetic-anthropic", CLAUDE_CODE_OAUTH_TOKEN: "synthetic-login", FALLBACK_API_KEY: "synthetic-fallback", RB_FALLBACK_BASE_URL: "https://fallback.example.test/v1" });
+  assert.equal(config.engine, "api");
+  assert.equal(config.endpoint!.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(config.fallback, null);
 });

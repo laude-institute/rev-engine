@@ -96,3 +96,46 @@ test("box creation refuses another endpoint's key before storing credentials", t
   assert.match(result.stderr, /Set OPENROUTER_API_KEY/);
   assert.equal(existsSync(f.env.OBSERVED), false);
 });
+
+for (const [endpoint, explicitKey, override, accepted] of [
+  ["https://openrouter.ai/api/v1", "", "", true],
+  ["https://openrouter.ai/api/v1/", "", "", true],
+  ["https://models.example.test/v1", "", "", false],
+  ["https://openrouter.ai/api/v1", "", "https://models.example.test/v1", false],
+  ["https://models.example.test/v1", "synthetic-other", "", true],
+] as const) test(`local-run preserves credential scope at ${endpoint}, override ${override}, explicit key ${Boolean(explicitKey)}`, t => {
+  const f = fixture(t);
+  mkdirSync(join(f.dir, "scripts"));
+  mkdirSync(join(f.dir, "bench/scripts"), { recursive: true });
+  copyFileSync(new URL("../scripts/local-run.sh", import.meta.url), join(f.dir, "scripts/local-run.sh"));
+  f.executable("docker", "");
+  // Emulate the benchmark's -e forwarding, then use the real container endpoint parser.
+  const bench = join(f.dir, "bench/scripts/try-agent.sh");
+  writeFileSync(bench, `#!${process.execPath}
+(async () => {
+  const env = {};
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) if (args[i] === '-e') {
+    const [key, ...value] = args[++i].split('=');
+    env[key] = value.length ? value.join('=') : process.env[key];
+  }
+  const { endpointOf } = await import(${JSON.stringify(new URL("../src/endpoint.ts", import.meta.url).href)});
+  const endpoint = endpointOf(env, 'MODEL');
+  require('node:fs').writeFileSync(process.env.OBSERVED, JSON.stringify({env, key: endpoint.apiKey}));
+})().catch(error => { console.error(error.message); process.exitCode = 2; });
+`);
+  chmodSync(bench, 0o755);
+  const result = spawnSync("bash", [join(f.dir, "scripts/local-run.sh"), "smoke", "--pr", "0", ...(override ? ["-e", `RB_MODEL_BASE_URL=${override}`] : [])], {
+    env: { ...f.env, REVIEWBENCH_DIR: join(f.dir, "bench"), RB_MODEL_BASE_URL: endpoint, OPENROUTER_API_KEY: "synthetic-router", MODEL_API_KEY: explicitKey }, encoding: "utf8", timeout: 10_000,
+  });
+  if (!accepted) {
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr + result.stdout, /OPENROUTER_API_KEY requires the standard OpenRouter endpoint/);
+    assert.equal(existsSync(f.env.OBSERVED), false);
+    return;
+  }
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(readFileSync(f.env.OBSERVED, "utf8"));
+  assert.equal(observed.key, explicitKey || "synthetic-router");
+  assert.equal(observed.env[explicitKey ? "OPENROUTER_API_KEY" : "MODEL_API_KEY"], undefined);
+});

@@ -126,6 +126,8 @@ export function createChat(options: ClientOptions): Chat {
   async function post(path: string, body: Record<string, unknown>, timeoutMs: number): Promise<any> {
     const response = await fetchImpl(`${options.baseUrl.replace(/\/$/, "")}/${path}`, {
       method: "POST",
+      // A redirect must never forward reviewed code to a destination the operator did not choose.
+      redirect: "error",
       headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json", "x-title": "rev-engine-prime" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),

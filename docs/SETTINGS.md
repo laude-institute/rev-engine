@@ -6,12 +6,14 @@ If you use the GitHub Action, set its inputs instead. They are listed in [INSTAL
 
 ## The model API
 
-The reviewer calls one OpenAI-compatible API, and reaches only that host. Nothing in the code picks a provider, so the endpoint must be set.
+The API engine sends review content only to the configured endpoint and refuses HTTP redirects. Remote endpoints must use HTTPS. HTTP is allowed only for local development at `localhost`, `127.0.0.1` or `[::1]`. URLs must not contain credentials, queries or fragments.
+
+For private repositories using OpenRouter, keep `RB_MODEL_BASE_URL=https://openrouter.ai/api/v1`, `RB_CONFIG_ENGINE=api` and `RB_CONFIG_FALLBACK=off`. A failed API request does not switch to Claude Code or another endpoint. OpenRouter still routes requests to the model providers selected by your routing settings. Enabling the Claude Code engine or a fallback explicitly authorizes sending review content to that service.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `RB_MODEL_BASE_URL` | none, required | The API to call, such as `https://openrouter.ai/api/v1`. The client adds `chat/completions` or `responses`. |
-| `MODEL_API_KEY` | none, required | The key for that API. `OPENROUTER_API_KEY` is still read as an older name. |
+| `MODEL_API_KEY` | none, required | The key for that API. `OPENROUTER_API_KEY` is accepted only with the standard OpenRouter URL. Other endpoints require an explicit `MODEL_API_KEY`. |
 | `RB_MODEL_API` | `chat` | `chat` posts to `chat/completions`. `responses` posts to the OpenAI Responses API. |
 | `RB_MODEL_EXTRA_BODY` | none | A JSON object merged into every request body, for fields one endpoint accepts and another does not. The standard fields the client sets always win over it. |
 | `RB_MODEL_EXTRA_BODY_BY_MODEL` | none | A JSON object mapping a model name prefix to fields merged into that model's requests only, over `RB_MODEL_EXTRA_BODY`. The longest matching prefix wins. A field that is an object in both is merged one level deep. |
