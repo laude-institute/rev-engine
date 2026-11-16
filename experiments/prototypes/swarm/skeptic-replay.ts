@@ -9,7 +9,9 @@
 // Labels land in runs/<run>/skeptic.json, by pull request and the finding's rank.
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { endpointOf, readEnvFile } from "../../../src/endpoint.ts";
 import { createChat, emptyUsage, formatCost, type Chat } from "../../../src/llm.ts";
+import { routingBody } from "./review.ts";
 import { Workspace } from "../../../src/tools.ts";
 import { checkFindings, type SkepticCheck, type SkepticFinding } from "./skeptic.ts";
 
@@ -31,12 +33,10 @@ const BATCH = 6;
 const CONCURRENCY = 32;
 const SECONDS = 300;
 
-const env = await readFile(".env", "utf8").catch(() => "");
-const apiKey = process.env.OPENROUTER_API_KEY ?? env.match(/^OPENROUTER_API_KEY=(.*)$/m)?.[1]?.trim().replace(/^["']|["']$/g, "");
-if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+const endpoint = endpointOf({ ...readEnvFile(".env"), ...process.env }, "MODEL");
 const usage = emptyUsage();
-const base = createChat({ apiKey, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage });
-const chat: Chat = (request) => base({ ...request, reasoningTokens, ...(providers.length ? { providers } : {}) });
+const base = createChat({ ...endpoint, effort: null, usage });
+const chat: Chat = (request) => base({ ...request, extraBody: routingBody({ sort: null, providers, reasoningTokens }) });
 
 let running = 0;
 const waiting: Array<() => void> = [];

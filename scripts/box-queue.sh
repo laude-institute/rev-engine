@@ -20,6 +20,17 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 export REVIEWBENCH_DIR="${REVIEWBENCH_DIR:-/srv/rev/ReviewBench}"
 OPENROUTER_API_KEY="$(aws --region "$BOX_REGION" ssm get-parameter --with-decryption --name "$BOX_KEY_PARAMETER" --query Parameter.Value --output text)"
 export OPENROUTER_API_KEY
+export MODEL_API_KEY="$OPENROUTER_API_KEY"
+# The box's experiments and their judge run on OpenRouter, the endpoint its stored key is for.
+# The box stores an OpenRouter key. Use local-run.sh with separate credentials for other endpoints.
+export RB_MODEL_BASE_URL="${RB_MODEL_BASE_URL:-https://openrouter.ai/api/v1}"
+case "$RB_MODEL_BASE_URL" in
+  https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/) ;;
+  *) echo "The experiment box requires the standard OpenRouter endpoint" >&2; exit 2 ;;
+esac
+[ -n "${RB_MODEL_EXTRA_BODY:-}" ] || RB_MODEL_EXTRA_BODY='{"usage":{"include":true}}'
+[ -n "${RB_MODEL_EXTRA_BODY_BY_MODEL:-}" ] || RB_MODEL_EXTRA_BODY_BY_MODEL='{"anthropic/":{"cache_control":{"type":"ephemeral"}}}'
+export RB_MODEL_EXTRA_BODY RB_MODEL_EXTRA_BODY_BY_MODEL
 
 cd "$here"
 while read -r name prs settings <&3; do
@@ -31,7 +42,13 @@ while read -r name prs settings <&3; do
     env $settings scripts/score.sh "$name" || echo "=== $name: scoring failed"
   else
     args=()
-    for setting in $settings; do args+=(-e "$setting"); done
+    for setting in $settings; do
+      case "$setting" in
+        RB_MODEL_BASE_URL=https://openrouter.ai/api/v1|RB_MODEL_BASE_URL=https://openrouter.ai/api/v1/) ;;
+        RB_MODEL_BASE_URL=*) echo "Refusing a non-OpenRouter endpoint with the box credential" >&2; exit 2 ;;
+      esac
+      args+=(-e "$setting")
+    done
     PRS="$prs" JOBS="${JOBS:-8}" scripts/local-run.sh "$name" "${args[@]}" || echo "=== $name: some pull requests failed"
     printf '%s\n' "$name $prs $settings" > "runs/$name/experiment.txt"
     # One pull request the judge fails on must not discard the scores of the rest.

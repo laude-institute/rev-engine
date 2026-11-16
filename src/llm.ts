@@ -1,4 +1,5 @@
-// A small client for OpenRouter chat completions and the direct OpenAI Responses API.
+// A small client for any OpenAI-compatible chat completions API, or the OpenAI Responses API.
+import { mergeBodies } from "./endpoint.ts";
 import type { ToolDefinition } from "./tools.ts";
 
 export interface ToolCall {
@@ -17,8 +18,8 @@ export interface ChatMessage {
   /** Original Responses output, preserved in order for stateless replay and saved transcripts. */
   response_output?: Array<Record<string, unknown>>;
   /**
-   * The upstream provider OpenRouter routed the call to. It is not enumerable, so it is never
-   * sent back to the API with the conversation.
+   * The upstream provider a routing endpoint reports it sent the call to. It is not enumerable,
+   * so it is never sent back to the API with the conversation.
    */
   provider?: string;
 }
@@ -36,12 +37,11 @@ export interface ChatRequest {
   attemptTimeoutMs?: number;
   /** Reasoning effort for this call, in place of the client's. */
   effort?: string;
-  /** The most tokens the model may reason for on this call; takes the place of the effort. OpenRouter only. */
-  reasoningTokens?: number;
-  /** Asks OpenRouter to route to the provider with the lowest latency or highest throughput. */
-  providerSort?: "latency" | "throughput";
-  /** OpenRouter only: the providers allowed to serve this call, such as "together"; no others are tried. */
-  providers?: string[];
+  /**
+   * Fields merged into this call's request body, over the client's own extra fields, for what
+   * the endpoint accepts beyond the standard API, such as routing or a reasoning budget.
+   */
+  extraBody?: Record<string, unknown>;
 }
 
 export type Chat = (request: ChatRequest) => Promise<ChatMessage>;
@@ -93,7 +93,12 @@ function retryable(error: unknown): boolean {
 export interface ClientOptions {
   apiKey: string;
   baseUrl: string;
-  api?: "auto" | "chat" | "responses";
+  /** "responses" calls the OpenAI Responses API; otherwise chat completions. */
+  api?: "chat" | "responses";
+  /** Fields merged into every request body, such as an endpoint's usage options. */
+  extraBody?: Record<string, unknown>;
+  /** Fields merged into the request body of each model whose name starts with the key, such as a caching option. */
+  extraBodyByModel?: Record<string, Record<string, unknown>>;
   effort: string | null;
   usage: Usage;
   /** Filled with the usage of each caller that names itself in its requests. */
@@ -103,15 +108,26 @@ export interface ClientOptions {
 
 export function createChat(options: ClientOptions): Chat {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const openRouter = new URL(options.baseUrl).hostname.endsWith("openrouter.ai");
+  // The Responses API lets encrypted reasoning be replayed without storing the conversation with the provider.
+  const responses = options.api === "responses";
 
-  const host = new URL(options.baseUrl).hostname;
-  const api = options.api ?? "auto";
-  const openAiResponses = api === "responses" || (api === "auto" && (host === "api.openai.com" || host.endsWith(".api.openai.com")));
+  /**
+   * The request body: the extra fields for every model, then those for this model, then the call's
+   * own, and last the standard fields the client sets, which always win.
+   */
+  function bodyOf(request: ChatRequest, standard: Record<string, unknown>): Record<string, unknown> {
+    const forModel = Object.entries(options.extraBodyByModel ?? {})
+      .filter(([prefix]) => request.model.startsWith(prefix))
+      .sort(([a], [b]) => a.length - b.length)
+      .map(([, fields]) => fields);
+    return { ...mergeBodies(options.extraBody, ...forModel, request.extraBody), ...standard };
+  }
 
   async function post(path: string, body: Record<string, unknown>, timeoutMs: number): Promise<any> {
     const response = await fetchImpl(`${options.baseUrl.replace(/\/$/, "")}/${path}`, {
       method: "POST",
+      // A redirect must never forward reviewed code to a destination the operator did not choose.
+      redirect: "error",
       headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json", "x-title": "rev-engine-prime" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
@@ -169,7 +185,7 @@ export function createChat(options: ClientOptions): Chat {
       }
       input.push({ role: message.role, content: message.content ?? "" });
     }
-    const body: Record<string, unknown> = {
+    const body = bodyOf(request, {
       model: request.model,
       input,
       tools: request.tools.map((tool) => ({ type: "function", name: tool.function.name, description: tool.function.description, parameters: tool.function.parameters, strict: false })),
@@ -179,8 +195,8 @@ export function createChat(options: ClientOptions): Chat {
       max_output_tokens: MAX_OUTPUT_TOKENS,
       store: false,
       include: ["reasoning.encrypted_content"],
-    };
-    if (effort) body.reasoning = { effort };
+    });
+    if (effort && body.reasoning === undefined) body.reasoning = { effort };
     const payload = await post("responses", body, timeoutMs);
     if (!Array.isArray(payload?.output)) throw new ModelError(502, "model API returned no message");
     recordUsage(request, {
@@ -217,30 +233,17 @@ export function createChat(options: ClientOptions): Chat {
   }
 
   async function once(request: ChatRequest, timeoutMs: number): Promise<ChatMessage> {
-    if (openAiResponses) return responsesOnce(request, timeoutMs, request.effort ?? options.effort);
-    const body: Record<string, unknown> = {
+    if (responses) return responsesOnce(request, timeoutMs, request.effort ?? options.effort);
+    const body = bodyOf(request, {
       model: request.model,
       messages: request.messages.map(({ response_output, ...message }) => message),
       tools: request.tools,
       tool_choice: request.forceTool ? { type: "function", function: { name: request.forceTool } } : "auto",
       max_tokens: MAX_OUTPUT_TOKENS,
-    };
-    if (openRouter) body.usage = { include: true };
-    if (openRouter && (request.providerSort || request.providers?.length)) {
-      body.provider = {
-        ...(request.providerSort ? { sort: request.providerSort } : {}),
-        ...(request.providers?.length ? { only: request.providers, allow_fallbacks: false } : {}),
-      };
-    }
-    // Anthropic models cache a prompt prefix only when asked to. A review resends a
-    // growing conversation every turn, so caching decides most of its cost.
-    if (openRouter && request.model.startsWith("anthropic/")) body.cache_control = { type: "ephemeral" };
+    });
+    // The standard effort field, unless the extra fields already say how the model should reason.
     const effort = request.effort ?? options.effort;
-    if (openRouter && request.reasoningTokens) body.reasoning = { max_tokens: request.reasoningTokens };
-    else if (effort) {
-      if (openRouter) body.reasoning = { effort };
-      else body.reasoning_effort = effort;
-    }
+    if (effort && body.reasoning === undefined && body.reasoning_effort === undefined) body.reasoning_effort = effort;
     const payload = await post("chat/completions", body, timeoutMs);
     const message = payload?.choices?.[0]?.message;
     if (!message) throw new ModelError(502, "model API returned no message");
@@ -248,7 +251,8 @@ export function createChat(options: ClientOptions): Chat {
       promptTokens: Number(payload.usage?.prompt_tokens) || 0,
       completionTokens: Number(payload.usage?.completion_tokens) || 0,
       cachedTokens: Number(payload.usage?.prompt_tokens_details?.cached_tokens) || 0,
-      costUsd: Number(payload.usage?.cost) || 0,
+      // An endpoint that does not report what a call cost leaves the cost unknown, not zero.
+      costUsd: typeof payload.usage?.cost === "number" && Number.isFinite(payload.usage.cost) ? payload.usage.cost : null,
     });
 
     const result: ChatMessage = { role: "assistant", content: typeof message.content === "string" ? message.content : null };

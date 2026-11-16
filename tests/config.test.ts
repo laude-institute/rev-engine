@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_BASE_URL, DEFAULT_MODEL, describeSettings, loadConfig } from "../src/config.ts";
+import { DEFAULT_MODEL, describeSettings, loadConfig } from "../src/config.ts";
 
 const BASE = {
   RB_NWO: "owner/repo",
@@ -8,7 +8,8 @@ const BASE = {
   RB_BASE: "a".repeat(40),
   RB_HEAD: "b".repeat(40),
   RB_OUT: "/work/out/findings.json",
-  OPENROUTER_API_KEY: "test-key",
+  RB_MODEL_BASE_URL: "https://models.example.test/v1",
+  MODEL_API_KEY: "test-key",
 };
 
 test("applies defaults when only the contract variables are set", () => {
@@ -16,7 +17,7 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.prNumber, 1938);
   assert.equal(config.agent, "rev-engine-prime");
   assert.equal(config.repoDir, "/work/repo");
-  assert.equal(config.baseUrl, DEFAULT_BASE_URL);
+  assert.deepEqual(config.endpoint, { baseUrl: "https://models.example.test/v1", apiKey: "test-key", api: "chat", extraBody: {}, extraBodyByModel: {} });
   assert.deepEqual(config.models, [DEFAULT_MODEL]);
   assert.equal(config.verifierModel, DEFAULT_MODEL);
   assert.equal(config.verify, "lenient");
@@ -25,13 +26,6 @@ test("applies defaults when only the contract variables are set", () => {
   assert.equal(config.fitModel, null);
   assert.equal(config.detailsOutPath, null);
   assert.equal(loadConfig({ ...BASE, RB_DETAILS_OUT: "/work/out/details.json" }).detailsOutPath, "/work/out/details.json");
-});
-
-test("reads which model API to call", () => {
-  assert.equal(loadConfig(BASE).modelApi, "auto");
-  assert.equal(loadConfig({ ...BASE, RB_MODEL_API: "responses" }).modelApi, "responses");
-  assert.equal(loadConfig({ ...BASE, RB_MODEL_API: "chat" }).modelApi, "chat");
-  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "grpc" }), /RB_MODEL_API/);
 });
 
 test("reads the minimum severity and the fit model", () => {
@@ -66,7 +60,7 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
     RB_CONFIG_TIME_BUDGET: "600",
   });
   assert.equal(config.agent, "registered-name");
-  assert.equal(config.baseUrl, "https://example.com/v1");
+  assert.equal(config.endpoint!.baseUrl, "https://example.com/v1");
   assert.deepEqual(config.models, ["vendor/one", "vendor/two"]);
   assert.equal(config.verifierModel, "vendor/three");
   const settings = describeSettings(config);
@@ -76,7 +70,7 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
 
 test("rejects missing or malformed inputs", () => {
   assert.throws(() => loadConfig({ ...BASE, RB_HEAD: "abc123" }), /RB_HEAD is not a 40-character commit SHA/);
-  assert.throws(() => loadConfig({ ...BASE, OPENROUTER_API_KEY: "" }), /missing OPENROUTER_API_KEY/);
+  assert.throws(() => loadConfig({ ...BASE, MODEL_API_KEY: "" }), /missing MODEL_API_KEY/);
   assert.throws(() => loadConfig({ ...BASE, RB_PR_NUMBER: "abc" }), /RB_PR_NUMBER/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_VERIFY: "maybe" }), /RB_CONFIG_VERIFY/);
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_MAX_FINDINGS: "0" }), /RB_CONFIG_MAX_FINDINGS/);
@@ -103,11 +97,11 @@ test("turns on the swarm prototype, but not together with the naive baseline", (
 });
 
 test("the claude-code engine takes a Claude Code login and Claude models only", () => {
-  const { OPENROUTER_API_KEY: _key, ...contract } = BASE;
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
   const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "anthropic/claude-opus-5.5,opus@tests", CLAUDE_CODE_OAUTH_TOKEN: "token" };
   const config = loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "xhigh", RB_CONFIG_FIT: "sonnet" });
   assert.equal(config.engine, "claude-code");
-  assert.equal(config.apiKey, "");
+  assert.equal(config.endpoint, null);
   assert.deepEqual(config.models, ["anthropic/claude-opus-5.5", "opus"]);
   assert.ok(describeSettings(config).startsWith("engine=claude-code model=anthropic/claude-opus-5.5,opus@tests "));
   assert.equal(loadConfig(BASE).engine, "api");
@@ -115,7 +109,11 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   assert.equal(loadConfig({ ...noLogin, ANTHROPIC_API_KEY: "key" }).engine, "claude-code");
 
   assert.throws(() => loadConfig({ ...BASE, RB_CONFIG_ENGINE: "codex" }), /RB_CONFIG_ENGINE must be api or claude-code/);
-  assert.throws(() => loadConfig(noLogin), /needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY/);
+  assert.equal(loadConfig({ ...noLogin, ANTHROPIC_API_KEY: "key" }).claudeLogin, "api-key");
+  assert.equal(config.claudeLogin, "token");
+  // With neither set, claude uses its own CLI login.
+  assert.equal(loadConfig(noLogin).claudeLogin, "cli");
+  assert.equal(loadConfig(BASE).claudeLogin, null);
   const { RB_CONFIG_MODEL: _model, ...noModel } = CLAUDE;
   assert.throws(() => loadConfig(noModel), /needs RB_CONFIG_MODEL set to a Claude model/);
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_MODEL: "opus,openai/gpt-6-luna" }), /Claude models only, not openai\/gpt-6-luna/);
@@ -126,6 +124,40 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
   assert.equal(loadConfig({ ...CLAUDE, RB_TRANSCRIPT_OUT: "/work/out/transcript.json" }).transcriptOutPath, "/work/out/transcript.json");
   assert.equal(describeSettings(loadConfig({ ...CLAUDE, RB_CONFIG_NAIVE: "on" })), "naive=on model=anthropic/claude-opus-5.5 mode=human max_findings=25 time_budget=780 engine=claude-code");
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);
+});
+
+test("the model API is any OpenAI-compatible endpoint, named by its settings alone", () => {
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
+  assert.throws(() => loadConfig({ ...contract, MODEL_API_KEY: "k" }), /missing RB_MODEL_BASE_URL/);
+  assert.throws(() => loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://example.test/v1" }), /missing MODEL_API_KEY/);
+  // The older key name still works for OpenRouter only.
+  assert.equal(loadConfig({ ...contract, RB_MODEL_BASE_URL: "https://openrouter.ai/api/v1/", OPENROUTER_API_KEY: "old" }).endpoint!.apiKey, "old");
+  const config = loadConfig({ ...BASE, RB_MODEL_API: "responses", RB_MODEL_EXTRA_BODY: '{"usage":{"include":true}}' });
+  assert.equal(config.endpoint!.api, "responses");
+  assert.deepEqual(config.endpoint!.extraBody, { usage: { include: true } });
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "completions" }), /RB_MODEL_API must be chat, responses or auto/);
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "{" }), /RB_MODEL_EXTRA_BODY is not JSON/);
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "[1]" }), /RB_MODEL_EXTRA_BODY must be a JSON object/);
+  for (const url of ["example.test/v1", "ftp://example.test", "not a url"]) {
+    assert.throws(() => loadConfig({ ...BASE, RB_MODEL_BASE_URL: url }), /RB_MODEL_BASE_URL must be an http or https URL/, url);
+  }
+});
+
+test("the claude-code engine falls back to another OpenAI-compatible endpoint", () => {
+  const { MODEL_API_KEY: _key, RB_MODEL_BASE_URL: _url, ...contract } = BASE;
+  const CLAUDE = { ...contract, RB_CONFIG_ENGINE: "claude-code", RB_CONFIG_MODEL: "opus" };
+  const FALLBACK = { RB_CONFIG_FALLBACK: "vendor/fallback", RB_FALLBACK_BASE_URL: "https://fallback.example.test/v1/", FALLBACK_API_KEY: "fb" };
+  assert.equal(loadConfig(CLAUDE).fallback, null);
+  assert.equal(loadConfig({ ...CLAUDE, RB_CONFIG_FALLBACK: "off" }).fallback, null);
+  const config = loadConfig({ ...CLAUDE, ...FALLBACK });
+  assert.deepEqual(config.fallback, { model: "vendor/fallback", baseUrl: "https://fallback.example.test/v1", apiKey: "fb", api: "chat", extraBody: {}, extraBodyByModel: {} });
+  assert.match(describeSettings(config), /^engine=claude-code fallback=vendor\/fallback model=opus /);
+  const { RB_FALLBACK_BASE_URL: _fallbackUrl, ...noUrl } = FALLBACK;
+  assert.throws(() => loadConfig({ ...CLAUDE, ...noUrl }), /RB_CONFIG_FALLBACK: missing RB_FALLBACK_BASE_URL/);
+  // The reviewer's own key is not the fallback's.
+  assert.throws(() => loadConfig({ ...CLAUDE, ...FALLBACK, FALLBACK_API_KEY: "", MODEL_API_KEY: "k" }), /RB_CONFIG_FALLBACK: missing FALLBACK_API_KEY/);
+  assert.throws(() => loadConfig({ ...CLAUDE, ...FALLBACK, RB_FALLBACK_BASE_URL: "not a url" }), /RB_FALLBACK_BASE_URL must be an http or https URL/);
+  assert.throws(() => loadConfig({ ...BASE, ...FALLBACK }), /needs RB_CONFIG_ENGINE=claude-code/);
 });
 
 test("fixes are written only when a model is named for them", () => {
@@ -141,4 +173,11 @@ test("Claude Code rejects incompatible bare model names in every pass", () => {
   for (const model of ["opus", "sonnet", "haiku", "default", "best", "fable", "opusplan", "opus[1m]", "claude-sonnet-4-6", "anthropic/claude-opus-5.5"]) {
     assert.equal(loadConfig({ ...env, RB_CONFIG_MODEL: model }).models[0], model);
   }
+});
+
+test("OpenRouter API reviews stay on that endpoint despite unrelated Claude login and fallback credentials", () => {
+  const config = loadConfig({ ...BASE, RB_MODEL_BASE_URL: "https://openrouter.ai/api/v1", ANTHROPIC_API_KEY: "synthetic-anthropic", CLAUDE_CODE_OAUTH_TOKEN: "synthetic-login", FALLBACK_API_KEY: "synthetic-fallback", RB_FALLBACK_BASE_URL: "https://fallback.example.test/v1" });
+  assert.equal(config.engine, "api");
+  assert.equal(config.endpoint!.baseUrl, "https://openrouter.ai/api/v1");
+  assert.equal(config.fallback, null);
 });

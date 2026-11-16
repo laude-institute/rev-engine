@@ -16,9 +16,10 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { applyVerdicts, dedupe, toOutput, type Candidate, type Verdict } from "../../../src/findings.ts";
+import { endpointOf, readEnvFile } from "../../../src/endpoint.ts";
 import { createChat, emptyUsage, formatCost, type Chat } from "../../../src/llm.ts";
 import { cleanGroups, mergeRepeats, representative } from "./merge.ts";
-import { rankBySupport } from "./review.ts";
+import { rankBySupport, routingBody } from "./review.ts";
 
 const [source, target, ...flags] = process.argv.slice(2);
 if (!source || !target) {
@@ -46,11 +47,9 @@ interface Trace {
 }
 
 async function chatFor(): Promise<Chat> {
-  const env = await readFile(".env", "utf8").catch(() => "");
-  const apiKey = process.env.OPENROUTER_API_KEY ?? env.match(/^OPENROUTER_API_KEY=(.*)$/m)?.[1]?.trim().replace(/^["']|["']$/g, "");
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+  const endpoint = endpointOf({ ...readEnvFile(".env"), ...process.env }, "MODEL");
   const usage = emptyUsage();
-  const chat = createChat({ apiKey, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage });
+  const chat = createChat({ ...endpoint, effort: null, usage });
   return Object.assign(chat, { usage });
 }
 
@@ -94,7 +93,7 @@ for (const key of keys) {
   const into = new Map<string, string>();
   const modelMerge = async (candidates: Candidate[]): Promise<void> => {
     const settings = trace.settings;
-    const swarmChat: Chat = (request) => chat!({ ...request, ...(settings.effort ? { effort: settings.effort } : {}), ...(settings.sort ? { providerSort: settings.sort } : {}) });
+    const swarmChat: Chat = (request) => chat!({ ...request, ...(settings.effort ? { effort: settings.effort } : {}), extraBody: routingBody({ sort: settings.sort, providers: [], reasoningTokens: null }) });
     const started = Date.now();
     const result = await mergeRepeats(candidates, {
       chat: swarmChat, model: settings.model, deadline: started + MERGE_SECONDS * 1000, attemptTimeoutMs: MERGE_SECONDS * 1000, run,

@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Finding } from "../action/comments.ts";
+import { endpointOf, readEnvFile, type Endpoint } from "../src/endpoint.ts";
 import { createChat, emptyUsage } from "../src/llm.ts";
 import type { ToolDefinition } from "../src/tools.ts";
 import { parseCase, renderReport, scoreCase, withEarlierDecisions, type EvalCase, type RunResult } from "./lib.ts";
@@ -77,12 +78,9 @@ async function loadCases(only: string[], split?: "tune" | "check"): Promise<Eval
   return split ? named.filter((item) => (item.split ?? "tune") === split) : named;
 }
 
-async function apiKey(): Promise<string> {
-  if (process.env.OPENROUTER_API_KEY) return process.env.OPENROUTER_API_KEY;
-  const text = await readFile(join(root, ".env"), "utf8").catch(() => "");
-  const key = /^OPENROUTER_API_KEY=(.+)$/m.exec(text)?.[1]?.trim().replace(/^["']|["']$/g, "");
-  if (!key) throw new Error("set OPENROUTER_API_KEY, or put it in .env");
-  return key;
+/** The model API the reviews and the judge call, from the shell or .env. */
+function modelEndpoint(): Endpoint {
+  return endpointOf({ ...readEnvFile(join(root, ".env")), ...process.env }, "MODEL");
 }
 
 const git = (directory: string, ...args: string[]) => exec("git", ["-C", directory, ...args], { maxBuffer: 256 * 1024 * 1024 });
@@ -110,19 +108,22 @@ async function prepare(evalCase: EvalCase, directory: string, noPrior: boolean):
   else await rm(join(directory, "pr/prior.json"), { force: true });
 }
 
-async function review(evalCase: EvalCase, directory: string, out: string, options: Options, key: string): Promise<void> {
+async function review(evalCase: EvalCase, directory: string, out: string, options: Options, endpoint: Endpoint): Promise<void> {
   await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
-  const env = {
+  const env: Record<string, string> = {
+    RB_MODEL_BASE_URL: endpoint.baseUrl, RB_MODEL_API: endpoint.api,
+    ...(Object.keys(endpoint.extraBody).length ? { RB_MODEL_EXTRA_BODY: JSON.stringify(endpoint.extraBody) } : {}),
+    ...(Object.keys(endpoint.extraBodyByModel).length ? { RB_MODEL_EXTRA_BODY_BY_MODEL: JSON.stringify(endpoint.extraBodyByModel) } : {}),
     RB_NWO: evalCase.repo, RB_PR_NUMBER: String(evalCase.pr), RB_BASE: evalCase.base, RB_HEAD: evalCase.head,
     RB_CONFIG_MODEL: options.model, RB_CONFIG_FIT: options.model, RB_DETAILS_OUT: "/work/out/details.json", RB_CONTEXT_OUT: "/work/out/context.json",
     RB_REPO: "/work/repo", RB_DIFF: "/work/pr/diff.patch", RB_PR_JSON: "/work/pr/pr.json", RB_PRIOR_JSON: "/work/pr/prior.json", RB_OUT: "/work/out/findings.json", RB_ATTEMPT: "1",
   };
   const args = [
     "run", "--rm", "-v", `${join(directory, "repo")}:/work/repo:ro`, "-v", `${join(directory, "pr")}:/work/pr:ro`, "-v", `${out}:/work/out`,
-    "-e", "OPENROUTER_API_KEY", ...Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${value}`]), IMAGE,
+    "-e", "MODEL_API_KEY", ...Object.entries(env).flatMap(([name, value]) => ["-e", `${name}=${value}`]), IMAGE,
   ];
-  const result = await exec("docker", args, { env: { ...process.env, OPENROUTER_API_KEY: key }, timeout: REVIEW_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 })
+  const result = await exec("docker", args, { env: { ...process.env, MODEL_API_KEY: endpoint.apiKey }, timeout: REVIEW_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 })
     .catch((error: { stderr?: string; message: string }) => ({ stderr: `${error.stderr ?? ""}\n${error.message}` }));
   await writeFile(join(out, "log.txt"), result.stderr ?? "");
 }
@@ -210,7 +211,7 @@ async function pool(jobs: Array<() => Promise<void>>, width: number): Promise<vo
 const options = parseArguments(process.argv.slice(2));
 const cases = await loadCases(options.cases, options.split);
 if (!cases.length) throw new Error("no eval cases found in evals/cases or evals/private");
-const key = await apiKey();
+const endpoint = modelEndpoint();
 const runRoot = join(root, "runs/evals", options.name);
 const say = (message: string): void => console.error(`eval: ${message}`);
 
@@ -220,13 +221,13 @@ if (!options.scoreOnly) {
   for (const evalCase of cases) await prepare(evalCase, join(runRoot, evalCase.id), options.noPrior);
   const jobs = cases.flatMap((evalCase) => Array.from({ length: options.runs }, (_, index) => async () => {
     say(`reviewing ${evalCase.id}, run ${index + 1}`);
-    await review(evalCase, join(runRoot, evalCase.id), join(runRoot, evalCase.id, `run-${index + 1}`), options, key);
+    await review(evalCase, join(runRoot, evalCase.id), join(runRoot, evalCase.id, `run-${index + 1}`), options, endpoint);
   }));
   await pool(jobs, options.jobs);
 }
 
 const judgeUsage = emptyUsage();
-const chat = createChat({ apiKey: key, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage: judgeUsage });
+const chat = createChat({ ...endpoint, effort: null, usage: judgeUsage });
 const scores = [];
 const raw: Record<string, RunResult[]> = {};
 for (const evalCase of cases) {
