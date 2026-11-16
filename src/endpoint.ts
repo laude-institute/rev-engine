@@ -55,8 +55,9 @@ export function endpointOf(env: Env, prefix: "MODEL" | "FALLBACK"): Endpoint {
   const selected = env[`RB_${prefix}_API`]?.trim() || "chat";
   if (selected !== "chat" && selected !== "responses" && selected !== "auto") throw new Error(`RB_${prefix}_API must be chat, responses or auto`);
   // Auto chooses a protocol at the configured URL; it never changes the destination or credential.
+  const host = url.hostname.replace(/\.$/, ""); // Ignore the optional DNS root dot for protocol detection only.
   const api = selected === "auto"
-    ? (url.hostname === "api.openai.com" || url.hostname.endsWith(".api.openai.com") ? "responses" : "chat")
+    ? (host === "api.openai.com" || host.endsWith(".api.openai.com") ? "responses" : "chat")
     : selected;
 
   const extraBody = jsonObject(env, `RB_${prefix}_EXTRA_BODY`);
