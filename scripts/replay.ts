@@ -18,6 +18,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { dedupe, normalizeCandidates, parseDiff, rank, toOutput, type Candidate } from "../src/findings.ts";
+import { endpointOf, readEnvFile } from "../src/endpoint.ts";
 import { createChat, emptyUsage, formatCost, roundedCost, type ChatMessage, type Usage } from "../src/llm.ts";
 import type { ToolDefinition } from "../src/tools.ts";
 import { readTools } from "../src/tools.ts";
@@ -47,13 +48,11 @@ const modelOverride = option("--model", "");
 const variant = await import(pathToFileURL(promptsPath).href) as { reviewerSystem: (focus: string | null) => string; submitReview: ToolDefinition };
 const system = variant.reviewerSystem(null);
 
-// The key lives in .env or the shell, as for scripts/local-run.sh.
-const env = await readFile(join(here, ".env"), "utf8").catch(() => "");
-const apiKey = process.env.OPENROUTER_API_KEY || /^OPENROUTER_API_KEY=(.*)$/m.exec(env)?.[1]?.trim().replace(/^["']|["']$/g, "");
-if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+// The endpoint and key live in .env or the shell, as for scripts/local-run.sh.
+const endpoint = endpointOf({ ...readEnvFile(join(here, ".env")), ...process.env }, "MODEL");
 const usage = emptyUsage();
 const byCaller = new Map<string, Usage>();
-const chat = createChat({ apiKey, baseUrl: "https://openrouter.ai/api/v1", effort: null, usage, usageByCaller: byCaller });
+const chat = createChat({ ...endpoint, effort: null, usage, usageByCaller: byCaller });
 
 const runDir = join(here, "runs", recorded);
 const outDir = join(runDir, ".try-agent", "out");

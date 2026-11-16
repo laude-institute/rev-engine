@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createServer } from "node:http";
 import { runAgent } from "../src/agent.ts";
 import { submitReview } from "../src/prompts.ts";
 import type { Workspace } from "../src/tools.ts";
@@ -31,32 +32,55 @@ test("totals usage for the run and for each caller that names itself", async () 
   assert.deepEqual([...usageByCaller.keys()], ["s1", "verifier"]);
 });
 
-test("sends a per-call effort, a reasoning cap in its place, and a provider sort to OpenRouter", async () => {
+test("sends the standard effort, and the extra fields of the client and of each call", async () => {
   const bodies: Array<Record<string, unknown>> = [];
   const fetchImpl = (async (_url: string, init: { body: string }) => {
     bodies.push(JSON.parse(init.body));
     return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }));
   }) as unknown as typeof fetch;
-  const chat = createChat({ apiKey: "key", baseUrl: "https://openrouter.ai/api/v1", effort: "high", usage: emptyUsage(), fetchImpl });
+  const chat = createChat({ apiKey: "key", baseUrl: "https://example.test/v1", effort: "high", usage: emptyUsage(), fetchImpl, extraBody: { usage: { include: true }, model: "ignored" } });
   const request = { model: "test/model", messages: [], tools: [], timeoutMs: 5_000 };
   await chat(request);
   await chat({ ...request, effort: "low" });
-  await chat({ ...request, effort: "low", reasoningTokens: 1500, providerSort: "latency" });
-  assert.deepEqual(bodies.map((body) => body.reasoning), [{ effort: "high" }, { effort: "low" }, { max_tokens: 1500 }]);
+  // A reasoning field in the extra fields takes the place of the effort.
+  await chat({ ...request, effort: "low", extraBody: { reasoning: { max_tokens: 1500 }, provider: { sort: "latency" } } });
+  assert.deepEqual(bodies.map((body) => body.reasoning_effort), ["high", "low", undefined]);
+  assert.deepEqual(bodies.map((body) => body.reasoning), [undefined, undefined, { max_tokens: 1500 }]);
   assert.deepEqual(bodies[2]!.provider, { sort: "latency" });
-  await chat({ ...request, providers: ["together"] });
-  assert.deepEqual(bodies[3]!.provider, { only: ["together"], allow_fallbacks: false });
+  // The client's extra fields go with every call, and never replace a standard field.
+  assert.ok(bodies.every((body) => JSON.stringify(body.usage) === '{"include":true}' && body.model === "test/model"));
+});
+
+test("sends a model's own extra fields only to that model, merged one level deep", async () => {
+  const bodies: Array<Record<string, any>> = [];
+  const fetchImpl = (async (_url: string, init: { body: string }) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }] }));
+  }) as unknown as typeof fetch;
+  const chat = createChat({
+    apiKey: "key", baseUrl: "https://example.test/v1", effort: null, usage: emptyUsage(), fetchImpl,
+    extraBody: { provider: { data_collection: "deny" } },
+    extraBodyByModel: { "vendor/": { cache: "vendor" }, "vendor/special": { cache: "special" } },
+  });
+  const request = { messages: [], tools: [], timeoutMs: 5_000 };
+  await chat({ ...request, model: "vendor/special-1" });
+  await chat({ ...request, model: "other/model", extraBody: { provider: { sort: "latency" } } });
+  // The longest matching prefix is laid over the shorter one.
+  assert.equal(bodies[0]!.cache, "special");
+  assert.equal(bodies[1]!.cache, undefined);
+  // A call's object field keeps the operator's fields of the same object.
+  assert.deepEqual(bodies[1]!.provider, { data_collection: "deny", sort: "latency" });
 });
 
 test("reads which provider served a call, and never sends it back", async () => {
   const fetchImpl = (async () => new Response(JSON.stringify({ provider: "Example", choices: [{ message: { role: "assistant", content: "ok" } }] }))) as unknown as typeof fetch;
-  const chat = createChat({ apiKey: "key", baseUrl: "https://openrouter.ai/api/v1", effort: null, usage: emptyUsage(), fetchImpl });
+  const chat = createChat({ apiKey: "key", baseUrl: "https://example.test/v1", effort: null, usage: emptyUsage(), fetchImpl });
   const reply = await chat({ model: "test/model", messages: [], tools: [], timeoutMs: 5_000 });
   assert.equal(reply.provider, "Example");
   assert.ok(!JSON.stringify(reply).includes("Example"));
 });
 
-test("talks to OpenAI directly through the Responses API", async () => {
+test("talks to a Responses API endpoint when asked to", async () => {
   const sent: Array<{ url: string; body: any }> = [];
   const fetchImpl = (async (url: string, init: { body: string }) => {
     sent.push({ url, body: JSON.parse(init.body) });
@@ -70,7 +94,7 @@ test("talks to OpenAI directly through the Responses API", async () => {
     }));
   }) as unknown as typeof fetch;
   const usage = emptyUsage();
-  const chat = createChat({ apiKey: "key", baseUrl: "https://api.openai.com/v1", effort: "high", usage, fetchImpl });
+  const chat = createChat({ apiKey: "key", baseUrl: "https://example.test/v1", api: "responses", effort: "high", usage, fetchImpl });
   const tool = { type: "function" as const, function: { name: "read_file", description: "Read a file", parameters: { type: "object", properties: {} } } };
   const reasoning = [{ type: "reasoning", id: "rs_0", summary: [], encrypted_content: "earlier" }];
   const reply = await chat({
@@ -84,7 +108,7 @@ test("talks to OpenAI directly through the Responses API", async () => {
     ],
   });
 
-  assert.equal(sent[0]!.url, "https://api.openai.com/v1/responses");
+  assert.equal(sent[0]!.url, "https://example.test/v1/responses");
   assert.deepEqual(sent[0]!.body, {
     model: "test-model",
     input: [
@@ -121,7 +145,7 @@ const directRequest = { model: "test-model", messages: [], tools: [], timeoutMs:
 const textOutput = [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "ok" }] }];
 
 function directClient(fetchImpl: typeof fetch, usage = emptyUsage(), usageByCaller?: Map<string, Usage>) {
-  return createChat({ apiKey: "fake", baseUrl: "https://api.openai.com/v1/", effort: "high", usage, usageByCaller, fetchImpl });
+  return createChat({ apiKey: "fake", baseUrl: "https://example.test/v1/", api: "responses", effort: "high", usage, usageByCaller, fetchImpl });
 }
 
 test("replays every Responses output item in order, including phase, after saving a transcript", async () => {
@@ -133,7 +157,7 @@ test("replays every Responses output item in order, including phase, after savin
   ];
   const bodies: any[] = [];
   const chat = directClient(async (url, init) => {
-    assert.equal(url, "https://api.openai.com/v1/responses");
+    assert.equal(url, "https://example.test/v1/responses");
     bodies.push(JSON.parse(String(init?.body)));
     return Response.json({ status: "completed", output });
   });
@@ -212,7 +236,7 @@ test("tracks Responses usage per caller and preserves unknown cost across known-
   assert.deepEqual(usage, { calls: 3, promptTokens: 300, completionTokens: 30, cachedTokens: 180, costUsd: null });
   assert.deepEqual(byCaller.get("s1"), { calls: 2, promptTokens: 200, completionTokens: 20, cachedTokens: 120, costUsd: null });
   assert.equal(byCaller.get("verifier")?.calls, 1);
-  const router = createChat({ apiKey: "fake", baseUrl: "https://openrouter.ai/api/v1", effort: null, usage,
+  const router = createChat({ apiKey: "fake", baseUrl: "https://example.test/v1", effort: null, usage,
     fetchImpl: replying({ cost: 0.5 }) });
   await router(directRequest);
   assert.equal(usage.costUsd, null);
@@ -255,8 +279,61 @@ for (const [name, body] of [
 
 test("does not leak Responses output into a chat-completions request", async () => {
   let sent: any;
-  const chat = createChat({ apiKey: "fake", baseUrl: "https://openrouter.ai/api/v1", effort: null, usage: emptyUsage(),
+  const chat = createChat({ apiKey: "fake", baseUrl: "https://example.test/v1", effort: null, usage: emptyUsage(),
     fetchImpl: async (_url, init) => { sent = JSON.parse(String(init?.body)); return Response.json({ choices: [{ message: { content: "ok" } }] }); } });
   await chat({ ...directRequest, messages: [{ role: "assistant", content: "earlier", response_output: textOutput }] });
   assert.deepEqual(sent.messages, [{ role: "assistant", content: "earlier" }]);
 });
+
+test("Responses merges endpoint fields and preserves explicit reasoning over the configured effort", async () => {
+  let sent: any;
+  const chat = createChat({
+    apiKey: "synthetic", baseUrl: "https://example.test/v1", api: "responses", effort: "high", usage: emptyUsage(),
+    extraBody: { reasoning: { effort: "low", summary: "auto" }, metadata: { common: "yes" }, store: true },
+    extraBodyByModel: { "test-": { metadata: { family: "yes" }, reasoning: { effort: "medium" } } },
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(String(init?.body));
+      return Response.json({ status: "completed", output: textOutput });
+    },
+  });
+  await chat({ ...directRequest, extraBody: { metadata: { call: "yes" } } });
+  assert.deepEqual(sent.reasoning, { effort: "medium", summary: "auto" });
+  assert.deepEqual(sent.metadata, { common: "yes", family: "yes", call: "yes" });
+  assert.equal(sent.model, "test-model");
+  assert.equal(sent.store, false);
+});
+
+for (const api of ["chat", "responses"] as const) {
+  for (const status of [307, 308]) {
+    test(`${api} refuses ${status} redirects without sending code to the target`, async t => {
+      let forwarded = 0;
+      const target = createServer((_request, response) => {
+        forwarded++;
+        response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "ok" } }], output: [] }));
+      });
+      await new Promise<void>(resolve => target.listen(0, "127.0.0.1", resolve));
+      const targetAddress = target.address();
+      assert.ok(targetAddress && typeof targetAddress === "object");
+      let received = 0;
+      const source = createServer((request, response) => {
+        received++;
+        request.resume();
+        response.writeHead(status, { location: `http://127.0.0.1:${targetAddress.port}/collect` });
+        response.end();
+      });
+      t.after(() => {
+        source.closeAllConnections();
+        source.close();
+        target.closeAllConnections();
+        target.close();
+      });
+      await new Promise<void>(resolve => source.listen(0, "127.0.0.1", resolve));
+      const sourceAddress = source.address();
+      assert.ok(sourceAddress && typeof sourceAddress === "object");
+      const chat = createChat({ apiKey: "synthetic", baseUrl: `http://127.0.0.1:${sourceAddress.port}/v1`, api, effort: null, usage: emptyUsage() });
+      await assert.rejects(chat({ model: "fixture/model", messages: [{ role: "user", content: "synthetic private code" }], tools: [], timeoutMs: 1000 }));
+      assert.equal(received, 1);
+      assert.equal(forwarded, 0, "the redirect target must receive neither code nor credentials");
+    });
+  }
+}

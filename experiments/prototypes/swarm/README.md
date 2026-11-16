@@ -53,6 +53,8 @@ The tasks on trial run only when `RB_CONFIG_SWARM_TASKS` names them.
 | `RB_CONFIG_SWARM_COPIES` | `1`, or `2` with `RB_CONFIG_MODE=agent` | How many independent agents run each chunk task and global pass, from 1 to 4. Copies get the same prompt. Two runs of the swarm find quite different problems, so copies raise recall, and the merge after verification folds what they agree on. |
 | `RB_CONFIG_SWARM_EVIDENCE` | `off` | With rich context and a target, `on` also shows each verifier where the names a finding mentions are defined or used elsewhere. `off` shows only the code around each finding. |
 
+`RB_CONFIG_SWARM_SORT`, `RB_CONFIG_SWARM_PROVIDERS` and `RB_CONFIG_SWARM_REASONING_TOKENS` are OpenRouter request fields, and so is the provider default for DeepSeek V4.1 Flash. The swarm adds them to each request itself, so they mean something only when `RB_MODEL_BASE_URL` is OpenRouter's API. Another endpoint may reject them or ignore them.
+
 With 10 chunks, the default runs 45 reviewing agents, and at most 16 model calls are in flight at once.
 
 ## Handling timeouts and failures

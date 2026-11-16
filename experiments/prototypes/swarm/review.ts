@@ -145,6 +145,23 @@ function integer(env: Env, name: string, fallback: number, min: number, max: num
   return value;
 }
 
+/**
+ * The OpenRouter request fields for the swarm's routing and reasoning settings: a provider
+ * sort or allow-list, and a reasoning token budget in place of the effort. The swarm is tuned
+ * on OpenRouter, so these fields are its own; the chat client sends them as given.
+ */
+export function routingBody(settings: Pick<SwarmSettings, "sort" | "providers" | "reasoningTokens">): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (settings.sort || settings.providers.length) {
+    body.provider = {
+      ...(settings.sort ? { sort: settings.sort } : {}),
+      ...(settings.providers.length ? { only: settings.providers, allow_fallbacks: false } : {}),
+    };
+  }
+  if (settings.reasoningTokens) body.reasoning = { max_tokens: settings.reasoningTokens };
+  return body;
+}
+
 export function swarmSettings(env: Env): SwarmSettings {
   const split = env.RB_CONFIG_SWARM_SPLIT?.trim() || "task";
   if (split !== "task" && split !== "chunk") throw new Error("RB_CONFIG_SWARM_SPLIT must be task or chunk");
@@ -351,10 +368,7 @@ async function swarm(config: Config, baseChat: Chat, log: (message: string) => v
     const record = { caller: request.caller ?? "", startMs: callStarted - started, ms: 0, ok: false, reasoningChars: 0, outputChars: 0, forced: Boolean(request.forceTool), provider: null as string | null };
     trace.calls.push(record);
     try {
-      const reply = await baseChat({
-        ...request, ...(settings.sort ? { providerSort: settings.sort } : {}), ...(settings.providers.length ? { providers: settings.providers } : {}), ...(settings.effort ? { effort: settings.effort } : {}),
-        ...(settings.reasoningTokens ? { reasoningTokens: settings.reasoningTokens } : {}),
-      });
+      const reply = await baseChat({ ...request, ...(settings.effort ? { effort: settings.effort } : {}), extraBody: { ...request.extraBody, ...routingBody(settings) } });
       record.ok = true;
       record.provider = reply.provider ?? null;
       record.reasoningChars = Array.isArray(reply.reasoning_details)

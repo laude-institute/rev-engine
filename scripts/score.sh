@@ -63,6 +63,18 @@ run="$here/runs/$1"
 if [ -f "$here/.env" ]; then set -a; . "$here/.env"; set +a; fi
 provider="${JUDGE_PROVIDER:-openrouter}"
 model="${JUDGE_MODEL:-google/gemini-3.5-flash}"
+# The judging CLI reads an OpenRouter key by this name; the reviewer's MODEL_API_KEY serves when it is one.
+if [ "$provider" = openrouter ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
+  case "${RB_MODEL_BASE_URL:-}" in
+    https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/)
+      export OPENROUTER_API_KEY="${MODEL_API_KEY:-}"
+      ;;
+  esac
+  [ -n "${OPENROUTER_API_KEY:-}" ] || {
+    echo "Set OPENROUTER_API_KEY for the OpenRouter judge; MODEL_API_KEY is reused only with the OpenRouter model endpoint" >&2
+    exit 2
+  }
+fi
 out="$run/${SCORING_NAME}"
 mkdir -p "$out"
 

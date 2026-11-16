@@ -22,8 +22,8 @@
 # on that box when BOX=2 is set. The boxes share the role, the stored key and
 # the bucket. Results are stored by run name, so give each run its own name.
 #
-# Needs the AWS CLI with credentials for the account, jq, and OPENROUTER_API_KEY
-# in .env for `up`. BOX_REGION (default us-east-1) and BOX_INSTANCE_TYPE
+# Needs the AWS CLI with credentials for the account, jq, and an OpenRouter key
+# as MODEL_API_KEY (or OPENROUTER_API_KEY) in .env for `up`. BOX_REGION (default us-east-1) and BOX_INSTANCE_TYPE
 # (default m7i.2xlarge) can be overridden.
 set -euo pipefail
 
@@ -77,7 +77,13 @@ wait_ready() {
 case "${1:-}" in
   up)
     [ -f "$here/.env" ] && { set -a; . "$here/.env"; set +a; }
-    [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "OPENROUTER_API_KEY is not set" >&2; exit 2; }
+    # The box's reviews and their judge both run on OpenRouter, so its key is stored for both.
+    if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+      case "${RB_MODEL_BASE_URL:-}" in
+        https://openrouter.ai/api/v1|https://openrouter.ai/api/v1/) OPENROUTER_API_KEY="${MODEL_API_KEY:-}" ;;
+      esac
+    fi
+    [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "Set OPENROUTER_API_KEY, or MODEL_API_KEY with the standard OpenRouter endpoint" >&2; exit 2; }
 
     aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1 || {
       if [ "$region" = us-east-1 ]; then aws s3api create-bucket --bucket "$bucket" >/dev/null
