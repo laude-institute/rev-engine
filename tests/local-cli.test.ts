@@ -17,6 +17,7 @@ const out = dirname(env.RB_OUT);
 writeFileSync(join(out, 'observed.json'), JSON.stringify({
   repo: env.RB_REPO, ignored: existsSync(join(env.RB_REPO, '.env')),
   model: env.RB_CONFIG_MODEL, transcript: env.RB_TRANSCRIPT_OUT,
+  api: env.RB_MODEL_API, fallbackApi: env.RB_FALLBACK_API,
   prior: existsSync(env.RB_PRIOR_JSON) ? JSON.parse(readFileSync(env.RB_PRIOR_JSON, 'utf8')) : null,
 }));
 if (env.FIXTURE_MODE === 'hang') await new Promise(resolve => setTimeout(resolve, 60000));
@@ -367,4 +368,17 @@ else { const r=spawnSync(${JSON.stringify(realGit)},process.argv.slice(2),{stdio
   const [code] = await completed;
   assert.equal(code, 130);
   assert.deepEqual(f.runs(), []);
+});
+
+
+for (const api of ["auto", "chat", "responses"]) test(`the local runner forwards ${api} to the reviewer process`, t => {
+  const f = fixture(t);
+  const result = f.cli(["branch", "--repo", f.repo, "--base", "main", "--json"], {
+    RB_MODEL_BASE_URL: "https://proxy.example.test/v1", RB_MODEL_API: api, RB_FALLBACK_API: api,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  const observed = JSON.parse(readFileSync(join(report.meta.run, "out/observed.json"), "utf8"));
+  assert.equal(observed.api, api);
+  assert.equal(observed.fallbackApi, api);
 });

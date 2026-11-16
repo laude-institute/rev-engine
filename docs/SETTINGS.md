@@ -1,6 +1,6 @@
 # Settings
 
-The reviewer container reads its settings from environment variables. The `RB_` names come from the [ReviewBench agent contract](https://github.com/review-bench/ReviewBench/blob/main/AGENT_CONTRACT.md).
+The reviewer container reads its settings from environment variables. Some `RB_` names come from the [ReviewBench agent contract](https://github.com/review-bench/ReviewBench/blob/main/AGENT_CONTRACT.md).
 
 If you use the GitHub Action, set its inputs instead. They are listed in [INSTALL.md](INSTALL.md).
 
@@ -14,9 +14,11 @@ For private repositories using OpenRouter, keep `RB_MODEL_BASE_URL=https://openr
 |---|---|---|
 | `RB_MODEL_BASE_URL` | none, required | The API to call, such as `https://openrouter.ai/api/v1`. The client adds `chat/completions` or `responses`. |
 | `MODEL_API_KEY` | none, required | The key for that API. `OPENROUTER_API_KEY` is accepted only with the standard OpenRouter URL. Other endpoints require an explicit `MODEL_API_KEY`. |
-| `RB_MODEL_API` | `chat` | `chat` posts to `chat/completions`. `responses` posts to the OpenAI Responses API. |
+| `RB_MODEL_API` | `chat` | `chat` posts to `chat/completions`; `responses` posts to `responses`. Opt-in `auto` selects Responses for `api.openai.com` and its subdomains and chat elsewhere. |
 | `RB_MODEL_EXTRA_BODY` | none | A JSON object merged into every request body, for fields one endpoint accepts and another does not. The standard fields the client sets always win over it. |
 | `RB_MODEL_EXTRA_BODY_BY_MODEL` | none | A JSON object mapping a model name prefix to fields merged into that model's requests only, over `RB_MODEL_EXTRA_BODY`. The longest matching prefix wins. A field that is an object in both is merged one level deep. |
+
+`auto` selects only the request protocol. It never changes the configured URL, credential, engine or fallback settings. OpenRouter continues to use chat completions. A proxy or another Responses-compatible host needs an explicit `responses` selection because its hostname does not identify the API it implements. `RB_FALLBACK_API` accepts the same choices for an explicitly enabled fallback. Omitting either setting still selects `chat`.
 
 `RB_CONFIG_EFFORT` is sent as the standard `reasoning_effort` field, or as `reasoning.effort` with the Responses API. It is not sent when the extra body already has a `reasoning` field, or a `reasoning_effort` field on chat completions.
 
@@ -31,6 +33,8 @@ RB_MODEL_EXTRA_BODY_BY_MODEL='{"anthropic/":{"cache_control":{"type":"ephemeral"
 `usage.include` asks OpenRouter to report what each call cost. Anthropic models through OpenRouter cache a prompt prefix only when asked, so `RB_MODEL_EXTRA_BODY_BY_MODEL` asks for it for those models alone, and the other models of a run do not get the field. A review resends a growing conversation every turn, so caching decides most of its cost. A call whose response has no `usage.cost` leaves the run's cost `null`, and cost summaries say `unknown`. Token usage is still recorded.
 
 To call OpenAI directly, set `RB_MODEL_BASE_URL=https://api.openai.com/v1` and `RB_MODEL_API=responses`, and put the OpenAI key in `MODEL_API_KEY`. The Responses API lets the reviewer replay encrypted reasoning without storing the conversation with OpenAI. You must also set `RB_CONFIG_MODEL` to an OpenAI model ID without the `openai/` prefix; the default is an OpenRouter ID and will not work here. Any explicitly configured verifier, follow-up, fit, or fixes model must also use an OpenAI model ID. The Responses API reports tokens but no billed cost, so the cost is `unknown`.
+
+For direct OpenAI reasoning models, use `responses` or `auto`. The chat client sends `max_tokens`, which those models do not accept; forcing `chat` is not supported for them. A proxy for those models needs an explicit `responses` selection.
 
 Benchmark runs must allow the configured host. [The Claude Code engine](#the-claude-code-engine) uses another credential and host, and its optional fallback another endpoint of the same shape.
 

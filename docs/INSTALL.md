@@ -70,7 +70,7 @@ An agent can read the whole list and decide what to fix. There is no assessment 
 |---|---|---|
 | `model-api-key` | none | Key for the model API at `model-base-url`. Pass it from a repository secret. |
 | `model-base-url` | none | The OpenAI-compatible API the reviewer calls, such as `https://openrouter.ai/api/v1`. Required with `model-api-key`. |
-| `model-api` | `chat` | API protocol, `chat` or `responses`. Use `responses` for the Responses API, including direct OpenAI with encrypted reasoning replay. |
+| `model-api` | `chat` | API protocol, `chat`, `responses` or `auto`. `auto` selects Responses for `api.openai.com` and its subdomains and chat elsewhere, without changing the configured endpoint. For other Responses-compatible hosts, select `responses` explicitly. |
 | `model-extra-body` | none | A JSON object merged into every model request, such as `{"usage":{"include":true}}` for OpenRouter's cost reporting. |
 | `model-extra-body-by-model` | none | A JSON object mapping a model name prefix to fields merged into that model's requests only, such as `{"anthropic/":{"cache_control":{"type":"ephemeral"}}}`. |
 | `openrouter-api-key` | none | The older way to pass the key, for OpenRouter only. It implies `model-base-url` `https://openrouter.ai/api/v1`, its cost reporting and prompt caching for Anthropic models. Use `model-api-key` and `model-base-url` instead. The legacy input rejects a non-OpenRouter URL. |

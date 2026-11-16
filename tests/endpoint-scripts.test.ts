@@ -18,7 +18,7 @@ function fixture(t: TestContext) {
   return { dir, env, executable };
 }
 
-for (const [api, legacy, endpoint, rejected] of [["chat", false, "https://models.example.test/v1", false], ["responses", false, "https://models.example.test/v1", false], ["chat", true, "", false], ["chat", true, "https://models.example.test/v1", true]] as const) test(`the action forwards ${api}, legacy ${legacy}, endpoint ${endpoint}`, t => {
+for (const [api, legacy, endpoint, rejected] of [["auto", false, "https://api.openai.com/v1", false], ["auto", true, "", false], ["chat", false, "https://models.example.test/v1", false], ["responses", false, "https://models.example.test/v1", false], ["chat", true, "", false], ["chat", true, "https://models.example.test/v1", true]] as const) test(`the action forwards ${api}, legacy ${legacy}, endpoint ${endpoint}`, t => {
   const f = fixture(t);
   const action = readFileSync(new URL("../action.yml", import.meta.url), "utf8");
   const step = action.split("    - name: Review\n")[1]!.split("    # Keep the findings")[0]!;

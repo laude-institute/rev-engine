@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createServer } from "node:http";
+import { endpointOf } from "../src/endpoint.ts";
 import { runAgent } from "../src/agent.ts";
 import { submitReview } from "../src/prompts.ts";
 import type { Workspace } from "../src/tools.ts";
@@ -337,3 +338,27 @@ for (const api of ["chat", "responses"] as const) {
     });
   }
 }
+
+
+test("auto reaches the configured destination with the resolved request format", async () => {
+  for (const [baseUrl, path] of [["https://api.openai.com/v1", "responses"], ["https://us.api.openai.com/v1", "responses"], ["https://openrouter.ai/api/v1", "chat/completions"]]) {
+    const endpoint = endpointOf({ MODEL_API_KEY: "synthetic", RB_MODEL_BASE_URL: baseUrl, RB_MODEL_API: "auto" }, "MODEL");
+    let sent = false;
+    const chat = createChat({ ...endpoint, effort: null, usage: emptyUsage(), fetchImpl: (async (url, init) => {
+      sent = true;
+      assert.equal(url, `${baseUrl}/${path}`);
+      assert.equal(init!.redirect, "error");
+      const body = JSON.parse(String(init!.body));
+      if (path === "responses") {
+        assert.equal(body.store, false);
+        assert.deepEqual(body.include, ["reasoning.encrypted_content"]);
+        assert.ok(Array.isArray(body.input));
+        return Response.json({ output: [] });
+      }
+      assert.ok(Array.isArray(body.messages));
+      return Response.json({ choices: [{ message: { content: "ok" } }] });
+    }) as typeof fetch });
+    await chat({ model: "fixture/model", messages: [{ role: "user", content: "synthetic code" }], tools: [], timeoutMs: 1000 });
+    assert.ok(sent);
+  }
+});

@@ -1,7 +1,7 @@
 // Reads where a model API is and how to call it. Any endpoint that speaks the
 // OpenAI chat completions API, or the Responses API, works the same way; nothing
-// here knows one provider from another. Kept free of the reviewer's other
-// modules, so scripts and the local runner's doctor can read the same settings.
+// chooses a provider. Opt-in auto selects only the wire protocol. Kept free of the
+// reviewer's other modules, so scripts and the local runner's doctor share it.
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
@@ -52,8 +52,13 @@ export function endpointOf(env: Env, prefix: "MODEL" | "FALLBACK"): Endpoint {
   }
   if (!apiKey) throw new Error(`missing ${keyName}, the key for ${name}`);
 
-  const api = env[`RB_${prefix}_API`]?.trim() || "chat";
-  if (api !== "chat" && api !== "responses") throw new Error(`RB_${prefix}_API must be chat or responses`);
+  const selected = env[`RB_${prefix}_API`]?.trim() || "chat";
+  if (selected !== "chat" && selected !== "responses" && selected !== "auto") throw new Error(`RB_${prefix}_API must be chat, responses or auto`);
+  // Auto chooses a protocol at the configured URL; it never changes the destination or credential.
+  const host = url.hostname.replace(/\.$/, ""); // Ignore the optional DNS root dot for protocol detection only.
+  const api = selected === "auto"
+    ? (host === "api.openai.com" || host.endsWith(".api.openai.com") ? "responses" : "chat")
+    : selected;
 
   const extraBody = jsonObject(env, `RB_${prefix}_EXTRA_BODY`);
   const byModelName = `RB_${prefix}_EXTRA_BODY_BY_MODEL`;

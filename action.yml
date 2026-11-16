@@ -9,7 +9,7 @@ inputs:
     description: The OpenAI-compatible API the reviewer calls, such as https://openrouter.ai/api/v1. Required with model-api-key.
     default: ""
   model-api:
-    description: The model API protocol, chat or responses.
+    description: The model API protocol, chat or responses, or auto to choose Responses for api.openai.com and its subdomains and chat elsewhere.
     default: chat
   model-extra-body:
     description: A JSON object merged into every model request, for what the endpoint accepts beyond the standard API, such as '{"usage":{"include":true}}' for OpenRouter's cost reporting.

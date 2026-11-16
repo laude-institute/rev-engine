@@ -75,3 +75,39 @@ test("the legacy OpenRouter key cannot be used with a different endpoint", () =>
   assert.equal(endpointOf({ ...env, MODEL_API_KEY: "synthetic-other", RB_MODEL_BASE_URL: "https://example.test/v1" }, "MODEL").apiKey, "synthetic-other");
   assert.throws(() => endpointOf({ ...env, RB_FALLBACK_BASE_URL: "https://openrouter.ai/api/v1" }, "FALLBACK"), /missing FALLBACK_API_KEY/);
 });
+
+for (const prefix of ["MODEL", "FALLBACK"] as const) {
+  test(`${prefix} auto selects only the protocol, with chat remaining the default`, () => {
+    for (const [baseUrl, expected] of [
+      ["https://api.openai.com/v1", "responses"],
+      ["https://us.api.openai.com/v1", "responses"],
+      ["https://API.OPENAI.COM/v1", "responses"],
+      ["https://api.openai.com./v1", "responses"],
+      ["https://api.openai.com:443/v1", "responses"],
+      ["https://api.openai.com.:443/v1", "responses"],
+      ["https://us.api.openai.com.:8443/v1", "responses"],
+      ["https://openrouter.ai/api/v1", "chat"],
+      ["https://proxy.example.test/v1", "chat"],
+      ["https://api.openai.com.example.test/v1", "chat"],
+      ["https://api.openai.com.example.test./v1", "chat"],
+      ["https://notapi.openai.com/v1", "chat"],
+      ["http://127.0.0.1:8000/v1", "chat"],
+    ]) {
+      const env = { [`RB_${prefix}_BASE_URL`]: baseUrl, [`${prefix}_API_KEY`]: "synthetic" };
+      assert.equal(endpointOf(env, prefix).api, "chat");
+      for (const selected of ["auto", "chat", "responses"]) {
+        const endpoint = endpointOf({ ...env, [`RB_${prefix}_API`]: selected }, prefix);
+        assert.equal(endpoint.api, selected === "auto" ? expected : selected);
+        assert.equal(endpoint.baseUrl, baseUrl);
+        assert.equal(endpoint.apiKey, "synthetic");
+      }
+    }
+  });
+}
+
+test("auto cannot bypass transport or legacy credential restrictions", () => {
+  const env = { RB_MODEL_API: "auto", OPENROUTER_API_KEY: "synthetic-router" };
+  assert.throws(() => endpointOf({ ...env, RB_MODEL_BASE_URL: "https://api.openai.com/v1" }, "MODEL"), /OPENROUTER_API_KEY requires the standard OpenRouter endpoint/);
+  assert.throws(() => endpointOf({ ...env, MODEL_API_KEY: "synthetic", RB_MODEL_BASE_URL: "http://api.openai.com/v1" }, "MODEL"), /must use HTTPS/);
+  assert.equal(endpointOf({ ...env, RB_MODEL_BASE_URL: "https://openrouter.ai/api/v1" }, "MODEL").api, "chat");
+});

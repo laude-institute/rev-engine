@@ -135,7 +135,7 @@ test("the model API is any OpenAI-compatible endpoint, named by its settings alo
   const config = loadConfig({ ...BASE, RB_MODEL_API: "responses", RB_MODEL_EXTRA_BODY: '{"usage":{"include":true}}' });
   assert.equal(config.endpoint!.api, "responses");
   assert.deepEqual(config.endpoint!.extraBody, { usage: { include: true } });
-  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "completions" }), /RB_MODEL_API must be chat or responses/);
+  assert.throws(() => loadConfig({ ...BASE, RB_MODEL_API: "completions" }), /RB_MODEL_API must be chat, responses or auto/);
   assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "{" }), /RB_MODEL_EXTRA_BODY is not JSON/);
   assert.throws(() => loadConfig({ ...BASE, RB_MODEL_EXTRA_BODY: "[1]" }), /RB_MODEL_EXTRA_BODY must be a JSON object/);
   for (const url of ["example.test/v1", "ftp://example.test", "not a url"]) {
