@@ -283,3 +283,21 @@ test("does not leak Responses output into a chat-completions request", async () 
   await chat({ ...directRequest, messages: [{ role: "assistant", content: "earlier", response_output: textOutput }] });
   assert.deepEqual(sent.messages, [{ role: "assistant", content: "earlier" }]);
 });
+
+test("Responses merges endpoint fields and preserves explicit reasoning over the configured effort", async () => {
+  let sent: any;
+  const chat = createChat({
+    apiKey: "synthetic", baseUrl: "https://example.test/v1", api: "responses", effort: "high", usage: emptyUsage(),
+    extraBody: { reasoning: { effort: "low", summary: "auto" }, metadata: { common: "yes" }, store: true },
+    extraBodyByModel: { "test-": { metadata: { family: "yes" }, reasoning: { effort: "medium" } } },
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(String(init?.body));
+      return Response.json({ status: "completed", output: textOutput });
+    },
+  });
+  await chat({ ...directRequest, extraBody: { metadata: { call: "yes" } } });
+  assert.deepEqual(sent.reasoning, { effort: "medium", summary: "auto" });
+  assert.deepEqual(sent.metadata, { common: "yes", family: "yes", call: "yes" });
+  assert.equal(sent.model, "test-model");
+  assert.equal(sent.store, false);
+});

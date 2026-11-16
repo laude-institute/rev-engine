@@ -8,6 +8,9 @@ inputs:
   model-base-url:
     description: The OpenAI-compatible API the reviewer calls, such as https://openrouter.ai/api/v1. Required with model-api-key.
     default: ""
+  model-api:
+    description: The model API protocol, chat or responses.
+    default: chat
   model-extra-body:
     description: A JSON object merged into every model request, for what the endpoint accepts beyond the standard API, such as '{"usage":{"include":true}}' for OpenRouter's cost reporting.
     default: ""
@@ -198,6 +201,7 @@ runs:
       env:
         MODEL_API_KEY: ${{ inputs.model-api-key || inputs.openrouter-api-key }}
         RB_MODEL_BASE_URL: ${{ inputs.model-base-url }}
+        RB_MODEL_API: ${{ inputs.model-api }}
         RB_MODEL_EXTRA_BODY: ${{ inputs.model-extra-body }}
         RB_MODEL_EXTRA_BODY_BY_MODEL: ${{ inputs.model-extra-body-by-model }}
         AGENT_PROVIDERS: ${{ inputs.agent-providers }}
@@ -236,7 +240,7 @@ runs:
           -v "$GITHUB_WORKSPACE/rev-engine-prime-checkout:/work/repo:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/pr:/work/pr:ro" \
           -v "$RUNNER_TEMP/rev-engine-prime/out:/work/out" \
-          -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
+          -e MODEL_API_KEY -e RB_MODEL_BASE_URL -e RB_MODEL_API -e RB_MODEL_EXTRA_BODY -e RB_MODEL_EXTRA_BODY_BY_MODEL -e RB_NWO -e RB_PR_NUMBER -e RB_BASE -e RB_HEAD \
           -e RB_CONFIG_MODEL -e RB_CONFIG_TIME_BUDGET -e RB_CONFIG_FIT -e RB_DETAILS_OUT=/work/out/details.json \
           -e RB_REPO=/work/repo -e RB_DIFF=/work/pr/diff.patch -e RB_PR_JSON=/work/pr/pr.json -e RB_PRIOR_JSON=/work/pr/prior.json \
           -e RB_OUT=/work/out/findings.json -e RB_ATTEMPT=1 \
