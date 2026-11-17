@@ -38,6 +38,8 @@ export interface AgentOptions {
   secondLook?: SecondLook;
   /** Names this run in the usage totals and the log, such as "s1" or "verifier". */
   caller?: string;
+  /** Reasoning effort for this run, in place of the engine's. */
+  effort?: string;
   /** Cuts off one model call sooner than the client's default, so a stalled call is retried sooner. */
   attemptTimeoutMs?: number;
   /** Time kept back for the submission, when a short deadline needs less than WRAP_UP_MS. */
@@ -129,7 +131,9 @@ export async function runAgent(options: AgentOptions): Promise<Record<string, un
       if (!claudeCode.fallback || options.deadline - Date.now() < room || maxTurns < 2) throw error;
       const { chat, model } = claudeCode.fallback;
       options.log(`${options.caller ?? options.model}: claude failed (${error instanceof Error ? error.message : String(error)}); falling back to ${model} with ${maxTurns} turn(s) left`);
-      return runAgent({ ...options, chat, model, maxTurns });
+      // The effort is one of claude's levels, so the fallback is not given it.
+      const { effort: _effort, ...rest } = options;
+      return runAgent({ ...rest, chat, model, maxTurns });
     }
   }
   // What was handed in is kept, so a failure later on still returns that work.
@@ -180,6 +184,7 @@ async function loop(options: AgentOptions, held: Held): Promise<Record<string, u
     const request = {
       model, messages, tools, timeoutMs: wrappingUp ? remaining : remaining - wrapUpMs,
       ...(options.caller ? { caller: options.caller } : {}),
+      ...(options.effort ? { effort: options.effort } : {}),
       ...(options.attemptTimeoutMs ? { attemptTimeoutMs: options.attemptTimeoutMs } : {}),
     };
     let reply: ChatMessage;

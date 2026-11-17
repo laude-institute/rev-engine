@@ -317,6 +317,7 @@ export async function review(config: Config, chat: Chat, log: (message: string) 
         chat, model: config.verifierModel, system: VERIFIER_SYSTEM,
         prompt: verifierPrompt(pr, changed, diff, survivors, decisions), workspace, submit: decisions ? submitVerdictsWithPrior : submitVerdicts,
         deadline: finishDeadline, maxTurns: config.maxTurns, log, caller: `verifier (${config.verifierModel})`,
+        ...(config.verifierEffort ? { effort: config.verifierEffort } : {}),
       });
       const before = survivors;
       const verdicts = new Map(parseVerdicts(submission.verdicts).map((verdict) => [verdict.id, verdict]));

@@ -71,6 +71,8 @@ export interface Config {
   transcriptOutPath: string | null;
   contextOutPath: string | null;
   effort: string | null;
+  /** The effort of the verification pass, when it is not the review's. */
+  verifierEffort: string | null;
   /** agent writes a thorough review for an agent to triage; human writes a shorter one for people. */
   mode: ReviewMode;
   maxFindings: number;
@@ -148,6 +150,7 @@ export function loadConfig(env: Env): Config {
   const fitModel = env.RB_CONFIG_FIT?.trim() || null;
   const fixModel = env.RB_CONFIG_FIXES?.trim() || null;
   const effort = env.RB_CONFIG_EFFORT?.trim() || null;
+  const verifierEffort = env.RB_CONFIG_VERIFIER_EFFORT?.trim() || null;
   const transcriptOutPath = env.RB_TRANSCRIPT_OUT?.trim() || null;
   const claudeLogin = engine === "claude-code" ? claudeLoginOf(env) : null;
 
@@ -194,6 +197,7 @@ export function loadConfig(env: Env): Config {
     transcriptOutPath,
     contextOutPath: env.RB_CONTEXT_OUT?.trim() || null,
     effort,
+    verifierEffort,
     mode,
     maxFindings: integer(env, "RB_CONFIG_MAX_FINDINGS", DEFAULT_MAX_FINDINGS[mode], 1, 100),
     budgetMs: integer(env, "RB_CONFIG_TIME_BUDGET", 780, 60, 7200) * 1000,
@@ -218,6 +222,7 @@ export function describeSettings(config: Config): string {
     `fit=${config.fitModel ?? "off"}`,
     `fixes=${config.fixModel ?? "off"}`,
     `effort=${config.effort ?? "default"}`,
+    ...(config.verifierEffort ? [`verifier_effort=${config.verifierEffort}`] : []),
     `mode=${config.mode}`,
     `max_findings=${config.maxFindings}`,
     `time_budget=${config.budgetMs / 1000}`,

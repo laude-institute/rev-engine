@@ -98,6 +98,24 @@ test("the log names each finding verification dropped", async () => {
   assert.ok(logs.includes("verification dropped s1-02 (rejected): a.ts:1 Misnamed"), logs.join("\n"));
 });
 
+test("the verification pass runs at its own effort when one is set, and the review at the engine's", async () => {
+  const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
+  const asked = async (env: Record<string, string>): Promise<Array<[string, string | undefined]>> => {
+    const efforts: Array<[string, string | undefined]> = [];
+    const chat: Chat = async (request) => {
+      const verifying = request.tools.some((tool) => tool.function.name === "submit_verdicts");
+      efforts.push([verifying ? "verifier" : "review", request.effort]);
+      const args = verifying ? { verdicts: [{ id: "s1-01", verdict: "confirmed" }] } : { findings: [finding] };
+      const name = verifying ? "submit_verdicts" : "submit_review";
+      return { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name, arguments: JSON.stringify(args) } }] };
+    };
+    await review(configFor(env), chat, () => {});
+    return efforts;
+  };
+  assert.deepEqual(await asked({ RB_CONFIG_EFFORT: "high", RB_CONFIG_VERIFIER_EFFORT: "low" }), [["review", undefined], ["verifier", "low"]]);
+  assert.deepEqual(await asked({ RB_CONFIG_EFFORT: "high" }), [["review", undefined], ["verifier", undefined]]);
+});
+
 test("the naive baseline makes one call with no tools but the submit tool", async () => {
   const finding = { file: "a.ts", start_line: 2, end_line: 2, severity: "low", kind: "maintainability", title: "Unused", detail: "b is never read." };
   const requests: Array<{ tools: number }> = [];
