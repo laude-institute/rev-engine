@@ -50,7 +50,7 @@ if (problem) {
   // Every pass runs on the fallback model, so the seats, logs and usage name that model.
   const model = config.fallback!.model;
   config = {
-    ...config, models: config.models.map(() => model), verifierModel: model, effort: null,
+    ...config, models: config.models.map(() => model), verifierModel: model, effort: null, verifierEffort: null,
     followUpModel: config.followUpModel && model, fitModel: config.fitModel && model, fixModel: config.fixModel && model,
   };
   log(`settings on the fallback: ${describeSettings(config)}`);

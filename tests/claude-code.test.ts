@@ -142,6 +142,7 @@ interface Overrides {
   wrapUpMs?: number;
   maxTurns?: number;
   secondLook?: SecondLook;
+  effort?: string;
   usage?: Usage;
   usageByCaller?: Map<string, Usage>;
 }
@@ -157,6 +158,12 @@ function run(command: string, overrides: Overrides = {}, logs: string[] = []) {
     deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message), ...rest,
   });
 }
+
+test("a pass given its own effort runs claude with it", async () => {
+  const claude = fake([done([])]);
+  await run(claude.command, { effort: "low" });
+  assert.equal(flag(claude.calls()[0]!, "--effort"), "low");
+});
 
 test("model names are turned into the ones claude takes", () => {
   assert.equal(claudeModel("anthropic/claude-opus-5.5"), "claude-opus-5-5");
@@ -288,12 +295,15 @@ test("a pass claude cannot finish starts over on the fallback model", async () =
   const submitted = await runAgent({
     chat: claudeCodeChat({ effort: "high", command: claude.command, fallback: { chat: fallback, model: "vendor/fallback" } }),
     model: "opus", system: "system", prompt: "prompt", workspace, submit: submitReview,
-    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", log: (message) => logs.push(message),
+    deadline: Date.now() + 3_600_000, maxTurns: 10, caller: "s1", effort: "low", log: (message) => logs.push(message),
   });
   assert.deepEqual(submitted, { findings: [{ file: "b.ts" }] });
   assert.equal(claude.calls().length, 1);
+  assert.equal(flag(claude.calls()[0]!, "--effort"), "low");
   assert.equal(sent[0]!.model, "vendor/fallback");
   assert.equal(sent[0]!.caller, "s1");
+  // The pass's own effort is one of claude's levels, so the fallback does not get it.
+  assert.equal(sent[0]!.effort, undefined);
   // Claude failed before taking a turn, so the fallback has the whole budget.
   assert.match(logs.join("\n"), /s1: claude failed .*falling back to vendor\/fallback with 10 turn\(s\) left/);
 });
