@@ -96,15 +96,23 @@ runs:
         case "$MODE" in agent|human) ;; *) echo "::error::mode must be agent or human"; exit 1 ;; esac
         case "$number" in ''|*[!0-9]*) echo "::error::No pull request number. Set pr-number."; exit 1 ;; esac
 
-        # Only people who can push to the repository may start a review, because each one costs money.
-        permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
-        case "$permission" in admin|write) ;; *) skip "$ACTOR does not have write access to $REPO" ;; esac
-
         mkdir -p "$RUNNER_TEMP/rev-engine-prime/pr" "$RUNNER_TEMP/rev-engine-prime/out"
         gh api "repos/$REPO/pulls/$number" > "$RUNNER_TEMP/rev-engine-prime/pull.json"
         jq '{title, body}' "$RUNNER_TEMP/rev-engine-prime/pull.json" > "$RUNNER_TEMP/rev-engine-prime/pr/pr.json"
-        if [ "$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/rev-engine-prime/pull.json")" != "$REPO" ] && [ "$ALLOW_FORKS" != true ]; then
+        head_repo=$(jq -r '.head.repo.full_name // ""' "$RUNNER_TEMP/rev-engine-prime/pull.json")
+        if [ "$head_repo" != "$REPO" ] && [ "$ALLOW_FORKS" != true ]; then
           skip "pull request $number comes from a fork and allow-forks is not set"
+        fi
+
+        # Only people who can push to the repository may start a review, because each one costs money.
+        # A pull_request event for a branch in this repository has already shown that: someone pushed
+        # the branch, and opening a pull request or marking it ready needs write access or authorship.
+        # Checking the actor there would also wrongly skip GitHub Apps, because the collaborator
+        # endpoint answers "none" for an app whatever its installation may do. Comments, manual runs
+        # and pull requests from forks still need an actor with write access.
+        if [ "$EVENT_NAME" != pull_request ] || [ "$head_repo" != "$REPO" ]; then
+          permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
+          case "$permission" in admin|write) ;; *) skip "$ACTOR does not have write access to $REPO" ;; esac
         fi
         {
           echo "run=true"
