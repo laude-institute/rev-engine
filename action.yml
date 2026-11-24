@@ -56,6 +56,9 @@ inputs:
   allow-forks:
     description: Set to "true" to review pull requests from forks. Their code is only read, never run.
     default: "false"
+  allowed-bots:
+    description: GitHub App bots (comma-separated) that may start a review without write access; the collaborator API reports "none" for apps.
+    default: claude[bot]
 
 runs:
   using: composite
@@ -77,6 +80,7 @@ runs:
         COMMAND: ${{ inputs.command }}
         MODE: ${{ inputs.mode }}
         ALLOW_FORKS: ${{ inputs.allow-forks }}
+        ALLOWED_BOTS: ${{ inputs.allowed-bots }}
       run: |
         set -euo pipefail
         skip() { echo "::notice::No review: $1"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0; }
@@ -109,8 +113,11 @@ runs:
         # the branch, and opening a pull request or marking it ready needs write access or authorship.
         # Checking the actor there would also wrongly skip GitHub Apps, because the collaborator
         # endpoint answers "none" for an app whatever its installation may do. Comments, manual runs
-        # and pull requests from forks still need an actor with write access.
-        if [ "$EVENT_NAME" != pull_request ] || [ "$head_repo" != "$REPO" ]; then
+        # and pull requests from forks still need an actor with write access, unless the actor is one
+        # of the allowed-bots. A login ending in "[bot]" belongs only to a GitHub App, so a person
+        # cannot take one of those names.
+        case ",${ALLOWED_BOTS// /}," in *",$ACTOR,"*) allowed_bot=true ;; *) allowed_bot=false ;; esac
+        if [ "$allowed_bot" != true ] && { [ "$EVENT_NAME" != pull_request ] || [ "$head_repo" != "$REPO" ]; }; then
           permission=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || echo none)
           case "$permission" in admin|write) ;; *) skip "$ACTOR does not have write access to $REPO" ;; esac
         fi
