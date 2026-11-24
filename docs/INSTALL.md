@@ -1,6 +1,6 @@
 # Install the GitHub Action
 
-RevEngine reviews pull requests in your repository when a person with write access comments `/review` on one. The findings come back as one review with comments on the changed lines. Comments from anyone else are ignored, because each review costs money.
+RevEngine reviews pull requests in your repository when a person with write access comments `/review` on one. The findings come back as one review with comments on the changed lines. Comments from anyone else are ignored, because each review costs money. The GitHub App bots named in `allowed-bots`, by default `claude[bot]`, may also start one.
 
 Comment `/review agent` instead to get a review for an agent that manages the pull request. It lists every finding in one comment, as described under [Agent reviews](#agent-reviews).
 
@@ -84,6 +84,7 @@ An agent can read the whole list and decide what to fix. There is no assessment 
 | `agent-model` | `deepseek/deepseek-v4.1-flash-1017` | Model the swarm of an agent review uses. Its default is tuned on OpenRouter. |
 | `agent-providers` | `together` | OpenRouter providers allowed to serve an agent review's swarm, comma-separated. Leave it empty for an endpoint other than OpenRouter, which does not take this routing. |
 | `allow-forks` | `false` | Set to `true` to review pull requests from forks. |
+| `allowed-bots` | `claude[bot]` | GitHub App bots, comma-separated, that may start a review without write access, because the collaborator API reports `none` for an app. Set it to an empty string to allow no bots. |
 
 ## Security
 

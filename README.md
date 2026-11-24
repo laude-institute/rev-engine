@@ -34,7 +34,7 @@ With Claude Opus 5.5, a typical review takes about 3 minutes and costs about $1 
 
 - The model only reads the pull request's code. It never runs the code, and the pull request's text is treated as untrusted input.
 - The project's rules, such as `AGENTS.md` and `CONTRIBUTING.md`, are read from the base branch, so a pull request cannot rewrite the rules it is reviewed against.
-- Only people with write access can start a review, and pull requests from forks are skipped unless you allow them. When a workflow starts reviews on `pull_request` events, a branch in the repository already shows write access, so those reviews run for whoever triggered them, including GitHub Apps.
+- Only people with write access can start a review, and pull requests from forks are skipped unless you allow them. When a workflow starts reviews on `pull_request` events, a branch in the repository already shows write access, so those reviews run for whoever triggered them, including GitHub Apps. The GitHub App bots named in `allowed-bots`, by default `claude[bot]`, may also start a review with a comment or a manual run.
 
 ## Docs
 
