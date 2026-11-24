@@ -23,8 +23,10 @@ export function engineProblem(env: Record<string, string | undefined>): string |
   const passes = [...models, env.RB_CONFIG_VERIFIER, env.RB_CONFIG_FOLLOW_UP, env.RB_CONFIG_FIT, env.RB_CONFIG_FIXES].map((model) => model?.trim());
   const other = passes.find((model) => model && !/^(?:(?:anthropic\/)?claude-[a-z0-9.-]+(?:\[1m\])?|(?:opus|sonnet|haiku|fable)(?:\[1m\])?|default|best|opusplan)$/.test(model));
   if (other) return `${only} runs Claude models only, not ${other}`;
-  const effort = env.RB_CONFIG_EFFORT?.trim();
-  if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) return `${only} needs RB_CONFIG_EFFORT to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`;
+  for (const name of ["RB_CONFIG_EFFORT", "RB_CONFIG_VERIFIER_EFFORT"]) {
+    const effort = env[name]?.trim();
+    if (effort && !CLAUDE_CODE_EFFORTS.includes(effort)) return `${only} needs ${name} to be one of ${CLAUDE_CODE_EFFORTS.join(", ")}`;
+  }
   return null;
 }
 

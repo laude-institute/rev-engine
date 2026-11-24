@@ -56,6 +56,7 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
     RB_CONFIG_VERIFIER: "vendor/three",
     RB_CONFIG_VERIFY: "strict",
     RB_CONFIG_EFFORT: "high",
+    RB_CONFIG_VERIFIER_EFFORT: "low",
     RB_CONFIG_MAX_FINDINGS: "10",
     RB_CONFIG_TIME_BUDGET: "600",
   });
@@ -63,8 +64,11 @@ test("reads the reviewer settings from RB_CONFIG variables", () => {
   assert.equal(config.endpoint!.baseUrl, "https://example.com/v1");
   assert.deepEqual(config.models, ["vendor/one", "vendor/two"]);
   assert.equal(config.verifierModel, "vendor/three");
+  assert.equal(config.verifierEffort, "low");
+  assert.equal(loadConfig(BASE).verifierEffort, null);
   const settings = describeSettings(config);
-  for (const value of ["vendor/one,vendor/two", "vendor/three", "strict", "high", "10", "600"]) assert.ok(settings.includes(value), value);
+  for (const value of ["vendor/one,vendor/two", "vendor/three", "strict", "effort=high", "verifier_effort=low", "10", "600"]) assert.ok(settings.includes(value), value);
+  assert.ok(!describeSettings(loadConfig(BASE)).includes("verifier_effort"));
   assert.ok(!settings.includes("test-key"));
 });
 
@@ -121,6 +125,7 @@ test("the claude-code engine takes a Claude Code login and Claude models only", 
     assert.throws(() => loadConfig({ ...CLAUDE, [name]: "vendor/other" }), /Claude models only, not vendor\/other/, name);
   }
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_EFFORT: "minimal" }), /RB_CONFIG_EFFORT to be one of low, medium, high, xhigh, max/);
+  assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_VERIFIER_EFFORT: "minimal" }), /RB_CONFIG_VERIFIER_EFFORT to be one of low, medium, high, xhigh, max/);
   assert.equal(loadConfig({ ...CLAUDE, RB_TRANSCRIPT_OUT: "/work/out/transcript.json" }).transcriptOutPath, "/work/out/transcript.json");
   assert.equal(describeSettings(loadConfig({ ...CLAUDE, RB_CONFIG_NAIVE: "on" })), "naive=on model=anthropic/claude-opus-5.5 mode=human max_findings=25 time_budget=780 engine=claude-code");
   assert.throws(() => loadConfig({ ...CLAUDE, RB_CONFIG_SWARM: "on" }), /does not support RB_CONFIG_SWARM/);

@@ -446,7 +446,7 @@ export async function runClaudeCode(options: AgentOptions, settings: ClaudeCodeS
   settings.transcript?.(who, model, messages);
   try {
     tools = await serveTools(options, who);
-    const common = baseArgs(model, submit, settings.effort, tools.url);
+    const common = baseArgs(model, submit, options.effort ?? settings.effort, tools.url);
     // Chosen here, so a run stopped before it reports its session can still be resumed.
     const session = randomUUID();
     const start = (id: string): string[] => ["--session-id", id, "--system-prompt", system];
